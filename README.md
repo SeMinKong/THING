@@ -27,6 +27,8 @@
 
 Jira를 작업 관리의 단일 기준으로 사용하고, GitLab은 소스 코드, 브랜치, Merge Request(MR)와 리뷰를 관리하는 데 사용합니다. 같은 작업을 위한 GitLab Issue는 별도로 만들지 않습니다.
 
+일반 작업은 다음 순서로 진행합니다.
+
 1. Jira Story, Task 또는 Bug에 목적과 완료 조건을 작성하고 담당자를 지정합니다.
 2. 최신 `develop`에서 Jira 키가 포함된 브랜치를 생성합니다. 예: `feature/S15P11C103-23-vision-finger-flexion`.
 3. 작업과 검증 자료를 commit하고 원격 브랜치에 push합니다. 커밋 메시지는 `<type>(<area>): <summary> [JIRA-KEY]` 형식을 사용합니다.
