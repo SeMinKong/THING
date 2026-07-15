@@ -1,0 +1,30 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Build and logs
+build/
+dist/
+*.log
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Isaac Sim / Omniverse local cache
+_isaac_sim/
+cache/
+logs/

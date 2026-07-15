@@ -1,0 +1,4 @@
+category,part,model_or_spec,quantity,status,owner,link,notes
+controller,microcontroller,TBD,1,planned,,,
+actuator,servo,TBD,6,planned,,,
+power,servo_power_supply,TBD,1,planned,,,
