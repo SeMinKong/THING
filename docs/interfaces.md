@@ -21,7 +21,7 @@ H,<thumb_flex>,<thumb_opp>,<index>,<middle>,<ring>,<little>\n
 
 - 각 값의 범위: `0.0`~`1.0`
 - 좌표 의미: `0.0`은 펼침, `1.0`은 최대 굽힘
-- 통신 주기와 timeout: 구현 Issue에서 확정
+- 통신 주기와 timeout: 관련 Jira 작업에서 확정
 
 ## 안전 동작
 

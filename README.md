@@ -14,7 +14,7 @@
 
 ## 저장소 구성
 
-- `docs/`: 계획, 아키텍처, 인터페이스, 주간 기록
+- `docs/`: 계획, 아키텍처, 인터페이스, 일일·주간 기록
 - `mechanical/`: 관절, tendon, spool 및 손 구조 CAD
 - `electronics/`: 회로, 배선 및 BOM
 - `firmware/`: 마이크로컨트롤러와 서보 제어 코드
@@ -25,10 +25,15 @@
 
 ## 협업 흐름
 
-1. GitLab Issue에 목적과 완료 조건을 작성합니다.
-2. Issue 번호를 포함한 브랜치를 생성합니다. 예: `23-vision-finger-flexion`.
-3. 작업과 시험 결과를 커밋하고 원격 브랜치로 push합니다.
-4. Merge Request에 `Closes #23`을 작성하고 리뷰를 요청합니다.
-5. 리뷰와 시험을 통과한 변경만 `main`에 병합합니다.
+Jira를 작업 관리의 단일 기준으로 사용하고, GitLab은 소스 코드, 브랜치, Merge Request(MR)와 리뷰를 관리하는 데 사용합니다. 같은 작업을 위한 GitLab Issue는 별도로 만들지 않습니다.
+
+1. Jira Story, Task 또는 Bug에 목적과 완료 조건을 작성하고 담당자를 지정합니다.
+2. 최신 `develop`에서 Jira 키가 포함된 브랜치를 생성합니다. 예: `feature/S15P11C103-23-vision-finger-flexion`.
+3. 작업과 검증 자료를 commit하고 원격 브랜치에 push합니다. 커밋 메시지는 `<type>(<area>): <summary> [JIRA-KEY]` 형식을 사용합니다.
+4. `[JIRA-KEY] 작업 요약` 형식의 MR을 `develop` 대상으로 만들고, 설명에 Jira 키와 링크를 기록합니다.
+5. 최소 1명의 리뷰와 검증을 통과한 뒤 `develop`에 병합합니다.
+6. 병합된 MR과 결과 자료를 Jira에 연결하고 완료 조건을 확인한 뒤 Jira 작업을 완료합니다.
+
+`main`에는 `release/*`와 `hotfix/*`만 MR을 통해 병합합니다. 데일리 리포트는 Jira 작업별 브랜치 대신 [주차별 예외 흐름](docs/daily-reports/README.md)을 사용합니다.
 
 세부 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고합니다.
