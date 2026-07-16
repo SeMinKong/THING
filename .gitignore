@@ -28,3 +28,6 @@ dist/
 _isaac_sim/
 cache/
 logs/
+
+# Generated mechanical distribution archives
+mechanical/stl/version3/Thing_V3/Thing_V3_STL.zip
