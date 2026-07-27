@@ -31,3 +31,9 @@ logs/
 
 # Generated mechanical distribution archives
 mechanical/stl/version3/Thing_V3/Thing_V3_STL.zip
+
+
+# ROS 2 Package
+thing_ws/build/
+thing_ws/install/
+thing_ws/log/
