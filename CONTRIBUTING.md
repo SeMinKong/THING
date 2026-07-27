@@ -76,6 +76,14 @@ firmware
 vision
 simulation
 integration
+interfaces
+control
+hardware
+bringup
+logger
+web
+safety
+test
 docs
 ```
 
@@ -98,7 +106,7 @@ hotfix/S15P11C103-42-firmware-servo-angle-limit
 
 Jira 작업을 배정받은 뒤 최신 `develop`에서 브랜치를 생성합니다.
 
-```powershell
+```bash
 git switch develop
 git pull --ff-only origin develop
 git switch -c feature/S15P11C103-12-mechanical-index-tendon
@@ -141,7 +149,7 @@ docs(integration): define serial protocol [S15P11C103-8]
 
 처음 push할 때 원격 추적 브랜치를 함께 설정합니다.
 
-```powershell
+```bash
 git push -u origin feature/S15P11C103-12-mechanical-index-tendon
 ```
 

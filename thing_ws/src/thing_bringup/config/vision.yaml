@@ -1,0 +1,20 @@
+camera_node:
+  ros__parameters:
+    device_id: 0
+    image_width: 640
+    image_height: 480
+    fps: 30.0
+    frame_id: camera_color_optical_frame
+
+mediapipe_node:
+  ros__parameters:
+    max_num_hands: 1
+    min_detection_confidence: 0.6
+    min_tracking_confidence: 0.6
+
+hand_target_node:
+  ros__parameters:
+    publish_rate_hz: 20.0
+    deadband: 0.02
+    low_pass_alpha: 0.25
+    max_axis_delta_per_frame: 0.08

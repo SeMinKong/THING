@@ -1,0 +1,6 @@
+uint64 session_id
+---
+bool accepted
+uint64 stopped_session_id
+string bag_path
+string reason

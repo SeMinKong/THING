@@ -17,7 +17,10 @@ venv/
 # Build and logs
 build/
 dist/
+log/
 *.log
+coverage/
+htmlcov/
 
 # Secrets and local settings
 .env
@@ -37,3 +40,15 @@ mechanical/stl/version3/Thing_V3/Thing_V3_STL.zip
 thing_ws/build/
 thing_ws/install/
 thing_ws/log/
+
+# Runtime data
+*.db
+*.db-journal
+*.bag
+*.mcap
+rosbag2_*/
+
+# Web
+web/frontend/node_modules/
+web/frontend/dist/
+web/backend/staticfiles/

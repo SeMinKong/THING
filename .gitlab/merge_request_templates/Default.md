@@ -37,6 +37,14 @@
 - [ ] Firmware
 - [ ] Vision
 - [ ] Simulation
+- [ ] ROS Interfaces
+- [ ] Control
+- [ ] Hardware
+- [ ] Bringup
+- [ ] Web
+- [ ] Logger/Data
+- [ ] Safety
+- [ ] Tests
 - [ ] Documentation
 
 ## 체크리스트
@@ -46,4 +54,6 @@
 - [ ] MR 대상 브랜치가 올바릅니다.
 - [ ] 실행 또는 조립 방법을 문서화했습니다.
 - [ ] 필요한 시험 증거를 첨부했습니다.
+- [ ] ROS 인터페이스나 WebSocket 계약 변경을 `docs/interfaces.md`에 반영했습니다.
+- [ ] 위험 상태에서 일반 명령이 차단되는지 확인했습니다.
 - [ ] 비밀정보와 개인 설정 파일을 포함하지 않았습니다.
