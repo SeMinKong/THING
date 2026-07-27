@@ -4,7 +4,7 @@ package_name = 'thing_control'
 
 setup(
     name=package_name,
-    version='0.0.0',
+    version='0.1.0',
     packages=find_packages(exclude=['test']),
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -13,10 +13,10 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='jiung',
+    maintainer='C103 Team',
     maintainer_email='dndwlqor@naver.com',
-    description='TODO: Package description',
-    license='TODO: License declaration',
+    description='Command arbitration, validation, gesture, sequence, and safety control.',
+    license='Apache-2.0',
     extras_require={
         'test': [
             'pytest',

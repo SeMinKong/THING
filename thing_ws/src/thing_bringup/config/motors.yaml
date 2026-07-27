@@ -1,0 +1,50 @@
+thing_hardware:
+  ros__parameters:
+    # Replace every null value only after measuring the assembled hand.
+    read_rate_hz: 20.0
+    write_rate_hz: 50.0
+    protocol_version: 2.0
+    baud_rate: 1000000
+    motors:
+      thumb_flex:
+        id: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+      thumb_opp:
+        id: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+      thumb_abd:
+        id: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+      index_flex:
+        id: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+      middle_flex:
+        id: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+      ring_flex:
+        id: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+      little_flex:
+        id: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null

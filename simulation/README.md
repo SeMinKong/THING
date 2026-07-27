@@ -8,4 +8,5 @@
 - `urdf/`: 로봇 기술 파일
 - `isaaclab/`: 환경 설정과 학습 실험
 
-5주 MVP에서는 기성 dexterous-hand 예제 실행을 우선하고 커스텀 sim-to-real은 도전 목표로 둡니다.
+Isaac Sim/Lab과 sim-to-real은 현재 3주 MVP의 제외 범위입니다. 실물 7축 제어,
+안전 및 파지 인수 시험을 완료한 뒤 Post-MVP 작업으로 진행합니다.
