@@ -1,17 +1,16 @@
 # Web
 
-웹은 프로젝트 내부망에서만 제공하며 모터를 직접 제어하지 않습니다.
+웹 기능은 배포 위치에 따라 다음 두 경계로 분리합니다.
 
-- `frontend/`: Vite + React 관제 UI
-- `backend/`: Django, WebSocket, SQLite 세션 API
+- EC2 공개 웹: 로봇 상태·모터·각도·세션 데이터 조회와 데이터 파일 다운로드
+- 로봇 내부망 UI: 실시간 영상과 로봇 제어가 필요한 경우에만 내부망에서 제공
 
-모든 명령은 Django/WebSocket에서 검증한 뒤 `thing_web_bridge`를 거쳐 ROS 2
-서비스·액션·토픽으로 전달합니다.
+EC2 공개 웹에서는 ROS 2 DDS, 모터 명령 API, WebSocket 제어 채널을 노출하지
+않습니다. 로봇 측 수집기가 인증된 HTTPS 요청으로 상태와 세션 데이터를
+업로드하고, EC2는 저장된 데이터를 조회·다운로드하는 역할만 담당합니다.
 
-필수 화면:
+- `frontend/`: Vite + React 조회 UI
+- `backend/`: Django 상태·세션·다운로드 API
 
-- MIMIC: MJPEG, landmark, 7논리축, 녹화와 판정
-- MANUAL: 사전 정의 Gesture, Sequence, STOP과 초기 자세
-- 공통: 연결, 모터, 제어 모드, 안전 및 오류 상태
-
-WebSocket 계약은 `docs/interfaces.md`를 기준으로 관리합니다.
+내부망 제어 기능을 구현할 때의 WebSocket 계약은 `docs/interfaces.md`를
+기준으로 관리하며 EC2 배포 대상과 분리합니다.
