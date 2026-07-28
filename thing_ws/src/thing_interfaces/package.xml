@@ -14,9 +14,13 @@
   <depend>builtin_interfaces</depend>
   <depend>geometry_msgs</depend>
   <depend>std_msgs</depend>
+  <!-- 의존성 추가 -->
+  <depend>rclcpp</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
 
+  <!-- test 의존성 추가 -->
+  <test_depend>ament_cmake_gtest</test_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
 
   <export>
