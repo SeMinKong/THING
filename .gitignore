@@ -43,6 +43,20 @@ thing_ws/log/
 *.mcap
 rosbag2_*/
 
+# Local DYNAMIXEL calibration and telemetry
+tools/dynamixel/hand_motion_config.json
+tools/dynamixel/.hand_motion_config.json.*
+tools/dynamixel/.hand_motor_control.lock
+tools/dynamixel/logs/
+tools/dynamixel/*.csv
+
+# Generated DYNAMIXEL spool CAD artifacts
+mechanical/cad/dynamixel-xl330-spool/generated/
+mechanical/cad/dynamixel-xl330-spool/*.blend1
+mechanical/cad/dynamixel-xl330-spool/*.blend2
+mechanical/cad/dynamixel-xl330-spool/*.blend@
+mechanical/cad/dynamixel-xl330-spool/*.autosave
+
 # Web
 web/frontend/node_modules/
 web/frontend/dist/
