@@ -41,7 +41,6 @@ Raspberry Pi는 Ubuntu 24.04 호스트에서 Ubuntu 22.04 기반 ROS 2 Humble
 - `vision/`: 비전 실험과 캘리브레이션 자료
 - `tests/`: 재현 가능한 시험 절차와 결과
 - `docs/`: 요구사항, 아키텍처, 인터페이스 및 개발환경 문서
-- `simulation/`: Post-MVP 시뮬레이션 자료
 
 ## 저장소 받기
 

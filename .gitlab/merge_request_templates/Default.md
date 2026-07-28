@@ -34,9 +34,7 @@
 
 - [ ] Mechanical
 - [ ] Electronics
-- [ ] Firmware
 - [ ] Vision
-- [ ] Simulation
 - [ ] ROS Interfaces
 - [ ] Control
 - [ ] Hardware

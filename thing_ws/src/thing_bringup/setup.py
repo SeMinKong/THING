@@ -14,13 +14,12 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'config'), glob('config/*')),
-        (os.path.join('share', package_name, 'launch'), glob('launch/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='C103 Team',
     maintainer_email='dndwlqor@naver.com',
-    description='Launch and YAML configuration for all project devices.',
+    description='YAML configuration package for all project devices.',
     license='Apache-2.0',
     extras_require={
         'test': [

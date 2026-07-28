@@ -22,7 +22,7 @@
 | 브랜치 | 역할 |
 | --- | --- |
 | `main` | 시연과 배포가 가능한 안정 버전을 보관합니다. |
-| `develop` | 기능, 기구, 전자, 펌웨어, 비전 및 시뮬레이션 작업을 통합합니다. |
+| `develop` | 기능, 기구, 전자, ROS 2 제어, 비전 및 웹 작업을 통합합니다. |
 
 ### 임시 브랜치
 
@@ -31,7 +31,7 @@
 | `feature/*` | `develop` | `develop` | 새로운 기능이나 설계를 구현합니다. |
 | `fix/*` | `develop` | `develop` | 개발 중 발견한 문제를 수정합니다. |
 | `docs/*` | `develop` | `develop` | 문서와 보고서를 작성합니다. |
-| `experiment/*` | `develop` | 필요 시 `develop` | 제어 방식, 비전, Isaac Lab 등의 실험을 수행합니다. |
+| `experiment/*` | `develop` | 필요 시 `develop` | 제어 방식과 비전 알고리즘 실험을 수행합니다. |
 | `chore/*` | `develop` | `develop` | CI, 개발 환경 및 저장소 설정을 변경합니다. |
 | `release/*` | `develop` | `main` | 시연 전 통합 테스트와 안정화를 수행합니다. |
 | `hotfix/*` | `main` | `main`, 이후 `develop` | 안정 버전에서 발견한 긴급 문제를 수정합니다. |
@@ -72,9 +72,7 @@ feature/fix/docs/experiment/chore
 ```text
 mechanical
 electronics
-firmware
 vision
-simulation
 integration
 interfaces
 control
@@ -92,12 +90,12 @@ docs
 ```text
 feature/S15P11C103-12-mechanical-index-tendon
 feature/S15P11C103-18-vision-hand-tracking
-fix/S15P11C103-27-firmware-servo-jitter
-experiment/S15P11C103-31-simulation-isaac-grasping
+fix/S15P11C103-27-hardware-servo-jitter
+experiment/S15P11C103-31-vision-thumb-mapping
 docs/S15P11C103-8-docs-control-interface
 chore/S15P11C103-6-integration-gitlab-ci
 release/v0.1.0
-hotfix/S15P11C103-42-firmware-servo-angle-limit
+hotfix/S15P11C103-42-hardware-servo-angle-limit
 ```
 
 기계, 전자, 비전 등 담당 영역별 장기 브랜치는 만들지 않습니다. 담당 영역 안에서도 Jira 작업 단위로 브랜치를 나눕니다.
@@ -139,7 +137,7 @@ git switch -c feature/S15P11C103-12-mechanical-index-tendon
 
 ```text
 feat(mechanical): add index finger tendon guide [S15P11C103-12]
-fix(firmware): reduce servo angle oscillation [S15P11C103-27]
+fix(hardware): reduce servo angle oscillation [S15P11C103-27]
 docs(integration): define serial protocol [S15P11C103-8]
 ```
 
