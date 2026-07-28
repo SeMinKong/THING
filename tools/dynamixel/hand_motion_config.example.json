@@ -1,0 +1,178 @@
+{
+  "schema_version": 1,
+  "mapping_confirmed": false,
+  "confirmed_mapping_signature": null,
+  "baudrate": 57600,
+  "protocol_version": 2.0,
+  "profile_velocity_raw": 40,
+  "profile_acceleration_raw": 30,
+  "calibration_goal_current_raw": 80,
+  "hard_current_limit_raw": 150,
+  "fault_current_raw": 145,
+  "fault_current_hold_s": 0.2,
+  "contact_current_ratio": 0.85,
+  "contact_position_error_raw": 40,
+  "contact_hold_s": 0.35,
+  "max_temperature_c": 55,
+  "monitor_period_s": 0.1,
+  "jog_step_raw": 25,
+  "max_jog_command_raw": 100,
+  "minimum_endpoint_span_raw": 100,
+  "startup_endpoint_margin_raw": 100,
+  "pose_duration_s": 1.8,
+  "pose_dwell_s": 0.8,
+  "buses": [
+    {
+      "name": "BUS_A",
+      "device": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0",
+      "ids": [1, 2, 3]
+    },
+    {
+      "name": "BUS_B",
+      "device": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0",
+      "ids": [4, 5, 6]
+    },
+    {
+      "name": "BUS_C",
+      "device": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0",
+      "ids": [7]
+    }
+  ],
+  "axes": [
+    {
+      "id": 1,
+      "role": "thumb_flex",
+      "label": "엄지 굽힘",
+      "min_raw": 100,
+      "max_raw": 3995,
+      "goal_current_raw": 100,
+      "open_raw": null,
+      "closed_raw": null,
+      "calibrated": false
+    },
+    {
+      "id": 2,
+      "role": "index_flex",
+      "label": "검지 굽힘",
+      "min_raw": 100,
+      "max_raw": 3995,
+      "goal_current_raw": 100,
+      "open_raw": null,
+      "closed_raw": null,
+      "calibrated": false
+    },
+    {
+      "id": 3,
+      "role": "middle_flex",
+      "label": "중지 굽힘",
+      "min_raw": 100,
+      "max_raw": 3995,
+      "goal_current_raw": 100,
+      "open_raw": null,
+      "closed_raw": null,
+      "calibrated": false
+    },
+    {
+      "id": 4,
+      "role": "ring_flex",
+      "label": "약지 굽힘",
+      "min_raw": 100,
+      "max_raw": 3995,
+      "goal_current_raw": 100,
+      "open_raw": null,
+      "closed_raw": null,
+      "calibrated": false
+    },
+    {
+      "id": 5,
+      "role": "little_flex",
+      "label": "소지 굽힘",
+      "min_raw": 100,
+      "max_raw": 3995,
+      "goal_current_raw": 100,
+      "open_raw": null,
+      "closed_raw": null,
+      "calibrated": false
+    },
+    {
+      "id": 6,
+      "role": "thumb_opposition",
+      "label": "엄지 대립",
+      "min_raw": 100,
+      "max_raw": 3995,
+      "goal_current_raw": 90,
+      "open_raw": null,
+      "closed_raw": null,
+      "calibrated": false
+    },
+    {
+      "id": 7,
+      "role": "thumb_abduction",
+      "label": "엄지 벌림",
+      "min_raw": 100,
+      "max_raw": 3995,
+      "goal_current_raw": 90,
+      "open_raw": null,
+      "closed_raw": null,
+      "calibrated": false
+    }
+  ],
+  "poses": {
+    "open": {
+      "thumb_flex": 0.0,
+      "index_flex": 0.0,
+      "middle_flex": 0.0,
+      "ring_flex": 0.0,
+      "little_flex": 0.0,
+      "thumb_opposition": 0.0,
+      "thumb_abduction": 0.0
+    },
+    "fist": {
+      "thumb_flex": 0.9,
+      "index_flex": 1.0,
+      "middle_flex": 1.0,
+      "ring_flex": 1.0,
+      "little_flex": 1.0,
+      "thumb_opposition": 0.75,
+      "thumb_abduction": 0.3
+    },
+    "point": {
+      "thumb_flex": 0.65,
+      "index_flex": 0.0,
+      "middle_flex": 1.0,
+      "ring_flex": 1.0,
+      "little_flex": 1.0,
+      "thumb_opposition": 0.65,
+      "thumb_abduction": 0.3
+    },
+    "pinch": {
+      "thumb_flex": 0.8,
+      "index_flex": 0.65,
+      "middle_flex": 0.1,
+      "ring_flex": 0.05,
+      "little_flex": 0.05,
+      "thumb_opposition": 1.0,
+      "thumb_abduction": 0.5
+    },
+    "cylinder": {
+      "thumb_flex": 0.75,
+      "index_flex": 0.75,
+      "middle_flex": 0.85,
+      "ring_flex": 0.9,
+      "little_flex": 0.9,
+      "thumb_opposition": 0.8,
+      "thumb_abduction": 0.35
+    }
+  },
+  "show_sequence": [
+    "open",
+    "fist",
+    "open",
+    "point",
+    "open",
+    "pinch",
+    "open",
+    "cylinder",
+    "open"
+  ]
+}
