@@ -39,6 +39,11 @@ thing_ws/log/
 # Runtime data
 *.db
 *.db-journal
+*.db-*
+*.db3
+*.db3-*
+*.sqlite3
+*.sqlite3-*
 *.bag
 *.mcap
 rosbag2_*/
@@ -58,6 +63,11 @@ mechanical/cad/dynamixel-xl330-spool/*.blend@
 mechanical/cad/dynamixel-xl330-spool/*.autosave
 
 # Web
-web/frontend/node_modules/
-web/frontend/dist/
-web/backend/staticfiles/
+web/**/node_modules/
+web/**/dist/
+web/**/.vite/
+EC2/**/node_modules/
+EC2/**/dist/
+EC2/**/.vite/
+EC2/**/staticfiles/
+EC2/thing_database_web/backend/media/

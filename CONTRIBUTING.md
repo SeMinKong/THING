@@ -32,7 +32,7 @@
 | `fix/*` | `develop` | `develop` | 개발 중 발견한 문제를 수정합니다. |
 | `docs/*` | `develop` | `develop` | 문서와 보고서를 작성합니다. |
 | `experiment/*` | `develop` | 필요 시 `develop` | 제어 방식과 비전 알고리즘 실험을 수행합니다. |
-| `chore/*` | `develop` | `develop` | CI, 개발 환경 및 저장소 설정을 변경합니다. |
+| `chore/*` | `develop` | `develop` | 개발 환경 및 저장소 설정을 변경합니다. |
 | `release/*` | `develop` | `main` | 시연 전 통합 테스트와 안정화를 수행합니다. |
 | `hotfix/*` | `main` | `main`, 이후 `develop` | 안정 버전에서 발견한 긴급 문제를 수정합니다. |
 
@@ -93,7 +93,7 @@ feature/S15P11C103-18-vision-hand-tracking
 fix/S15P11C103-27-hardware-servo-jitter
 experiment/S15P11C103-31-vision-thumb-mapping
 docs/S15P11C103-8-docs-control-interface
-chore/S15P11C103-6-integration-gitlab-ci
+chore/S15P11C103-6-integration-repository-layout
 release/v0.1.0
 hotfix/S15P11C103-42-hardware-servo-angle-limit
 ```
@@ -260,5 +260,7 @@ MR이 병합되었더라도 검증 자료가 없다면 Jira 작업을 완료로 
 - 두 브랜치 모두 직접 push를 금지하고 MR을 통해서만 병합합니다.
 - `main` 병합 권한은 Maintainer로 제한합니다.
 - `develop` MR도 최소 1명의 승인을 받도록 설정합니다.
+- GitLab CI/CD와 Auto DevOps를 사용하지 않으며 `Pipelines must succeed`를 해제합니다.
+- 변경 영역별 빌드·시험은 로컬에서 실행하고 결과를 MR에 기록합니다.
 - Jira를 작업 관리의 단일 기준으로 사용하므로 GitLab Issues에는 새 작업을 만들지 않습니다.
 - 일반 MR은 병합 후 소스 브랜치를 삭제합니다.

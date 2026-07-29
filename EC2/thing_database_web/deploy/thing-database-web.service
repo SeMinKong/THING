@@ -1,0 +1,28 @@
+# /etc/systemd/system/thing-database-web.service
+# 설치: sudo cp thing-database-web.service /etc/systemd/system/
+#       sudo systemctl daemon-reload
+#       sudo systemctl enable --now thing-database-web
+#
+# 아래 User/경로는 ubuntu 계정, 프로젝트가 /home/ubuntu/nerf_updated 아래에 있다고 가정합니다.
+# 실제 경로가 다르면 WorkingDirectory / ExecStart / EnvironmentFile 세 줄을 맞춰서 고치세요.
+
+[Unit]
+Description=thing_database_web Django backend (gunicorn)
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/nerf_updated/thing_database_web/backend
+Environment="PATH=/home/ubuntu/nerf_updated/thing_database_web/backend/.venv/bin"
+ExecStart=/home/ubuntu/nerf_updated/thing_database_web/backend/.venv/bin/gunicorn \
+    config.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 3 \
+    --access-logfile - \
+    --error-logfile -
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
