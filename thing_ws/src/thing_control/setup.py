@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            "safety_manager = thing_control.safety_manager:main",
         ],
     },
 )

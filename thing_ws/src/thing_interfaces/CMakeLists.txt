@@ -43,7 +43,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 )
 
 
-# 테스트 용. 추가
+# 같은 패키지에서 생성된 인터페이스를
+# C++ 예제 노드와 테스트에서 사용할 수 있도록 타입 지원 연결
 rosidl_get_typesupport_target(
   cpp_typesupport_target
   ${PROJECT_NAME}
