@@ -63,4 +63,4 @@ python scan_7_motors.py
 
 이 파일들은 Git에 올리지 않는다.
 
-상세 보정·동작 절차는 [HAND_MOTION_README.md](HAND_MOTION_README.md)를 따른다.
+상세 보정·동작 절차는 [hand-motion.md](hand-motion.md)를 따른다.

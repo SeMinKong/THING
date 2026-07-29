@@ -38,4 +38,4 @@
 - 전원이 켜진 상태에서 모터·통신·전원 케이블 연결 또는 분리
 - `2048`을 실제 손의 공통 기본 자세로 간주
 
-상세 조작 절차는 [HAND_MOTION_README.md](HAND_MOTION_README.md)를 따른다.
+상세 조작 절차는 [hand-motion.md](hand-motion.md)를 따른다.
