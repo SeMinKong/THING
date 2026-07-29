@@ -1,10 +1,14 @@
+"""Safety state management and explicit STOP settling."""
+
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
     QoSProfile,
     ReliabilityPolicy,
 )
+from std_msgs.msg import Empty
 from std_srvs.srv import Trigger
 
 from thing_interfaces.msg import SafetyState
@@ -32,9 +36,24 @@ class SafetyManager(Node):
     - 이전 명령 및 실행 큐 폐기
     """
 
-    def __init__(self):
+    def __init__(self, parameter_overrides=None):
         # ROS 2 노드 이름을 safety_manager로 설정한다.
-        super().__init__("safety_manager")
+        super().__init__(
+            "safety_manager",
+            parameter_overrides=parameter_overrides,
+        )
+
+        self.stop_settle_ms = self.declare_parameter(
+            "stop_settle_ms",
+            500,
+        ).value
+        if (
+            isinstance(self.stop_settle_ms, bool)
+            or not isinstance(self.stop_settle_ms, int)
+            or self.stop_settle_ms <= 0
+        ):
+            raise ValueError("stop_settle_ms must be a positive integer")
+        self.stop_settle_timer = None
 
         # 현재 SafetyState 상태.
         # 노드 시작 시에는 이전 상태를 복구하지 않고 항상 INIT부터 시작한다.
@@ -112,6 +131,12 @@ class SafetyManager(Node):
             "/thing/reset_safety",
             self.handle_reset_safety,
         )
+        self.stop_subscription = self.create_subscription(
+            Empty,
+            "/thing/control/stop_requested",
+            self.handle_stop_requested,
+            10,
+        )
 
         # 노드 시작 직후 현재 상태인 INIT을 최초 발행한다.
         #
@@ -123,6 +148,54 @@ class SafetyManager(Node):
         self.get_logger().info(
             "Service ready: /thing/reset_safety"
         )
+
+    def handle_stop_requested(self, message):
+        """Apply explicit STOP semantics without taking motor ownership."""
+        del message
+        self._cancel_stop_settle_timer()
+
+        if self.current_state in (SafetyState.RUN, SafetyState.HOLD):
+            self.current_state = SafetyState.HOLD
+            self.command_timeout = False
+            self.publish_safety_state("stop_settling")
+            self.stop_settle_timer = self.create_timer(
+                float(self.stop_settle_ms) / 1000.0,
+                self._finish_stop_settling,
+            )
+            return
+
+        if self.current_state == SafetyState.READY:
+            self.command_timeout = False
+            self.publish_safety_state("stop_ready")
+            return
+
+        self.publish_safety_state("stop_control_released")
+
+    def _finish_stop_settling(self):
+        self._cancel_stop_settle_timer()
+
+        if self.current_state != SafetyState.HOLD:
+            return
+        if self.estop_active:
+            self.current_state = SafetyState.ESTOP
+            self.publish_safety_state("estop_during_stop_settle")
+            return
+        if self.has_active_fault():
+            self.current_state = SafetyState.FAULT
+            self.publish_safety_state("fault_during_stop_settle")
+            return
+
+        self.current_state = SafetyState.READY
+        self.command_timeout = False
+        self.publish_safety_state("stop_settled")
+
+    def _cancel_stop_settle_timer(self):
+        timer = self.stop_settle_timer
+        self.stop_settle_timer = None
+        if timer is None:
+            return
+        timer.cancel()
+        self.destroy_timer(timer)
 
     def handle_reset_safety(self, request, response):
         """
@@ -136,7 +209,6 @@ class SafetyManager(Node):
         Reset이 성공해도 바로 READY 또는 RUN으로 가지 않는다.
         먼저 INIT으로 돌아가 전체 안전검사를 다시 수행해야 한다.
         """
-
         # std_srvs/srv/Trigger의 요청에는 필드가 없다.
         # 콜백 형식상 request 인자는 필요하지만 실제로 사용하지 않는다.
         del request
@@ -220,7 +292,6 @@ class SafetyManager(Node):
         - 지속적인 motor communication 오류
         - SAFE motion timeout
         """
-
         return self.fault_active
 
     def enter_init_for_recheck(self):
@@ -241,7 +312,7 @@ class SafetyManager(Node):
         - 7개 모터 통신 재검사
         - 모든 검사가 통과한 경우에만 READY 전환
         """
-
+        self._cancel_stop_settle_timer()
         # 바로 READY나 RUN으로 가지 않고 INIT으로 전환한다.
         self.current_state = SafetyState.INIT
 
@@ -261,7 +332,6 @@ class SafetyManager(Node):
 
         reason은 상태가 변경된 이유나 현재 상태 설명이다.
         """
-
         message = SafetyState()
 
         # SafetyState 메시지를 생성한 ROS 시간.
@@ -297,8 +367,7 @@ class SafetyManager(Node):
 
 
 def main(args=None):
-    """SafetyManager 노드를 초기화하고 실행한다."""
-
+    """Run the SafetyManager node."""
     # ROS 2 Python 통신을 초기화한다.
     rclpy.init(args=args)
 
@@ -309,7 +378,7 @@ def main(args=None):
         # 서비스 요청과 추후 토픽 콜백을 계속 처리한다.
         rclpy.spin(node)
 
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         # Ctrl+C 종료는 정상 종료로 처리한다.
         pass
 

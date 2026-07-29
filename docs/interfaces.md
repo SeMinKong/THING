@@ -32,10 +32,46 @@
 | `/thing/control_state` | `ControlState` | manager | web, logger | 상태 변화+주기 |
 | `/thing/safety_state` | `SafetyState` | safety | manager, guard, web, logger | reliable, transient local |
 | `/thing/recording_state` | `RecordingState` | logger | web | reliable, transient local |
+| `/thing/control/stop_requested` | `std_msgs/msg/Empty` | manager | safety, gesture/sequence, logger | reliable, depth 10, 명시적 STOP마다 1건 |
+| `/thing/control/motion_active` | `std_msgs/msg/Bool` | gesture/sequence | manager | reliable, depth 10, 실행 시작·종료 시 |
 | `/thing/diagnostics` | `diagnostic_msgs/DiagnosticArray` | 각 장치 | web/운영자 | 1Hz 이상 |
 
 정확한 QoS와 주기는 하드웨어 측정 후 YAML로 조정하되 명령 stale 판정에 필요한
 timestamp를 변경해서는 안 됩니다.
+
+## 제어 mode·owner와 STOP 계약
+
+활성 제어권은 아래 세 조합만 허용합니다.
+
+- `MODE_MIMIC` + `OWNER_WEB`
+- `MODE_MANUAL` + `OWNER_WEB`
+- `MODE_TELEOP` + `OWNER_LOCAL`
+
+`MODE_DISABLED` + `OWNER_NONE`은 명시적 STOP으로 사용합니다. 그 밖의 mode·owner
+조합은 `invalid_mode`로 거부합니다. STOP이 수락되면 command manager는 mode와 owner,
+실행 중 일반 동작 상태를 원자적으로 해제하고 500ms 동안 새 제어권 요청을
+`stop_in_progress`로 거부합니다.
+
+명령 source 승인과 `/thing/command/selected` 발행은 command manager의 같은
+transaction 안에서 처리합니다. 따라서 STOP 처리가 완료된 뒤 STOP 이전에 승인된
+일반 명령이 새로 발행될 수 없습니다.
+
+HOLD 진입만으로는 mode와 owner를 해제하지 않습니다. HOLD에서
+`SetControlMode(MODE_DISABLED, OWNER_NONE)`이 수락되면 command manager가
+`/thing/control/stop_requested`를 발행합니다. safety manager는 command timeout 기반
+SAFE 상승을 취소하고 HOLD에서 `stop_settle_ms=500` 동안 안정화한 뒤, 새
+FAULT·ESTOP이 없을 때 토크 OFF 상태인 READY로 전환합니다. SAFE·FAULT·ESTOP에서
+STOP은 mode·owner만 해제하며 안전 상태를 변경하지 않습니다. 실제 모터 토크
+override는 safety manager와 hardware node의 내부 경로가 담당합니다.
+
+Gesture 또는 Sequence 실행기는 `/thing/control/motion_active`에 실행 시작 시 `true`,
+정상 종료·취소·STOP 시 `false`를 발행합니다. mode service의 거부 사유는 다음처럼
+구분합니다.
+
+- `invalid_mode`: mode enum, owner enum 또는 mode·owner 조합 자체가 허용되지 않습니다.
+- `motion_active`: 요청 조합은 유효하지만 현재 Gesture 또는 Sequence가 실행 중이므로
+  mode 변경을 지금 수행할 수 없습니다. 현재 mode·owner의 lease 갱신은 허용합니다.
+- `stop_in_progress`: 명시적 STOP 수락 후 500ms 재획득 차단 구간입니다.
 
 ## 서비스와 액션
 

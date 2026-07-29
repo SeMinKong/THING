@@ -15,8 +15,9 @@
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>
   <test_depend>python3-pytest</test_depend>
+  <test_depend>python3-yaml</test_depend>
 
-  # 의존성 추가
+  <depend>std_msgs</depend>
   <depend>std_srvs</depend>
 
   <export>
