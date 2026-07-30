@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = 'thing_description'
@@ -10,6 +12,10 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/urdf', glob('urdf/*')),
+        ('share/' + package_name + '/config', glob('config/*')),
+        ('share/' + package_name + '/meshes/visual', glob('meshes/visual/*')),
+        ('share/' + package_name + '/meshes/collision', glob('meshes/collision/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

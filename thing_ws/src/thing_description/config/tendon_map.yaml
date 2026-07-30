@@ -1,0 +1,25 @@
+# q=0 matches the Blender V5.2.1 assembled/open reference pose.
+# Mapping is kinematic only. Replace ratios with encoder/tension calibration
+# after the real tendon routing has been measured.
+actuators:
+  - name: index_flex
+    joints: {index_mcp: 1.000000, index_pip: 1.193182, index_dip: 0.852273}
+  - name: middle_flex
+    joints: {middle_mcp: 1.000000, middle_pip: 1.166667, middle_dip: 0.833333}
+  - name: ring_flex
+    joints: {ring_mcp: 1.000000, ring_pip: 1.166667, ring_dip: 0.833333}
+  - name: little_flex
+    joints: {little_mcp: 1.000000, little_pip: 1.136364, little_dip: 0.818182}
+  - name: thumb_flex
+    joints: {thumb_mcp: 1.000000, thumb_ip: 1.250000}
+  - name: thumb_opposition
+    joints: {thumb_cmc_opposition: 1.000000}
+  - name: thumb_abduction
+    joints: {thumb_cmc_abduction: 1.000000}
+calibration_required:
+  - motor_spool_radius_m
+  - gear_ratio
+  - encoder_zero
+  - tendon_pretension_n
+  - tendon_length_to_joint_angle_curves
+  - tension_to_joint_torque_curves
