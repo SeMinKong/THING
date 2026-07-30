@@ -1,0 +1,477 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="thing_v521_right_hand">
+  <material name="printed_polymer">
+    <color rgba="0.72 0.72 0.74 1" />
+  </material>
+  <material name="joint_marker">
+    <color rgba="0.16 0.33 0.58 1" />
+  </material>
+  <link name="palm">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/palm.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/palm.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.000861424371 -0.0320132375 0.00404745946" rpy="0 0 0" />
+      <mass value="0.0633711649" />
+      <inertia ixx="9.36998545e-05" ixy="0" ixz="0" iyy="6.30554658e-05" iyz="0" izz="0.000132288558" />
+    </inertial>
+  </link>
+  <link name="index_proximal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/index_proximal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/index_proximal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.00286907842 -0.0220176391 0.00519369403" rpy="0 0 0" />
+      <mass value="0.00530351948" />
+      <inertia ixx="1.49208925e-06" ixy="0" ixz="0" iyy="3.81899441e-07" iyz="0" izz="1.43654216e-06" />
+    </inertial>
+  </link>
+  <link name="index_middle">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/index_middle.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/index_middle.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.001376434 -0.0137919001 0.00404679775" rpy="0 0 0" />
+      <mass value="0.00303901191" />
+      <inertia ixx="4.17971102e-07" ixy="0" ixz="0" iyy="1.69905563e-07" iyz="0" izz="3.72660285e-07" />
+    </inertial>
+  </link>
+  <link name="index_distal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/index_distal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/index_distal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.000743478013 -0.00745836599 0.00326663442" rpy="0 0 0" />
+      <mass value="0.00131384119" />
+      <inertia ixx="9.07864819e-08" ixy="0" ixz="0" iyy="4.38455914e-08" iyz="0" izz="7.41590189e-08" />
+    </inertial>
+  </link>
+  <link name="middle_proximal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/middle_proximal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/middle_proximal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.000848444237 -0.0242247023 0.00569596235" rpy="0 0 0" />
+      <mass value="0.00626950747" />
+      <inertia ixx="2.10936031e-06" ixy="0" ixz="0" iyy="4.45519279e-07" iyz="0" izz="1.98862012e-06" />
+    </inertial>
+  </link>
+  <link name="middle_middle">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/middle_middle.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/middle_middle.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.00035207055 -0.0169702396 0.00403875578" rpy="0 0 0" />
+      <mass value="0.00352463342" />
+      <inertia ixx="6.24238509e-07" ixy="0" ixz="0" iyy="1.83487382e-07" iyz="0" izz="5.57886817e-07" />
+    </inertial>
+  </link>
+  <link name="middle_distal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/middle_distal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/middle_distal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.000196552908 -0.00760864001 0.00298660388" rpy="0 0 0" />
+      <mass value="0.00137654563" />
+      <inertia ixx="1.00068287e-07" ixy="0" ixz="0" iyy="4.59539354e-08" iyz="0" izz="8.05576766e-08" />
+    </inertial>
+  </link>
+  <link name="ring_proximal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/ring_proximal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/ring_proximal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.00162283087 -0.0240386985 0.00346108456" rpy="0 0 0" />
+      <mass value="0.0052638291" />
+      <inertia ixx="1.61087357e-06" ixy="0" ixz="0" iyy="3.27975159e-07" iyz="0" izz="1.55308501e-06" />
+    </inertial>
+  </link>
+  <link name="ring_middle">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/ring_middle.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/ring_middle.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.000904382032 -0.0156486165 0.00319530349" rpy="0 0 0" />
+      <mass value="0.00315108212" />
+      <inertia ixx="4.86762278e-07" ixy="0" ixz="0" iyy="1.64987338e-07" iyz="0" izz="4.28009733e-07" />
+    </inertial>
+  </link>
+  <link name="ring_distal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/ring_distal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/ring_distal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.000381318037 -0.00822851527 0.00290161907" rpy="0 0 0" />
+      <mass value="0.00137000323" />
+      <inertia ixx="1.02941629e-07" ixy="0" ixz="0" iyy="4.50784597e-08" iyz="0" izz="8.49253671e-08" />
+    </inertial>
+  </link>
+  <link name="little_proximal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/little_proximal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/little_proximal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.00227236445 -0.0197994802 0.000979202217" rpy="0 0 0" />
+      <mass value="0.0041505817" />
+      <inertia ixx="9.13836668e-07" ixy="0" ixz="0" iyy="2.5656605e-07" iyz="0" izz="8.56729717e-07" />
+    </inertial>
+  </link>
+  <link name="little_middle">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/little_middle.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/little_middle.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.00100527389 -0.0121103376 0.00286527583" rpy="0 0 0" />
+      <mass value="0.00252154375" />
+      <inertia ixx="2.69130485e-07" ixy="0" ixz="0" iyy="1.23324263e-07" iyz="0" izz="2.32431382e-07" />
+    </inertial>
+  </link>
+  <link name="little_distal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/little_distal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/little_distal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="-0.000632471638 -0.00725024147 0.00231778435" rpy="0 0 0" />
+      <mass value="0.00120513035" />
+      <inertia ixx="7.58968459e-08" ixy="0" ixz="0" iyy="3.86550723e-08" iyz="0" izz="6.1859985e-08" />
+    </inertial>
+  </link>
+  <link name="thumb_cmc_yoke">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/thumb_cmc_yoke.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/thumb_cmc_yoke.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.00461393036 -0.00566590484 -0.00299509498" rpy="0 0 0" />
+      <mass value="0.00235232204" />
+      <inertia ixx="2.09271959e-07" ixy="0" ixz="0" iyy="3.10984635e-07" iyz="0" izz="3.52924028e-07" />
+    </inertial>
+  </link>
+  <link name="thumb_metacarpal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/thumb_metacarpal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/thumb_metacarpal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.00587646151 -0.0118409134 -0.00444047805" rpy="0 0 0" />
+      <mass value="0.00429243659" />
+      <inertia ixx="7.71861245e-07" ixy="0" ixz="0" iyy="4.83859832e-07" iyz="0" izz="8.30295345e-07" />
+    </inertial>
+  </link>
+  <link name="thumb_proximal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/thumb_proximal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/thumb_proximal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.00904758461 -0.0155967427 -0.00595423812" rpy="0 0 0" />
+      <mass value="0.00488551678" />
+      <inertia ixx="9.54294389e-07" ixy="0" ixz="0" iyy="6.18202918e-07" iyz="0" izz="1.12611022e-06" />
+    </inertial>
+  </link>
+  <link name="thumb_distal">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/visual/thumb_distal.stl" />
+      </geometry>
+      <material name="printed_polymer" />
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./../meshes/collision/thumb_distal.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.00465134438 -0.00787351746 -0.00305718835" rpy="0 0 0" />
+      <mass value="0.00182430044" />
+      <inertia ixx="1.1655782e-07" ixy="0" ixz="0" iyy="8.18795269e-08" iyz="0" izz="1.3631711e-07" />
+    </inertial>
+  </link>
+  <joint name="index_mcp" type="revolute">
+    <parent link="palm" />
+    <child link="index_proximal" />
+    <origin xyz="0.0228000004 -0.0911600068 0.0102000013" rpy="0.0519738495 0.00634873472 0.000165021775" />
+    <axis xyz="0.992615104 0.121306598 0" />
+    <limit lower="-0.0523598776" upper="1.48352986" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="index_pip" type="revolute">
+    <parent link="index_proximal" />
+    <child link="index_middle" />
+    <origin xyz="0.00529307686 -0.0433116183 0.00639504753" rpy="0.0694609061 0.00701078726 0.00024358675" />
+    <axis xyz="0.994936824 0.100502796 0" />
+    <limit lower="-0.0698131701" upper="1.76278254" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="index_dip" type="revolute">
+    <parent link="index_middle" />
+    <child link="index_distal" />
+    <origin xyz="0.00259997323 -0.0257386863 0.00259997509" rpy="0.0347300246 0.00350750866 6.09141207e-05" />
+    <axis xyz="0.994936824 0.100502796 0" />
+    <limit lower="-0.034906585" upper="1.27409035" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="middle_mcp" type="revolute">
+    <parent link="palm" />
+    <child link="middle_proximal" />
+    <origin xyz="0 -0.0908000022 0.0108000003" rpy="0.0348955169 0.000880912296 1.53715046e-05" />
+    <axis xyz="0.999681413 0.0252413992 0" />
+    <limit lower="-0.034906585" upper="1.53588974" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="middle_pip" type="revolute">
+    <parent link="middle_proximal" />
+    <child link="middle_middle" />
+    <origin xyz="0.00122998923 -0.0487135798 0.00679074042" rpy="0.0523492955 0.0010505449 2.7503922e-05" />
+    <axis xyz="0.999798596 0.0200731028 0" />
+    <limit lower="-0.0523598776" upper="1.78023584" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="middle_dip" type="revolute">
+    <parent link="middle_middle" />
+    <child link="middle_distal" />
+    <origin xyz="0.000643215142 -0.0320371538 0.00273366459" rpy="0.0348995961 0.000700542587 1.22255678e-05" />
+    <axis xyz="0.999798596 0.0200731028 0" />
+    <limit lower="-0.034906585" upper="1.27409035" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="ring_mcp" type="revolute">
+    <parent link="palm" />
+    <child link="ring_proximal" />
+    <origin xyz="-0.0210000016 -0.0892399997 0.00420000032" rpy="0.069687359 -0.00419431087 -0.000146204562" />
+    <axis xyz="0.998190701 -0.0601277016 0" />
+    <limit lower="-0.0698131701" upper="1.50098316" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="ring_pip" type="revolute">
+    <parent link="ring_proximal" />
+    <child link="ring_middle" />
+    <origin xyz="-0.00282242335 -0.0468555987 0.00305762608" rpy="0.0871577188 -0.00436045136 -0.000190144172" />
+    <axis xyz="0.998747706 -0.0500303991 0" />
+    <limit lower="-0.0872664626" upper="1.74532925" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="ring_dip" type="revolute">
+    <parent link="ring_middle" />
+    <child link="ring_distal" />
+    <origin xyz="-0.00145199336 -0.028985858 0.00101639517" rpy="0.0522943735 -0.0026183899 -6.84791739e-05" />
+    <axis xyz="0.998747706 -0.0500303991 0" />
+    <limit lower="-0.0523598776" upper="1.25663706" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="little_mcp" type="revolute">
+    <parent link="palm" />
+    <child link="little_proximal" />
+    <origin xyz="-0.0402000025 -0.0795200095 -0.00540000014" rpy="0.104196586 -0.0104751913 -0.000546238676" />
+    <axis xyz="0.994966209 -0.100211814 0" />
+    <limit lower="-0.104719755" upper="1.43116999" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="little_pip" type="revolute">
+    <parent link="little_proximal" />
+    <child link="little_middle" />
+    <origin xyz="-0.00377025083 -0.037433438 -0.00188458757" rpy="0.139127553 -0.0118286312 -0.000824183691" />
+    <axis xyz="0.996381819 -0.0849903002 0" />
+    <limit lower="-0.13962634" upper="1.60570291" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="little_dip" type="revolute">
+    <parent link="little_middle" />
+    <child link="little_distal" />
+    <origin xyz="-0.00185496733 -0.0217466652 -0.000436590053" rpy="0.086952284 -0.00740745803 -0.00032225225" />
+    <axis xyz="0.996381819 -0.0849903002 0" />
+    <limit lower="-0.0872664626" upper="1.1693706" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="thumb_cmc_abduction" type="revolute">
+    <parent link="palm" />
+    <child link="thumb_cmc_yoke" />
+    <origin xyz="0.0293915998 -0.0163628012 -0.0153696006" rpy="-0.0455986336 -0.227595061 0.266576916" />
+    <axis xyz="-0.0423989967 -0.665285826 0.745383859" />
+    <limit lower="-1.1693706" upper="0.610865238" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="thumb_cmc_opposition" type="revolute">
+    <parent link="thumb_cmc_yoke" />
+    <child link="thumb_metacarpal" />
+    <origin xyz="0.0107773189 -0.0107571594 -0.007097519" rpy="0 -0 0" />
+    <axis xyz="0.450011104 0.881700218 0.141755998" />
+    <limit lower="-0.0872664626" upper="0.610865238" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="thumb_mcp" type="revolute">
+    <parent link="thumb_metacarpal" />
+    <child link="thumb_proximal" />
+    <origin xyz="0.00902268663 -0.0242828391 -0.00814248063" rpy="0.00470040226 0.030319469 -0.0816269666" />
+    <axis xyz="0.0680086985 0.345043987 -0.936119378" />
+    <limit lower="-0.0872659385" upper="0.87266515" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+  <joint name="thumb_ip" type="revolute">
+    <parent link="thumb_proximal" />
+    <child link="thumb_distal" />
+    <origin xyz="0.0167999975 -0.0310800001 -0.012120001" rpy="0.00470040226 0.030319469 -0.0816269666" />
+    <axis xyz="0.0680086985 0.345043987 -0.936119378" />
+    <limit lower="-0.0872659385" upper="1.04719808" effort="1.0" velocity="2.0" />
+    <dynamics damping="0.02" friction="0.0" />
+  </joint>
+</robot>
