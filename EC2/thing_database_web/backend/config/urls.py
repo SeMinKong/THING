@@ -1,15 +1,27 @@
 # backend/config/urls.py
 from django.contrib import admin
 from django.urls import path
-from django.conf import settings
-from django.conf.urls.static import static
-from apps.views import MotorDataUploadView, MotorDataDownloadView, MotorDataListView
+from apps.health import HealthView
+from apps.read_views import (
+    SessionDataView,
+    SessionDetailView,
+    SessionDownloadView,
+    SessionListView,
+)
+from apps.upload_views import SessionUploadView
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('api/motor-data/upload/', MotorDataUploadView.as_view(), name='motor-upload'),
-    path('api/motor-data/download/<int:file_id>/', MotorDataDownloadView.as_view(), name='motor-download'),
-    path('api/motor-data/files/', MotorDataListView.as_view(), name='motor-list'),
-]
+    # ── v1 데이터 계약 (명세서 6.5절) ──
+    path('api/v1/uploads/sessions', SessionUploadView.as_view(), name='v1-upload'),
+    path('api/v1/sessions', SessionListView.as_view(), name='v1-session-list'),
+    path('api/v1/sessions/<str:session_id>', SessionDetailView.as_view(), name='v1-session-detail'),
+    path('api/v1/sessions/<str:session_id>/data', SessionDataView.as_view(), name='v1-session-data'),
+    # 스프린트 티켓의 /series?type= 별칭. 같은 뷰가 응답한다.
+    path('api/v1/sessions/<str:session_id>/series', SessionDataView.as_view(), name='v1-session-series'),
+    path('api/v1/sessions/<str:session_id>/download/<str:file_kind>',
+         SessionDownloadView.as_view(), name='v1-session-download'),
 
-urlpatterns += static('/media/', document_root=settings.MEDIA_ROOT)
+    # 명세서 FR-52. 슬래시 없는 정확히 '/health' 경로다.
+    path('health', HealthView.as_view(), name='health'),
+]
