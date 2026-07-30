@@ -1,0 +1,510 @@
+/* frontend/src/index.css
+ *
+ * 기존 App.vue의 전역 <style> 블록을 그대로 이관했다.
+ * Vue SFC는 스타일을 컴포넌트 파일에 담을 수 있지만 React에서는 별도 CSS를
+ * main.jsx에서 한 번 import하는 방식으로 동일한 전역 스코프를 만든다.
+ *
+ * 변경점
+ *  - .nav-item.router-link-active  ->  .nav-item.active   (React Router NavLink 대응)
+ *  - .empty-state                  ->  .state-box         (로딩/오류/빈 상태 공용)
+ *  - 로그인/회원가입 화면 전용이던 .auth-card / .input-group / .nav-btn / .auth-link 제거
+ *    (해당 화면이 존재하지 않아 사용되지 않던 규칙)
+ *  - .btn-secondary, .btn-group, .file-name 규칙 추가 (기존에 클래스만 있고 스타일 없음)
+ */
+
+/* 공통 전역 및 네비게이션 바 스타일 */
+body {
+  margin: 0;
+  font-family: 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+  background-color: #f5f7fb;
+  color: #333;
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #1e293b;
+  padding: 15px 40px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 브랜드 로고 (클릭 가능) */
+.nav-brand {
+  color: white;
+  font-size: 20px;
+  font-weight: bold;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+.nav-brand:hover {
+  color: #38bdf8;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* 다운로드 센터 텍스트 링크 메뉴 */
+.nav-item {
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.nav-item:hover,
+.nav-item.active {
+  color: #38bdf8;
+  font-weight: bold;
+}
+
+/* 콘텐츠 레이아웃 */
+.page-container {
+  max-width: 1000px;
+  margin: 40px auto;
+  padding: 0 20px;
+}
+.page-container.center {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 70vh;
+}
+
+.card {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+}
+.main-card {
+  text-align: center;
+  max-width: 500px;
+}
+.main-card h1 {
+  margin-top: 0;
+  font-size: 28px;
+}
+
+/* 버튼 */
+.btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 14px;
+  font-family: inherit;
+  text-decoration: none;
+  display: inline-block;
+  text-align: center;
+  transition: filter 0.2s;
+}
+.btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn:focus-visible {
+  outline: 2px solid #1e293b;
+  outline-offset: 2px;
+}
+
+.btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+.btn-secondary {
+  background: #e2e8f0;
+  color: #334155;
+}
+.btn-success {
+  background: #10b981;
+  color: white;
+}
+.btn-danger {
+  background: #ef4444;
+  color: white;
+}
+.btn-block {
+  width: 100%;
+  background: #3b82f6;
+  color: white;
+}
+
+.btn-group {
+  margin-top: 24px;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* 데이터 표 */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  padding: 0;
+  overflow: hidden;
+}
+.data-table th,
+.data-table td {
+  padding: 15px;
+  border-bottom: 1px solid #e2e8f0;
+}
+.data-table th {
+  background: #f8fafc;
+  font-size: 14px;
+  color: #475569;
+}
+.data-table tr:last-child td {
+  border-bottom: none;
+}
+.file-name {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.badge {
+  background: #e0f2fe;
+  color: #0369a1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* 로딩 / 오류 / 빈 상태 공용 박스 */
+.state-box {
+  text-align: center;
+  color: #64748b;
+}
+.state-box p {
+  margin: 0 0 8px;
+  font-weight: 500;
+}
+.state-box small {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.state-box.state-error {
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+.state-box code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  background: #f1f5f9;
+  color: #334155;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.header-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 16px;
+}
+.header-actions h2 {
+  margin: 0;
+  font-size: 22px;
+  color: #1e293b;
+}
+
+/* 좁은 화면 대응 */
+@media (max-width: 640px) {
+  .navbar {
+    padding: 12px 20px;
+  }
+  .page-container {
+    margin: 24px auto;
+  }
+  .card {
+    padding: 20px;
+  }
+  .header-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .data-table th,
+  .data-table td {
+    padding: 10px;
+    font-size: 13px;
+  }
+}
+
+/* 모션 최소화 설정 존중 */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   세션 화면 (FR-47 / FR-48 / FR-49)
+   ───────────────────────────────────────────────────────────── */
+
+.page-container.wide {
+  max-width: 1200px;
+}
+
+.page-container.wide > .card,
+.page-container.wide > section.card {
+  margin-bottom: 20px;
+}
+
+section.card h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  color: #1e293b;
+}
+
+.subtle {
+  color: #64748b;
+}
+.small {
+  font-size: 13px;
+}
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.break {
+  word-break: break-all;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 필터 바 */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 20px;
+  padding: 18px 24px;
+  margin-bottom: 20px;
+}
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.filter-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #475569;
+  white-space: nowrap;
+}
+.filter-group input,
+.filter-group select {
+  padding: 8px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: white;
+}
+.filter-group input {
+  width: 230px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.filter-group input:focus-visible,
+.filter-group select:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 1px;
+}
+
+/* 작은 버튼 */
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* 상태 pill */
+.pill {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pill-ok {
+  background: #dcfce7;
+  color: #15803d;
+}
+.pill-fail {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+.pill-warn {
+  background: #fef3c7;
+  color: #a16207;
+}
+
+/* 메타 정보 그리드 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px 24px;
+  margin: 16px 0 0;
+}
+.meta-grid > div {
+  min-width: 0;
+}
+.meta-grid .span-2 {
+  grid-column: span 2;
+}
+.meta-grid dt {
+  font-size: 12px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+.meta-grid dd {
+  margin: 0;
+  font-size: 14px;
+  color: #1e293b;
+}
+
+/* 카드 안에 들어가는 표 */
+.data-table.flush {
+  box-shadow: none;
+  border-radius: 0;
+  margin-top: 12px;
+}
+.data-table.compact th,
+.data-table.compact td {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.table-scroll {
+  overflow-x: auto;
+  margin-top: 12px;
+}
+.data-table tr.row-fail {
+  background: #fef2f2;
+}
+
+/* 고지·경고 문구 */
+.notice {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.notice-info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+.notice-warn {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+
+/* 차트 */
+.chart-wrap {
+  margin-top: 12px;
+}
+
+/* 페이지네이션 */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.pager .subtle {
+  margin-right: auto;
+  font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  .filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .filter-group input {
+    width: 100%;
+  }
+  .meta-grid .span-2 {
+    grid-column: span 1;
+  }
+}
+
+/* 차트 헤더와 dataset 토글 */
+.chart-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.chart-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+
+/* 세그먼트 버튼 (HandCommand / MotorStatus) */
+.seg {
+  display: inline-flex;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.seg-btn {
+  padding: 7px 14px;
+  border: none;
+  background: white;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.seg-btn + .seg-btn {
+  border-left: 1px solid #cbd5e1;
+}
+.seg-btn:hover:not(.active) {
+  background: #f1f5f9;
+}
+.seg-btn.active {
+  background: #1e293b;
+  color: white;
+}
+.seg-btn:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+@media (max-width: 640px) {
+  .chart-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .chart-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .seg {
+    width: 100%;
+  }
+  .seg-btn {
+    flex: 1;
+  }
+}

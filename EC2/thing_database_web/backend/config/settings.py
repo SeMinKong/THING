@@ -71,7 +71,9 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        # [FR-52 / NFR-29] 명세서 규격 경로는 /var/lib/thing-data/db.sqlite3 다.
+        # 기본값은 현재 위치를 유지한다. 기존 DB 를 복사한 뒤 .env 로 전환한다.
+        'NAME': env('DB_PATH', default=str(BASE_DIR / 'db.sqlite3')),
     }
 }
 
@@ -113,7 +115,7 @@ CORS_ALLOWED_ORIGINS = [
 ] + env.list('CORS_EXTRA_ORIGINS', default=[])
 
 # 프론트와 백엔드가 서로 다른 포트/도메인 간에 쿠키(세션)를 주고받을 수 있도록 허용
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False
 SESSION_COOKIE_SAMESITE = 'Lax'
 
 # Django admin(/admin/) 등 세션+CSRF 폼 로그인 시 배포 도메인에서 접속을 허용하려면
@@ -121,15 +123,62 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
 
 
-# 11. 로컬 가상 미디어 파일 저장 경로 (AWS S3 연동 전에 파일 다운로드 테스트용)
-MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# 11-3. [FR-51] 장치 token
+# 형식: <robot_id>:<sha256hex>[,<robot_id>:<sha256hex>]
+# 평문 token 은 로봇에만 두고 서버에는 hash 만 보관한다.
+DEVICE_TOKENS = env('DEVICE_TOKENS', default='')
+
+REST_FRAMEWORK = {
+    'EXCEPTION_HANDLER': 'apps.errors.api_exception_handler',
+    'DEFAULT_THROTTLE_RATES': {
+        'public': '120/min',   # 공개 GET, IP 당
+        'upload': '10/min',    # 업로드 POST, token 당
+    },
+    'UNAUTHENTICATED_USER': None,
+}
 
 
-# 12. 실배포용 AWS S3 설정 뼈대 (향후 IAM 키 발급 후 가동 가능)
-AWS_ACCESS_KEY_ID = env('AWS_ACCESS_KEY_ID', default='YOUR_ACCESS_KEY')
-AWS_SECRET_ACCESS_KEY = env('AWS_SECRET_ACCESS_KEY', default='YOUR_SECRET_KEY')
-AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME', default='your-robot-data-bucket')
-AWS_S3_REGION_NAME = env('AWS_S3_REGION_NAME', default='ap-northeast-2')
+# 11-5. [6.5절] rate limit 카운터 공유용 캐시
+# gunicorn 워커가 3개라 LocMemCache 를 쓰면 워커마다 독립 카운터가 생겨
+# 실효 한도가 약 3배가 된다. 명세서가 숫자를 명시했으므로 DB 캐시로 공유한다.
+# 배포 시 `python manage.py createcachetable` 을 한 번 실행한다.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'thing_cache_table',
+        'TIMEOUT': 300,
+        'OPTIONS': {'MAX_ENTRIES': 10000},
+    }
+}
+
+
+# 11-2. [FR-52 / NFR-29] 세션 데이터 루트
+# 명세서 6.5절: SQLite는 /var/lib/thing-data/db.sqlite3,
+#              파일은 /var/lib/thing-data/sessions/{robot_id}/{session_id}/
+# systemd 의 StateDirectory=thing-data 가 이 경로를 생성·소유한다.
+EC2_DATA_DIR = env('EC2_DATA_DIR', default='/var/lib/thing-data')
+
+
+# 11-1. [B-3 수정] 업로드 요청 크기 상한
+# 명세서 6.5절: metadata 256KiB + hand_command 20MiB + motor_status 60MiB
+#              = 합계 80.25MiB, Django 요청 85MiB, Nginx body 90MiB로 고정.
+# 이전에는 상한이 어디에도 설정되어 있지 않아 Nginx 기본값(1MB)에서 413으로 막혔다.
+MiB = 1024 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = 85 * MiB   # 요청 본문 전체 상한
+FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * MiB    # 이 크기를 넘으면 메모리 대신 임시파일로 스풀
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 100
+
+
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+# 배포(HTTPS) 전용 보안 설정
+if not DEBUG:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = False
+    SECURE_HSTS_PRELOAD = False
+    SILENCED_SYSTEM_CHECKS = ['security.W005', 'security.W021']
