@@ -14,6 +14,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { Download, FileJson, Sheet } from 'lucide-react';
+
+import Skeleton from '../ui/Skeleton.jsx';
 import {
   CartesianGrid,
   Legend,
@@ -77,12 +80,64 @@ const MOTOR_COLORS = [
 ];
 
 const FILE_KINDS = [
-  { key: 'metadata', label: 'metadata JSON' },
-  { key: 'hand_command', label: 'HandCommand CSV' },
-  { key: 'motor_status', label: 'MotorStatus CSV' },
+  {
+    key: 'metadata',
+    label: 'metadata JSON',
+    icon: FileJson,
+    note: '세션 식별·판정·검증 정보',
+  },
+  {
+    key: 'hand_command',
+    label: 'HandCommand CSV',
+    icon: Sheet,
+    note: '7논리축 명령의 시각별 기록',
+  },
+  {
+    key: 'motor_status',
+    label: 'MotorStatus CSV',
+    icon: Sheet,
+    note: '모터별 위치·전류·온도 기록',
+  },
 ];
 
+/**
+ * 차트에 쓸 색을 CSS 변수에서 읽는다.
+ *
+ * recharts 는 색을 props 로 받으므로 CSS 만으로는 축·격자·툴팁을 테마에 맞출 수
+ * 없다. 하드코딩하면 다크 모드에서 축이 보이지 않는다. 그래서 실행 시점에
+ * 계산된 값을 읽고, prefers-color-scheme 이 바뀌면 다시 읽는다.
+ */
+function useChartTheme() {
+  const read = () => {
+    if (typeof window === 'undefined') {
+      return { rule: '#dedbd5', ink: '#1a1917', ink3: '#9b968d', surface: '#fff', mono: 'monospace' };
+    }
+    const css = getComputedStyle(document.documentElement);
+    const pick = (name, fallback) => css.getPropertyValue(name).trim() || fallback;
+    return {
+      rule: pick('--rule', '#dedbd5'),
+      ink: pick('--ink', '#1a1917'),
+      ink3: pick('--ink-3', '#9b968d'),
+      surface: pick('--surface', '#ffffff'),
+      mono: pick('--mono', 'monospace'),
+    };
+  };
+
+  const [theme, setTheme] = useState(read);
+
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const query = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => setTheme(read());
+    query.addEventListener?.('change', update);
+    return () => query.removeEventListener?.('change', update);
+  }, []);
+
+  return theme;
+}
+
 export default function SessionDetailView() {
+  const theme = useChartTheme();
   const { sessionId } = useParams();
 
   const [detail, setDetail] = useState(null);
@@ -166,23 +221,23 @@ export default function SessionDetailView() {
 
   if (phase === LOADING) {
     return (
-      <div className="page-container wide">
-        <div className="state-box card"><p>세션을 불러오고 있습니다…</p></div>
+      <div className="sheet wide">
+        <div className="panel"><Skeleton rows={4} label="세션을 불러오고 있습니다…" /></div>
       </div>
     );
   }
 
   if (phase === NOT_FOUND) {
     return (
-      <div className="page-container wide">
-        <div className="state-box card">
+      <div className="sheet wide">
+        <div className="panel">
           <p>세션을 찾을 수 없습니다.</p>
           <small>
             Session ID <code>{sessionId}</code> 에 해당하는 공개 세션이 없습니다.
             아직 업로드되지 않았거나 ID가 잘못되었을 수 있습니다.
           </small>
         </div>
-        <div className="pager">
+        <div className="btn-row">
           <Link to="/sessions" className="btn btn-primary">← 목록에서 찾기</Link>
         </div>
       </div>
@@ -191,13 +246,13 @@ export default function SessionDetailView() {
 
   if (phase === ERROR) {
     return (
-      <div className="page-container wide">
-        <div className="state-box card state-error">
+      <div className="sheet wide">
+        <div className="panel">
           <p>세션을 불러오지 못했습니다.</p>
           <small>{message}</small>
         </div>
-        <div className="pager">
-          <Link to="/sessions" className="btn btn-secondary">← 목록으로</Link>
+        <div className="btn-row">
+          <Link to="/sessions" className="btn">← 목록으로</Link>
           <button type="button" onClick={load} className="btn btn-primary">다시 시도</button>
         </div>
       </div>
@@ -211,24 +266,24 @@ export default function SessionDetailView() {
   const chartRowCount = showingHandCommand ? handCommand.rows.length : motorStatus.rows.length;
 
   return (
-    <div className="page-container wide">
-      <div className="header-actions">
+    <div className="sheet wide">
+      <div className="page-head">
         <div>
-          <h2>🔬 세션 상세</h2>
+          <h2>세션 상세</h2>
           <p className="mono subtle">{detail.session_id}</p>
         </div>
-        <Link to="/sessions" className="btn btn-secondary">← 목록으로</Link>
+        <Link to="/sessions" className="btn">← 목록으로</Link>
       </div>
 
       {/* ── 메타 ── */}
-      <section className="card">
+      <section className="panel">
         <h3>세션 정보</h3>
-        <dl className="meta-grid">
-          <div><dt>로봇</dt><dd><span className="badge">{detail.robot_id}</span></dd></div>
+        <dl className="facts">
+          <div><dt>로봇</dt><dd><span className="chip">{detail.robot_id}</span></dd></div>
           <div>
             <dt>판정</dt>
             <dd>
-              <span className={detail.result === 'SUCCESS' ? 'pill pill-ok' : 'pill pill-fail'}>
+              <span className={detail.result === 'SUCCESS' ? 'chip chip-ok' : 'chip chip-no'}>
                 {detail.result}
               </span>
             </dd>
@@ -241,40 +296,56 @@ export default function SessionDetailView() {
             <dt>시각 동기</dt>
             <dd>
               {detail.time_sync
-                ? <span className="pill pill-ok">동기됨</span>
-                : <span className="pill pill-warn">비동기</span>}
+                ? <span className="chip chip-ok">동기됨</span>
+                : <span className="chip chip-wa">비동기</span>}
             </dd>
           </div>
-          <div><dt>schema / data 버전</dt><dd>{detail.schema_version} / {detail.data_version}</dd></div>
+          <div><dt>Schema / Data 버전</dt><dd>{detail.schema_version} / {detail.data_version}</dd></div>
           <div className="span-2">
-            <dt>interface commit</dt>
+            <dt>Interface commit</dt>
             <dd className="mono small">{detail.interface_commit}</dd>
           </div>
           <div className="span-2">
-            <dt>content digest</dt>
+            <dt>Content digest</dt>
             <dd className="mono small break">{detail.content_digest}</dd>
           </div>
         </dl>
       </section>
 
       {/* ── 다운로드 ── */}
-      <section className="card">
+      <section className="panel">
         <h3>파일 다운로드</h3>
         <p className="subtle small">세션마다 아래 세 파일만 공개됩니다.</p>
-        <table className="data-table flush">
+        <table className="grid">
           <thead>
-            <tr><th>파일</th><th className="num">크기</th><th className="num">행 수</th><th></th></tr>
+            <tr>
+              <th>파일</th>
+              <th className="num">크기</th>
+              <th className="num">행 수</th>
+              <th className="row-action" />
+            </tr>
           </thead>
           <tbody>
-            {FILE_KINDS.map(({ key, label }) => (
+            {FILE_KINDS.map(({ key, label, icon: Icon, note }) => (
               <tr key={key}>
-                <td>{label}</td>
+                <td>
+                  <span className="file-row">
+                    <span className="file-icon" aria-hidden="true">
+                      <Icon size={16} strokeWidth={1.8} />
+                    </span>
+                    <span className="file-meta">
+                      <span className="file-name">{label}</span>
+                      <span className="file-note">{note}</span>
+                    </span>
+                  </span>
+                </td>
                 <td className="num">{formatBytes(detail.file_sizes?.[key])}</td>
                 <td className="num">
                   {key === 'metadata' ? MISSING : formatCount(detail.row_counts?.[key])}
                 </td>
-                <td>
-                  <a href={detail.downloads?.[key]} className="btn btn-success btn-sm">
+                <td className="row-action">
+                  <a href={detail.downloads?.[key]} className="btn btn-sm">
+                    <Download size={13} strokeWidth={2.2} aria-hidden="true" />
                     다운로드
                   </a>
                 </td>
@@ -285,15 +356,15 @@ export default function SessionDetailView() {
       </section>
 
       {/* ── 시계열 차트 ── */}
-      <section className="card">
-        <div className="chart-header">
+      <section className="panel">
+        <div className="panel-head">
           <h3>시계열</h3>
           <div className="chart-controls">
-            <div className="seg" role="group" aria-label="데이터 종류 선택">
+            <div className="segment" role="group" aria-label="데이터 종류 선택">
               <button
                 type="button"
                 onClick={() => setDataset(HAND_COMMAND)}
-                className={showingHandCommand ? 'seg-btn active' : 'seg-btn'}
+                className={showingHandCommand ? 'active' : ''}
                 aria-pressed={showingHandCommand}
               >
                 HandCommand
@@ -301,7 +372,7 @@ export default function SessionDetailView() {
               <button
                 type="button"
                 onClick={() => setDataset(MOTOR_STATUS)}
-                className={!showingHandCommand ? 'seg-btn active' : 'seg-btn'}
+                className={!showingHandCommand ? 'active' : ''}
                 aria-pressed={!showingHandCommand}
               >
                 MotorStatus
@@ -333,7 +404,7 @@ export default function SessionDetailView() {
         </p>
 
         {chartTruncated && (
-          <p className="notice notice-warn">
+          <p className="note note-warn">
             행이 많아 앞부분 {formatCount(chartRowCount)}행만 표시합니다.
             전체는 CSV를 다운로드하세요.
           </p>
@@ -342,17 +413,41 @@ export default function SessionDetailView() {
         {chartData.length === 0 ? (
           <p className="subtle">표시할 데이터가 없습니다.</p>
         ) : (
-          <div className="chart-wrap" data-testid="timeseries-chart">
+          <div className="chart-frame" data-testid="timeseries-chart">
             <ResponsiveContainer width="100%" height={320}>
               <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 24, left: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                {/* 축·격자 색을 하드코딩하면 다크 모드에서 보이지 않는다.
+                    실행 시점에 CSS 변수를 읽어 테마를 따른다. */}
+                <CartesianGrid strokeDasharray="2 4" stroke={theme.rule} vertical={false} />
                 <XAxis
                   dataKey="elapsed_ms"
-                  tick={{ fontSize: 12 }}
-                  label={{ value: 'elapsed_ms', position: 'insideBottom', offset: -14, fontSize: 12 }}
+                  tick={{ fontSize: 11, fill: theme.ink3, fontFamily: theme.mono }}
+                  stroke={theme.rule}
+                  label={{
+                    value: 'elapsed_ms',
+                    position: 'insideBottom',
+                    offset: -14,
+                    fontSize: 11,
+                    fill: theme.ink3,
+                  }}
                 />
-                <YAxis tick={{ fontSize: 12 }} domain={['auto', 'auto']} />
+                <YAxis
+                  tick={{ fontSize: 11, fill: theme.ink3, fontFamily: theme.mono }}
+                  stroke={theme.rule}
+                  domain={['auto', 'auto']}
+                  width={46}
+                />
                 <Tooltip
+                  contentStyle={{
+                    background: theme.surface,
+                    border: `1px solid ${theme.rule}`,
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontFamily: theme.mono,
+                    boxShadow: '0 4px 14px -6px rgba(0,0,0,0.25)',
+                  }}
+                  labelStyle={{ color: theme.ink3, fontSize: 11 }}
+                  itemStyle={{ color: theme.ink }}
                   formatter={(value, name) => [
                     value == null ? MISSING : formatNumber(value),
                     showingHandCommand
@@ -399,7 +494,7 @@ export default function SessionDetailView() {
         )}
 
         {!showingHandCommand && (
-          <p className="notice notice-info">
+          <p className="note note-info">
             ⚠️ <strong>rad 값은 모터 축 기준이며 실제 관절각이 아닙니다.</strong>
             {' '}텐던 구동 방식이라 모터 회전과 관절 굴곡이 1:1로 대응하지 않습니다.
           </p>
@@ -407,16 +502,16 @@ export default function SessionDetailView() {
       </section>
 
       {/* ── 모터 상태 표 ── */}
-      <section className="card">
+      <section className="panel">
         <h3>모터 상태 (모터별 최신 샘플)</h3>
 
-        <p className="notice notice-info">
+        <p className="note note-info">
           ⚠️ 표의 <strong>모터축 각도(rad)는 모터 축 기준값이며 실제 관절각이 아닙니다.</strong>
           {' '}텐던 구동 방식이라 모터 회전과 관절 굴곡이 1:1로 대응하지 않습니다.
         </p>
 
         {motorStatus.truncated && (
-          <p className="notice notice-warn">
+          <p className="note note-warn">
             MotorStatus 행이 많아 앞부분 {formatCount(motorStatus.rows.length)}행만 조회했습니다.
             아래 표는 <strong>조회 구간 안에서의</strong> 모터별 마지막 샘플이며 세션 종료
             시점이 아닙니다. 전체는 MotorStatus CSV를 다운로드하세요.
@@ -472,13 +567,13 @@ export default function SessionDetailView() {
                       <td className="num mono">{formatNumber(row.voltage_volt, 2)}</td>
                       <td className="num mono">{formatInt(row.temperature_celsius)}</td>
                       <td>
-                        {row.communication_ok === true && <span className="pill pill-ok">정상</span>}
+                        {row.communication_ok === true && <span className="chip chip-ok">정상</span>}
                         {row.communication_ok === false && (
                           <span className="pill pill-fail" title={`result ${row.communication_result}`}>
                             실패
                           </span>
                         )}
-                        {row.communication_ok == null && <span className="pill pill-warn">불명</span>}
+                        {row.communication_ok == null && <span className="chip chip-wa">불명</span>}
                       </td>
                       <td className="num mono">{formatInt(row.failed_read_count)}</td>
                     </tr>
