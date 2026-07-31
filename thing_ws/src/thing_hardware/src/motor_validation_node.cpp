@@ -18,6 +18,32 @@ public:
             baud_rate_,
             protocol_version_,
             static_cast<unsigned int>(motor_id_));
+
+        port_handler_.reset(
+            dynamixel::PortHandler::getPortHandler(
+                device_name_.c_str()));
+
+        if (!port_handler_)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Failed to create PortHandler");
+            return;
+        }
+
+        if (!port_handler_->openPort())
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Failed to open port: %s",
+                device_name_.c_str());
+            return;
+        }
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Port opened: %s",
+            device_name_.c_str());
     }
 
 private:
@@ -27,6 +53,8 @@ private:
     int baud_rate_{57600};
     float protocol_version_{2.0F};
     uint8_t motor_id_{1};
+
+    std::unique_ptr<dynamixel::PortHandler> port_handler_;
 };
 
 int main(int argc, char **argv)
