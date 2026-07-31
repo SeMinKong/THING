@@ -1,7 +1,12 @@
 // frontend/src/App.jsx
 import { Suspense, lazy } from 'react';
-import { NavLink, Route, Routes } from 'react-router-dom';
+import { Link, Route, Routes, useLocation } from 'react-router-dom';
+import { AnimatePresence, motion } from 'motion/react';
+import { Waves } from 'lucide-react';
 
+import Skeleton from './ui/Skeleton.jsx';
+import TabLink from './ui/TabLink.jsx';
+import { page } from './ui/motion';
 import HomeView from './views/HomeView.jsx';
 import SessionListView from './views/SessionListView.jsx';
 
@@ -11,39 +16,57 @@ const SessionDetailView = lazy(() => import('./views/SessionDetailView.jsx'));
 
 function RouteFallback() {
   return (
-    <div className="page-container wide">
-      <div className="state-box card"><p>화면을 준비하고 있습니다…</p></div>
+    <div className="sheet">
+      <div className="panel"><Skeleton rows={4} label="화면을 준비하고 있습니다…" /></div>
     </div>
   );
 }
 
+function Masthead() {
+  return (
+    <header className="masthead">
+      <Link to="/" className="brand">
+        <span className="brand-glyph" aria-hidden="true">
+          <Waves size={19} strokeWidth={1.9} />
+        </span>
+        <span className="brand-text">
+          <span className="brand-name">RobotData</span>
+          <span className="brand-note">텐던 핸드 계측 아카이브</span>
+        </span>
+      </Link>
+
+      <nav className="masthead-nav">
+        <TabLink to="/sessions">세션 목록</TabLink>
+      </nav>
+    </header>
+  );
+}
+
 export default function App() {
+  const location = useLocation();
+
   return (
     <div id="app-layout">
-      <nav className="navbar">
-        <NavLink to="/" className="nav-brand">
-          🤖 RobotData-EC2
-        </NavLink>
+      <Masthead />
 
-        <div className="nav-links">
-          <NavLink
-            to="/sessions"
-            className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}
-          >
-            세션 목록
-          </NavLink>
-        </div>
-      </nav>
-
-      <Suspense fallback={<RouteFallback />}>
-        <Routes>
-          <Route path="/" element={<HomeView />} />
-          <Route path="/sessions" element={<SessionListView />} />
-          <Route path="/sessions/:sessionId" element={<SessionDetailView />} />
-          {/* 정의되지 않은 경로는 홈으로 폴백 */}
-          <Route path="*" element={<HomeView />} />
-        </Routes>
-      </Suspense>
+      {/*
+        화면 전환에 짧은 크로스페이드를 둔다. 자료를 찾으러 온 사람에게
+        애니메이션은 기다림이므로 220ms 안에 끝낸다.
+        mode="wait" 로 두 화면이 겹쳐 보이지 않게 한다.
+      */}
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.div key={location.pathname} {...page} style={{ display: 'contents' }}>
+          <Suspense fallback={<RouteFallback />}>
+            <Routes location={location}>
+              <Route path="/" element={<HomeView />} />
+              <Route path="/sessions" element={<SessionListView />} />
+              <Route path="/sessions/:sessionId" element={<SessionDetailView />} />
+              {/* 정의되지 않은 경로는 홈으로 폴백 */}
+              <Route path="*" element={<HomeView />} />
+            </Routes>
+          </Suspense>
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }
