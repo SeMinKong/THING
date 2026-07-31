@@ -1,49 +1,99 @@
-import rclpy #python에서 ros 기능 사용 가능케 import
+"""ROS 2 node for experiment recording lifecycle management."""
+
+import rclpy
 from rclpy.node import Node
-# 토픽 QoS 통신 규칙을 설정하기 위한 기능들
-from rclpy.qos import(
-    QoSProfile,
-    ReliabilityPolicy,
-    DurabilityPolicy # 늦게 구독한 노드가 마지막 메시지를 받을지 설정
-)
-from thing_interfaces.msg import RecordingState # ros2 msg import
-# 메시지 형식 가져오기
+from rclpy.qos import DurabilityPolicy
+from rclpy.qos import QoSProfile
+from rclpy.qos import ReliabilityPolicy
+
+from thing_interfaces.msg import ControlState
+from thing_interfaces.msg import RecordingState
 
 
 class Logger(Node):
+    """Publish recording state and observe the current control mode."""
+
     def __init__(self):
-        super().__init__('logger') # 초기화
-        #thing/recording_state 토픽 통신 규칙
-        recording_state_qos = QoSProfile(
+        """Initialize the logger node and its ROS interfaces."""
+        super().__init__('logger')
+
+        state_qos = QoSProfile(
             depth=1,
-            reliability = ReliabilityPolicy.RELIABLE,
-            durability = DurabilityPolicy.TRANSIENT_LOCAL
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
 
-        # recoringState 메시지를 thing/recording_state로 토픽으로 발행할 publisher 생성
+        self.state = RecordingState.IDLE
+        self.active_session_id = 0
+        self.active_bag_path = ''
+        self.active_started_at = None
+
+        self.last_session_id = 0
+        self.last_bag_path = ''
+        self.last_started_at = None
+        self.last_ended_at = None
+
+        self.result_pending = False
+        self.last_mimic_result = RecordingState.RESULT_UNSET
+        self.active_mode = ControlState.MODE_DISABLED
+
         self.recording_state_publisher = self.create_publisher(
             RecordingState,
-            'thing/recording_state',
-            recording_state_qos,
+            '/thing/recording_state',
+            state_qos,
         )
+        self.control_state_subscription = self.create_subscription(
+            ControlState,
+            '/thing/control_state',
+            self.handle_control_state,
+            state_qos,
+        )
+
+        self.publish_recording_state('idle')
         self.get_logger().info('Logger started.')
 
+    def handle_control_state(self, message):
+        """Store the latest control mode for recording admission checks."""
+        self.active_mode = message.active_mode
+
+    def publish_recording_state(self, message=''):
+        """Publish an immutable snapshot of the current recording state."""
+        recording_state = RecordingState()
+        recording_state.header.stamp = self.get_clock().now().to_msg()
+        recording_state.state = self.state
+
+        recording_state.active_session_id = self.active_session_id
+        recording_state.active_bag_path = self.active_bag_path
+        if self.active_started_at is not None:
+            recording_state.active_started_at = self.active_started_at
+
+        recording_state.last_session_id = self.last_session_id
+        recording_state.last_bag_path = self.last_bag_path
+        if self.last_started_at is not None:
+            recording_state.last_started_at = self.last_started_at
+        if self.last_ended_at is not None:
+            recording_state.last_ended_at = self.last_ended_at
+
+        recording_state.result_pending = self.result_pending
+        recording_state.last_mimic_result = self.last_mimic_result
+        recording_state.message = message
+
+        self.recording_state_publisher.publish(recording_state)
+
+
 def main(args=None):
-    # ROS2 Python 통신 기능 초기화
+    """Run the logger node until ROS shutdown."""
     rclpy.init(args=args)
-    # Logger 노드 객체 생성
-    logger = Logger() # logger 노드 객체 생성
-           
+    logger = Logger()
 
     try:
-        # 서비스 요청이나 토픽 메세지를 처리하며 계속 실행
         rclpy.spin(logger)
-
     except KeyboardInterrupt:
         pass
     finally:
-        logger.destroy_node() # 노드 종료 (노드 제거)
-        rclpy.shutdown() # Ros2 python 기능 종료
+        logger.destroy_node()
+        rclpy.shutdown()
+
 
 if __name__ == '__main__':
-    main() # main 함수 실행
+    main()
