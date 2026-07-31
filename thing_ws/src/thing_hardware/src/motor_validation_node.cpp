@@ -127,6 +127,44 @@ public:
                 static_cast<unsigned int>(model_number));
         }
         // ====================
+
+        // ==== hardware error status read ====
+        constexpr uint16_t hardware_error_status_address = 70;
+
+        uint8_t hardware_error_status = 0;
+        dynamixel_error = 0;
+
+        const int read_result = packet_handler_->read1ByteTxRx(
+            port_handler_.get(),
+            motor_id_,
+            hardware_error_status_address,
+            &hardware_error_status,
+            &dynamixel_error);
+
+        if (read_result != COMM_SUCCESS)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "Failed to read Hardware Error Status: %s",
+                packet_handler_->getTxRxResult(read_result));
+            return;
+        }
+
+        if (dynamixel_error != 0)
+        {
+            RCLCPP_ERROR(
+                this->get_logger(),
+                "DYNAMIXEL returned an error while reading: %s",
+                packet_handler_->getRxPacketError(dynamixel_error));
+            return;
+        }
+
+        RCLCPP_INFO(
+            this->get_logger(),
+            "Hardware Error Status: ID=%u, status=0x%02X",
+            static_cast<unsigned int>(motor_id_),
+            static_cast<unsigned int>(hardware_error_status));
+        // ====================================
     }
 
 private:
