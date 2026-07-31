@@ -16,6 +16,11 @@ cp tools/dynamixel/hand_motion_config.example.json \
 
 이미 보정한 `hand_motion_config.json`이 있으면 덮어쓰지 않는다.
 
+Raspberry Pi 현장에서 사용한 개별 점검 스크립트는 `tools/dynamixel/rpi/`에 별도로 보관한다.
+이 디렉터리에는 3개 U2D2의 실제 `/dev/serial/by-id/` 경로가 기록되어 있으므로, 다른 장비로
+복사할 때에는 `motor_config.json`의 포트와 ID를 먼저 확인한다. 이 스크립트는 통합 손 동작
+제어기를 대체하지 않으며, 통신·출력·원위치 점검 용도로 사용한다.
+
 ## 2. Python 환경
 
 ```bash
