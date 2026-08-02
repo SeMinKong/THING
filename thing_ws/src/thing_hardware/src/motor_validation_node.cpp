@@ -306,10 +306,10 @@ public:
       return;
     }
 
-    static constexpr uint16_t TEST_GOAL_CURRENT = 100;  // 100 mA
+    static constexpr uint16_t TEST_GOAL_CURRENT = 500;  // 500 mA
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 5;
     static constexpr uint32_t TEST_PROFILE_VELOCITY = 20;  // 약 4.58 rpm
-    static constexpr int32_t TEST_POSITION_DELTA = 30;
+    static constexpr int32_t TEST_POSITION_DELTA = 100;
 
     if (TEST_GOAL_CURRENT > raw_current_limit) {
       RCLCPP_ERROR(this->get_logger(), "Test Goal Current exceeds Current Limit");
@@ -482,23 +482,30 @@ public:
     RCLCPP_WARN(
       this->get_logger(),
       "Motion test started: ID=%u, start=%d pulse, goal=%d pulse; "
-      "torque will be disabled automatically after 2 seconds",
+      "monitoring every 100 ms with a 3 second timeout",
       static_cast<unsigned int>(motor_id_), present_position, test_goal_position_);
 
+    motion_start_time_ = std::chrono::steady_clock::now();
     motion_timer_ =
-      this->create_wall_timer(std::chrono::seconds(2), [this]() { finish_motion_test(); });
+      this->create_wall_timer(std::chrono::milliseconds(100), [this]() { monitor_motion_test(); });
     // ====================
   }
 
   ~MotorValidatorNode() override { disable_torque(); }
 
 private:
-  void finish_motion_test()
+  static constexpr int64_t POSITION_TOLERANCE = 20;
+  static constexpr std::chrono::seconds MOTION_TIMEOUT{3};
+
+  void monitor_motion_test()
   {
+    uint8_t hardware_error_status = 0;
     uint16_t raw_present_current = 0;
     uint32_t raw_present_velocity = 0;
     uint32_t raw_present_position = 0;
 
+    const auto hardware_error_result = bus_->read_one_byte(
+      motor_id_, thing_hardware::xl330::HARDWARE_ERROR_STATUS_ADDRESS, hardware_error_status);
     const auto current_result = bus_->read_two_bytes(
       motor_id_, thing_hardware::xl330::PRESENT_CURRENT_ADDRESS, raw_present_current);
     const auto velocity_result = bus_->read_four_bytes(
@@ -506,39 +513,78 @@ private:
     const auto position_result = bus_->read_four_bytes(
       motor_id_, thing_hardware::xl330::PRESENT_POSITION_ADDRESS, raw_present_position);
 
-    if (current_result.success && velocity_result.success && position_result.success) {
-      const int16_t present_current = static_cast<int16_t>(raw_present_current);
-      const int32_t present_velocity = static_cast<int32_t>(raw_present_velocity);
-      const int32_t present_position = static_cast<int32_t>(raw_present_position);
-      const double present_velocity_rpm =
-        static_cast<double>(present_velocity) * thing_hardware::xl330::VELOCITY_RPM_UNIT;
-
-      RCLCPP_INFO(
-        this->get_logger(),
-        "Motion test result: ID=%u, goal=%d pulse, position=%d pulse, "
-        "current=%d mA, velocity=%.2f rpm",
-        static_cast<unsigned int>(motor_id_), test_goal_position_, present_position,
-        static_cast<int>(present_current), present_velocity_rpm);
-    } else {
+    if (
+      !hardware_error_result.success || !current_result.success || !velocity_result.success ||
+      !position_result.success) {
       RCLCPP_ERROR(
         this->get_logger(),
-        "Failed to read motion test result: current=%s, velocity=%s, position=%s",
+        "Failed to monitor motion test: hardware_error=%s, current=%s, velocity=%s, position=%s",
+        hardware_error_result.success ? "ok" : hardware_error_result.error_message.c_str(),
         current_result.success ? "ok" : current_result.error_message.c_str(),
         velocity_result.success ? "ok" : velocity_result.error_message.c_str(),
         position_result.success ? "ok" : position_result.error_message.c_str());
+      stop_motion_test();
+      return;
     }
 
-    disable_torque();
+    const int16_t present_current = static_cast<int16_t>(raw_present_current);
+    const int32_t present_velocity = static_cast<int32_t>(raw_present_velocity);
+    const int32_t present_position = static_cast<int32_t>(raw_present_position);
+    const int64_t position_error =
+      static_cast<int64_t>(test_goal_position_) - static_cast<int64_t>(present_position);
+    const int64_t absolute_position_error = position_error >= 0 ? position_error : -position_error;
+    const double present_velocity_rpm =
+      static_cast<double>(present_velocity) * thing_hardware::xl330::VELOCITY_RPM_UNIT;
+    const auto elapsed = std::chrono::steady_clock::now() - motion_start_time_;
+    const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Motion monitoring: ID=%u, elapsed=%ld ms, goal=%d, position=%d, error=%ld pulse, "
+      "current=%d mA, velocity=%.2f rpm",
+      static_cast<unsigned int>(motor_id_), static_cast<long>(elapsed_ms), test_goal_position_,
+      present_position, static_cast<long>(absolute_position_error),
+      static_cast<int>(present_current), present_velocity_rpm);
+
+    if (hardware_error_status != 0U) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Hardware error during motion test: status=0x%02X",
+        static_cast<unsigned int>(hardware_error_status));
+      stop_motion_test();
+      return;
+    }
+
+    if (absolute_position_error <= POSITION_TOLERANCE) {
+      RCLCPP_INFO(
+        this->get_logger(), "Motion target reached: goal=%d, position=%d, error=%ld pulse",
+        test_goal_position_, present_position, static_cast<long>(absolute_position_error));
+      stop_motion_test();
+      return;
+    }
+
+    if (elapsed >= MOTION_TIMEOUT) {
+      RCLCPP_WARN(
+        this->get_logger(), "Motion test timed out: goal=%d, position=%d, error=%ld pulse",
+        test_goal_position_, present_position, static_cast<long>(absolute_position_error));
+      stop_motion_test();
+    }
+  }
+
+  void stop_motion_test()
+  {
+    if (!disable_torque()) {
+      return;
+    }
 
     if (motion_timer_) {
       motion_timer_->cancel();
     }
   }
 
-  void disable_torque()
+  bool disable_torque()
   {
     if (!torque_enabled_ || !bus_) {
-      return;
+      return true;
     }
 
     const auto result =
@@ -547,13 +593,14 @@ private:
     if (!result.success) {
       RCLCPP_ERROR(
         this->get_logger(), "Failed to disable Torque: %s", result.error_message.c_str());
-      return;
+      return false;
     }
 
     torque_enabled_ = false;
     RCLCPP_INFO(
       this->get_logger(), "Torque disabled after motion test: ID=%u",
       static_cast<unsigned int>(motor_id_));
+    return true;
   }
 
   static const char * torque_enable_name(uint8_t torque_enable)
@@ -598,6 +645,7 @@ private:
 
   std::unique_ptr<thing_hardware::DynamixelBus> bus_;
   rclcpp::TimerBase::SharedPtr motion_timer_;
+  std::chrono::steady_clock::time_point motion_start_time_;
   int32_t test_goal_position_{0};
   bool torque_enabled_{false};
 };
