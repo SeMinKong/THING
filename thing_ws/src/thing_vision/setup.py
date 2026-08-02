@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'camera_node = thing_vision.camera_node:main',
             'mediapipe_node = thing_vision.mediapipe_node:main',
+            'hand_target_node = thing_vision.hand_target_node:main',
         ],
     },
 )
