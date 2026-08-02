@@ -55,105 +55,6 @@ public:
     }
     // ====================
 
-    // ==== hardware error status read ====
-    uint8_t hardware_error_status = 0;
-
-    const auto hardware_error_result = bus_->read_one_byte(
-      motor_id_, thing_hardware::xl330::HARDWARE_ERROR_STATUS_ADDRESS, hardware_error_status);
-
-    if (!hardware_error_result.success) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to read Hardware Error Status: %s",
-        hardware_error_result.error_message.c_str());
-      return;
-    }
-
-    RCLCPP_INFO(
-      this->get_logger(), "Hardware Error Status: ID=%u, status=0x%02X",
-      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(hardware_error_status));
-    // ====================================
-
-    // ==== present temperature read ====
-    uint8_t present_temperature = 0;
-
-    const auto temperature_result = bus_->read_one_byte(
-      motor_id_, thing_hardware::xl330::PRESENT_TEMPERATURE_ADDRESS, present_temperature);
-
-    if (!temperature_result.success) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to read Present Temperature: %s",
-        temperature_result.error_message.c_str());
-      return;
-    }
-
-    RCLCPP_INFO(
-      this->get_logger(), "Present Temperature: ID=%u, temperature=%u degC",
-      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(present_temperature));
-    // ==================================
-
-    // ==== raw input voltage read ====
-    uint16_t raw_input_voltage = 0;
-
-    const auto voltage_result = bus_->read_two_bytes(
-      motor_id_, thing_hardware::xl330::PRESENT_INPUT_VOLTAGE_ADDRESS, raw_input_voltage);
-
-    if (!voltage_result.success) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to read Present Input Voltage: %s",
-        voltage_result.error_message.c_str());
-      return;
-    }
-
-    const double input_voltage =
-      static_cast<double>(raw_input_voltage) * thing_hardware::xl330::INPUT_VOLTAGE_UNIT;
-
-    RCLCPP_INFO(
-      this->get_logger(), "Present Input Voltage: ID=%u, voltage=%.1f V",
-      static_cast<unsigned int>(motor_id_), input_voltage);
-    // ================================
-
-    // ==== present position read ====
-    uint32_t raw_present_position = 0;
-
-    const auto position_result = bus_->read_four_bytes(
-      motor_id_, thing_hardware::xl330::PRESENT_POSITION_ADDRESS, raw_present_position);
-
-    if (!position_result.success) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to read Present Position: %s",
-        position_result.error_message.c_str());
-      return;
-    }
-
-    const int32_t present_position = static_cast<int32_t>(raw_present_position);
-
-    const double present_position_degrees =
-      static_cast<double>(present_position) * thing_hardware::xl330::POSITION_DEGREE_UNIT;
-
-    RCLCPP_INFO(
-      this->get_logger(), "Present Position: ID=%u, position=%d pulse (%.2f deg)",
-      static_cast<unsigned int>(motor_id_), present_position, present_position_degrees);
-    // ===============================
-
-    // ==== torque enable read ====
-    uint8_t torque_enable = 0;
-
-    const auto torque_enable_result =
-      bus_->read_one_byte(motor_id_, thing_hardware::xl330::TORQUE_ENABLE_ADDRESS, torque_enable);
-
-    if (!torque_enable_result.success) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to read Torque Enable: %s",
-        torque_enable_result.error_message.c_str());
-      return;
-    }
-
-    RCLCPP_INFO(
-      this->get_logger(), "Torque Enable: ID=%u, enabled=%s, raw=%u",
-      static_cast<unsigned int>(motor_id_), torque_enable == 1U ? "true" : "false",
-      static_cast<unsigned int>(torque_enable));
-    // ============================
-
     // ==== operating mode read ====
     uint8_t operating_mode = 0;
 
@@ -168,8 +69,9 @@ public:
     }
 
     RCLCPP_INFO(
-      this->get_logger(), "Operating Mode: ID=%u, mode=%u", static_cast<unsigned int>(motor_id_),
-      static_cast<unsigned int>(operating_mode));
+      this->get_logger(), "Operating Mode: ID=%u, raw=%u, value=%s",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(operating_mode),
+      operating_mode_name(operating_mode));
     // =============================
 
     // ==== current limit read ====
@@ -189,7 +91,7 @@ public:
       static_cast<double>(raw_current_limit) * thing_hardware::xl330::CURRENT_MILLIAMPERE_UNIT;
 
     RCLCPP_INFO(
-      this->get_logger(), "Current Limit: ID=%u, raw=%u, limit=%.1f mA",
+      this->get_logger(), "Current Limit: ID=%u, raw=%u, value=%.1f mA",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_current_limit),
       current_limit_ma);
     // ============================
@@ -211,7 +113,7 @@ public:
       static_cast<double>(raw_velocity_limit) * thing_hardware::xl330::VELOCITY_RPM_UNIT;
 
     RCLCPP_INFO(
-      this->get_logger(), "Velocity Limit: ID=%u, raw=%u, limit=%.2f rpm",
+      this->get_logger(), "Velocity Limit: ID=%u, raw=%u, value=%.2f rpm",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_velocity_limit),
       velocity_limit_rpm);
     // =============================
@@ -233,9 +135,9 @@ public:
       static_cast<double>(raw_max_position_limit) * thing_hardware::xl330::POSITION_DEGREE_UNIT;
 
     RCLCPP_INFO(
-      this->get_logger(), "Max Position Limit: ID=%u, limit=%u pulse (%.2f deg)",
+      this->get_logger(), "Max Position Limit: ID=%u, raw=%u, value=%u pulse (%.2f deg)",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_max_position_limit),
-      max_position_limit_degrees);
+      static_cast<unsigned int>(raw_max_position_limit), max_position_limit_degrees);
     // =====================================
 
     // ==== minimum position limit read ====
@@ -255,13 +157,149 @@ public:
       static_cast<double>(raw_min_position_limit) * thing_hardware::xl330::POSITION_DEGREE_UNIT;
 
     RCLCPP_INFO(
-      this->get_logger(), "Min Position Limit: ID=%u, limit=%u pulse (%.2f deg)",
+      this->get_logger(), "Min Position Limit: ID=%u, raw=%u, value=%u pulse (%.2f deg)",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_min_position_limit),
-      min_position_limit_degrees);
+      static_cast<unsigned int>(raw_min_position_limit), min_position_limit_degrees);
     // =====================================
+
+    // ==== torque enable read ====
+    uint8_t torque_enable = 0;
+
+    const auto torque_enable_result =
+      bus_->read_one_byte(motor_id_, thing_hardware::xl330::TORQUE_ENABLE_ADDRESS, torque_enable);
+
+    if (!torque_enable_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Torque Enable: %s",
+        torque_enable_result.error_message.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(), "Torque Enable: ID=%u, raw=%u, value=%s",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(torque_enable),
+      torque_enable_name(torque_enable));
+    // ============================
+
+    // ==== hardware error status read ====
+    uint8_t hardware_error_status = 0;
+
+    const auto hardware_error_result = bus_->read_one_byte(
+      motor_id_, thing_hardware::xl330::HARDWARE_ERROR_STATUS_ADDRESS, hardware_error_status);
+
+    if (!hardware_error_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Hardware Error Status: %s",
+        hardware_error_result.error_message.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(), "Hardware Error Status: ID=%u, raw=0x%02X, value=%s",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(hardware_error_status),
+      hardware_error_status == 0U ? "no_error" : "error_detected");
+    // ====================================
+
+    // ==== present position read ====
+    uint32_t raw_present_position = 0;
+
+    const auto position_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::PRESENT_POSITION_ADDRESS, raw_present_position);
+
+    if (!position_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Present Position: %s",
+        position_result.error_message.c_str());
+      return;
+    }
+
+    const int32_t present_position = static_cast<int32_t>(raw_present_position);
+
+    const double present_position_degrees =
+      static_cast<double>(present_position) * thing_hardware::xl330::POSITION_DEGREE_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Present Position: ID=%u, raw=%u, value=%d pulse (%.2f deg)",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_present_position),
+      present_position, present_position_degrees);
+    // ===============================
+
+    // ==== present input voltage read ====
+    uint16_t raw_input_voltage = 0;
+
+    const auto voltage_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::PRESENT_INPUT_VOLTAGE_ADDRESS, raw_input_voltage);
+
+    if (!voltage_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Present Input Voltage: %s",
+        voltage_result.error_message.c_str());
+      return;
+    }
+
+    const double input_voltage =
+      static_cast<double>(raw_input_voltage) * thing_hardware::xl330::INPUT_VOLTAGE_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Present Input Voltage: ID=%u, raw=%u, value=%.1f V",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_input_voltage),
+      input_voltage);
+    // ================================
+
+    // ==== present temperature read ====
+    uint8_t present_temperature = 0;
+
+    const auto temperature_result = bus_->read_one_byte(
+      motor_id_, thing_hardware::xl330::PRESENT_TEMPERATURE_ADDRESS, present_temperature);
+
+    if (!temperature_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Present Temperature: %s",
+        temperature_result.error_message.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(), "Present Temperature: ID=%u, raw=%u, value=%u degC",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(present_temperature),
+      static_cast<unsigned int>(present_temperature));
+    // ==================================
   }
 
 private:
+  static const char * torque_enable_name(uint8_t torque_enable)
+  {
+    if (torque_enable == 0U) {
+      return "disabled";
+    }
+
+    if (torque_enable == 1U) {
+      return "enabled";
+    }
+
+    return "unknown";
+  }
+
+  static const char * operating_mode_name(uint8_t operating_mode)
+  {
+    switch (operating_mode) {
+      case 0:
+        return "current";
+      case 1:
+        return "velocity";
+      case 3:
+        return "position";
+      case 4:
+        return "extended_position";
+      case 5:
+        return "current_based_position";
+      case 16:
+        return "pwm";
+      default:
+        return "unknown";
+    }
+  }
+
   std::string device_name_{
     "/dev/serial/by-id/"
     "usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"};
