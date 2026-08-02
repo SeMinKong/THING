@@ -22,12 +22,27 @@ if(BUILD_TESTING)
   # comment the line when this package is in a git repo and when
   # a copyright and license is added to all source files
   set(ament_cmake_cpplint_FOUND TRUE)
+  set(ament_cmake_uncrustify_FOUND TRUE)
   ament_lint_auto_find_test_dependencies()
 endif()
 
-add_executable(motor_validation_node src/motor_validation_node.cpp)
+add_executable(
+  motor_validation_node
+  src/motor_validation_node.cpp
+  src/dynamixel_bus.cpp
+)
 
-ament_target_dependencies(motor_validation_node rclcpp dynamixel_sdk)
+target_include_directories(
+  motor_validation_node
+  PRIVATE
+    include
+)
+
+ament_target_dependencies(
+  motor_validation_node
+  rclcpp
+  dynamixel_sdk
+)
 
 install(
   TARGETS

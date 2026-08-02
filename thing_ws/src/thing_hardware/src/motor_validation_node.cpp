@@ -2,9 +2,9 @@
 #include <memory>
 #include <string>
 
-#include "dynamixel_sdk/packet_handler.h"
-#include "dynamixel_sdk/port_handler.h"
 #include "rclcpp/rclcpp.hpp"
+#include "thing_hardware/dynamixel_bus.hpp"
+#include "thing_hardware/xl330_control_table.hpp"
 
 class MotorValidatorNode : public rclcpp::Node
 {
@@ -15,61 +15,31 @@ public:
       this->get_logger(), "Device: %s, baud rate: %d, protocol: %.1f, motor ID: %u",
       device_name_.c_str(), baud_rate_, protocol_version_, static_cast<unsigned int>(motor_id_));
 
-    // ==== port_handler_ init ====
-    port_handler_.reset(dynamixel::PortHandler::getPortHandler(device_name_.c_str()));
+    // ==== bus initialize ====
+    bus_ =
+      std::make_unique<thing_hardware::DynamixelBus>(device_name_, baud_rate_, protocol_version_);
 
-    if (!port_handler_) {
-      RCLCPP_ERROR(this->get_logger(), "Failed to create PortHandler");
-      return;
-    }
+    const auto initialize_result = bus_->initialize();
 
-    if (!port_handler_->openPort()) {
-      RCLCPP_ERROR(this->get_logger(), "Failed to open port: %s", device_name_.c_str());
-      return;
-    }
-
-    RCLCPP_INFO(this->get_logger(), "Port opened: %s", device_name_.c_str());
-
-    if (!port_handler_->setBaudRate(baud_rate_)) {
-      RCLCPP_ERROR(this->get_logger(), "Failed to set baud rate: %d", baud_rate_);
-      return;
-    }
-
-    RCLCPP_INFO(this->get_logger(), "Baud rate configured: %d", baud_rate_);
-    // ============================
-
-    // ==== packet_handler_ init ====
-    packet_handler_ = dynamixel::PacketHandler::getPacketHandler(protocol_version_);
-
-    if (!packet_handler_) {
+    if (!initialize_result.success) {
       RCLCPP_ERROR(
-        this->get_logger(), "Failed to get PacketHandler for protocol %.1f", protocol_version_);
+        this->get_logger(), "Failed to initialize DYNAMIXEL bus: %s",
+        initialize_result.error_message.c_str());
       return;
     }
 
-    RCLCPP_INFO(
-      this->get_logger(), "PacketHandler initialized for protocol %.1f",
-      packet_handler_->getProtocolVersion());
-    // ==============================
+    RCLCPP_INFO(this->get_logger(), "DYNAMIXEL bus initialized: %s", device_name_.c_str());
+    // ========================
 
     // ==== ping check ====
     uint16_t model_number = 0;
-    uint8_t dynamixel_error = 0;
 
-    const int communication_result =
-      packet_handler_->ping(port_handler_.get(), motor_id_, &model_number, &dynamixel_error);
+    const auto ping_result = bus_->ping(motor_id_, model_number);
 
-    if (communication_result != COMM_SUCCESS) {
+    if (!ping_result.success) {
       RCLCPP_ERROR(
         this->get_logger(), "Ping failed for ID %u: %s", static_cast<unsigned int>(motor_id_),
-        packet_handler_->getTxRxResult(communication_result));
-      return;
-    }
-
-    if (dynamixel_error != 0) {
-      RCLCPP_ERROR(
-        this->get_logger(), "DYNAMIXEL ID %u returned an error: %s",
-        static_cast<unsigned int>(motor_id_), packet_handler_->getRxPacketError(dynamixel_error));
+        ping_result.error_message.c_str());
       return;
     }
 
@@ -77,17 +47,24 @@ public:
       this->get_logger(), "Ping succeeded: ID=%u, model number=%u",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(model_number));
 
-    if (model_number != EXPECTED_MODEL_NUMBER) {
+    if (model_number != thing_hardware::xl330::EXPECTED_MODEL_NUMBER) {
       RCLCPP_WARN(
         this->get_logger(), "Unexpected model: expected=%u, received=%u",
-        static_cast<unsigned int>(EXPECTED_MODEL_NUMBER), static_cast<unsigned int>(model_number));
+        static_cast<unsigned int>(thing_hardware::xl330::EXPECTED_MODEL_NUMBER),
+        static_cast<unsigned int>(model_number));
     }
     // ====================
 
     // ==== hardware error status read ====
     uint8_t hardware_error_status = 0;
-    if (!read_one_byte(
-          HARDWARE_ERROR_STATUS_ADDRESS, hardware_error_status, "Hardware Error Status")) {
+
+    const auto hardware_error_result = bus_->read_one_byte(
+      motor_id_, thing_hardware::xl330::HARDWARE_ERROR_STATUS_ADDRESS, hardware_error_status);
+
+    if (!hardware_error_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Hardware Error Status: %s",
+        hardware_error_result.error_message.c_str());
       return;
     }
 
@@ -99,7 +76,13 @@ public:
     // ==== present temperature read ====
     uint8_t present_temperature = 0;
 
-    if (!read_one_byte(PRESENT_TEMPERATURE_ADDRESS, present_temperature, "Present Temperature")) {
+    const auto temperature_result = bus_->read_one_byte(
+      motor_id_, thing_hardware::xl330::PRESENT_TEMPERATURE_ADDRESS, present_temperature);
+
+    if (!temperature_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Present Temperature: %s",
+        temperature_result.error_message.c_str());
       return;
     }
 
@@ -107,37 +90,30 @@ public:
       this->get_logger(), "Present Temperature: ID=%u, temperature=%u degC",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(present_temperature));
     // ==================================
+
+    // ==== raw input voltage read ====
+    uint16_t raw_input_voltage = 0;
+
+    const auto voltage_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::PRESENT_INPUT_VOLTAGE_ADDRESS, raw_input_voltage);
+
+    if (!voltage_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Present Input Voltage: %s",
+        voltage_result.error_message.c_str());
+      return;
+    }
+
+    const double input_voltage =
+      static_cast<double>(raw_input_voltage) * thing_hardware::xl330::INPUT_VOLTAGE_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Present Input Voltage: ID=%u, voltage=%.1f V",
+      static_cast<unsigned int>(motor_id_), input_voltage);
+    // ================================
   }
 
 private:
-  static constexpr uint16_t EXPECTED_MODEL_NUMBER = 1200;
-  static constexpr uint16_t HARDWARE_ERROR_STATUS_ADDRESS = 70;
-  static constexpr uint16_t PRESENT_TEMPERATURE_ADDRESS = 146;
-
-  bool read_one_byte(uint16_t address, uint8_t & value, const std::string & item_name)
-  {
-    uint8_t dynamixel_error = 0;
-
-    const int communication_result = packet_handler_->read1ByteTxRx(
-      port_handler_.get(), motor_id_, address, &value, &dynamixel_error);
-
-    if (communication_result != COMM_SUCCESS) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to read %s: %s", item_name.c_str(),
-        packet_handler_->getTxRxResult(communication_result));
-      return false;
-    }
-
-    if (dynamixel_error != 0) {
-      RCLCPP_ERROR(
-        this->get_logger(), "DYNAMIXEL error while reading %s: %s", item_name.c_str(),
-        packet_handler_->getRxPacketError(dynamixel_error));
-      return false;
-    }
-
-    return true;
-  }
-
   std::string device_name_{
     "/dev/serial/by-id/"
     "usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"};
@@ -145,8 +121,7 @@ private:
   float protocol_version_{2.0F};
   uint8_t motor_id_{3};
 
-  std::unique_ptr<dynamixel::PortHandler> port_handler_;
-  dynamixel::PacketHandler * packet_handler_{nullptr};
+  std::unique_ptr<thing_hardware::DynamixelBus> bus_;
 };
 
 int main(int argc, char ** argv)
