@@ -111,6 +111,29 @@ public:
       this->get_logger(), "Present Input Voltage: ID=%u, voltage=%.1f V",
       static_cast<unsigned int>(motor_id_), input_voltage);
     // ================================
+
+    // ==== present position read ====
+    uint32_t raw_present_position = 0;
+
+    const auto position_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::PRESENT_POSITION_ADDRESS, raw_present_position);
+
+    if (!position_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Present Position: %s",
+        position_result.error_message.c_str());
+      return;
+    }
+
+    const int32_t present_position = static_cast<int32_t>(raw_present_position);
+
+    const double present_position_degrees =
+      static_cast<double>(present_position) * thing_hardware::xl330::POSITION_DEGREE_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Present Position: ID=%u, position=%d pulse (%.2f deg)",
+      static_cast<unsigned int>(motor_id_), present_position, present_position_degrees);
+    // ===============================
   }
 
 private:

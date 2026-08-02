@@ -18,6 +18,7 @@ inline constexpr uint16_t PRESENT_TEMPERATURE_ADDRESS = 146;
 
 inline constexpr double INPUT_VOLTAGE_UNIT = 0.1;
 inline constexpr double VELOCITY_RPM_UNIT = 0.229;
+inline constexpr double POSITION_DEGREE_UNIT = 0.088;
 
 }  // namespace thing_hardware::xl330
 
