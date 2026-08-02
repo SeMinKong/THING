@@ -8,6 +8,7 @@ namespace thing_hardware::xl330
 
 inline constexpr uint16_t EXPECTED_MODEL_NUMBER = 1200;
 
+inline constexpr uint16_t DRIVE_MODE_ADDRESS = 10;
 inline constexpr uint16_t OPERATING_MODE_ADDRESS = 11;
 inline constexpr uint16_t CURRENT_LIMIT_ADDRESS = 38;
 inline constexpr uint16_t VELOCITY_LIMIT_ADDRESS = 44;

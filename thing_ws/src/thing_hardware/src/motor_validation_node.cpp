@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -54,6 +55,25 @@ public:
         static_cast<unsigned int>(model_number));
     }
     // ====================
+
+    // ==== drive mode read ====
+    uint8_t drive_mode = 0;
+
+    const auto drive_mode_result =
+      bus_->read_one_byte(motor_id_, thing_hardware::xl330::DRIVE_MODE_ADDRESS, drive_mode);
+
+    if (!drive_mode_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Drive Mode: %s",
+        drive_mode_result.error_message.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(), "Drive Mode: ID=%u, raw=0x%02X, torque_on_by_goal_update=%s",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(drive_mode),
+      (drive_mode & 0x08U) == 0U ? "disabled" : "enabled");
+    // =========================
 
     // ==== operating mode read ====
     uint8_t operating_mode = 0;
@@ -281,6 +301,11 @@ public:
       return;
     }
 
+    if ((drive_mode & 0x08U) != 0U) {
+      RCLCPP_ERROR(this->get_logger(), "Torque On by Goal Update must be disabled for this test");
+      return;
+    }
+
     static constexpr uint16_t TEST_GOAL_CURRENT = 100;  // 100 mA
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 5;
     static constexpr uint32_t TEST_PROFILE_VELOCITY = 20;  // 약 4.58 rpm
@@ -337,20 +362,9 @@ public:
       return;
     }
 
-    const auto write_goal_position_result = bus_->write_four_bytes(
-      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS, raw_test_goal_position);
-
-    if (!write_goal_position_result.success) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to write Goal Position: %s",
-        write_goal_position_result.error_message.c_str());
-      return;
-    }
-
     uint16_t readback_goal_current = 0;
     uint32_t readback_profile_acceleration = 0;
     uint32_t readback_profile_velocity = 0;
-    uint32_t readback_goal_position = 0;
 
     const auto readback_goal_current_result = bus_->read_two_bytes(
       motor_id_, thing_hardware::xl330::GOAL_CURRENT_ADDRESS, readback_goal_current);
@@ -383,49 +397,165 @@ public:
       return;
     }
 
-    const auto readback_goal_position_result = bus_->read_four_bytes(
-      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS, readback_goal_position);
-
-    if (!readback_goal_position_result.success) {
-      RCLCPP_ERROR(
-        this->get_logger(), "Failed to read back Goal Position: %s",
-        readback_goal_position_result.error_message.c_str());
-      return;
-    }
-
     if (
       readback_goal_current != TEST_GOAL_CURRENT ||
       readback_profile_acceleration != TEST_PROFILE_ACCELERATION ||
-      readback_profile_velocity != TEST_PROFILE_VELOCITY ||
-      readback_goal_position != raw_test_goal_position) {
+      readback_profile_velocity != TEST_PROFILE_VELOCITY) {
       RCLCPP_ERROR(
         this->get_logger(),
         "Test command read-back mismatch: "
         "goal_current=%u/%u, profile_acceleration=%u/%u, "
-        "profile_velocity=%u/%u, goal_position=%u/%u",
+        "profile_velocity=%u/%u",
         static_cast<unsigned int>(readback_goal_current),
         static_cast<unsigned int>(TEST_GOAL_CURRENT),
         static_cast<unsigned int>(readback_profile_acceleration),
         static_cast<unsigned int>(TEST_PROFILE_ACCELERATION),
         static_cast<unsigned int>(readback_profile_velocity),
-        static_cast<unsigned int>(TEST_PROFILE_VELOCITY),
-        static_cast<unsigned int>(readback_goal_position),
-        static_cast<unsigned int>(raw_test_goal_position));
+        static_cast<unsigned int>(TEST_PROFILE_VELOCITY));
       return;
     }
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Test command verified: ID=%u, goal_current=%u mA, "
+      "Test profile verified: ID=%u, goal_current=%u mA, "
       "profile_acceleration=%u, profile_velocity=%u, "
-      "goal_position=%d pulse; torque remains disabled",
+      "planned_goal_position=%d pulse; torque remains disabled",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_goal_current),
       static_cast<unsigned int>(readback_profile_acceleration),
       static_cast<unsigned int>(readback_profile_velocity), test_goal_position);
+
+    const auto enable_torque_result =
+      bus_->write_one_byte(motor_id_, thing_hardware::xl330::TORQUE_ENABLE_ADDRESS, 1U);
+
+    if (!enable_torque_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to enable Torque: %s",
+        enable_torque_result.error_message.c_str());
+      return;
+    }
+
+    torque_enabled_ = true;
+
+    uint8_t readback_torque_enable = 0;
+    const auto readback_torque_result = bus_->read_one_byte(
+      motor_id_, thing_hardware::xl330::TORQUE_ENABLE_ADDRESS, readback_torque_enable);
+
+    if (!readback_torque_result.success || readback_torque_enable != 1U) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to verify Torque Enable: %s",
+        readback_torque_result.success ? "unexpected read-back value"
+                                       : readback_torque_result.error_message.c_str());
+      disable_torque();
+      return;
+    }
+
+    const auto write_goal_position_result = bus_->write_four_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS, raw_test_goal_position);
+
+    if (!write_goal_position_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Goal Position: %s",
+        write_goal_position_result.error_message.c_str());
+      disable_torque();
+      return;
+    }
+
+    uint32_t readback_goal_position = 0;
+    const auto readback_goal_position_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS, readback_goal_position);
+
+    if (
+      !readback_goal_position_result.success || readback_goal_position != raw_test_goal_position) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to verify Goal Position: received=%u, expected=%u, error=%s",
+        static_cast<unsigned int>(readback_goal_position),
+        static_cast<unsigned int>(raw_test_goal_position),
+        readback_goal_position_result.success
+          ? "none"
+          : readback_goal_position_result.error_message.c_str());
+      disable_torque();
+      return;
+    }
+
+    test_goal_position_ = test_goal_position;
+
+    RCLCPP_WARN(
+      this->get_logger(),
+      "Motion test started: ID=%u, start=%d pulse, goal=%d pulse; "
+      "torque will be disabled automatically after 2 seconds",
+      static_cast<unsigned int>(motor_id_), present_position, test_goal_position_);
+
+    motion_timer_ =
+      this->create_wall_timer(std::chrono::seconds(2), [this]() { finish_motion_test(); });
     // ====================
   }
 
+  ~MotorValidatorNode() override { disable_torque(); }
+
 private:
+  void finish_motion_test()
+  {
+    uint16_t raw_present_current = 0;
+    uint32_t raw_present_velocity = 0;
+    uint32_t raw_present_position = 0;
+
+    const auto current_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::PRESENT_CURRENT_ADDRESS, raw_present_current);
+    const auto velocity_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::PRESENT_VELOCITY_ADDRESS, raw_present_velocity);
+    const auto position_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::PRESENT_POSITION_ADDRESS, raw_present_position);
+
+    if (current_result.success && velocity_result.success && position_result.success) {
+      const int16_t present_current = static_cast<int16_t>(raw_present_current);
+      const int32_t present_velocity = static_cast<int32_t>(raw_present_velocity);
+      const int32_t present_position = static_cast<int32_t>(raw_present_position);
+      const double present_velocity_rpm =
+        static_cast<double>(present_velocity) * thing_hardware::xl330::VELOCITY_RPM_UNIT;
+
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Motion test result: ID=%u, goal=%d pulse, position=%d pulse, "
+        "current=%d mA, velocity=%.2f rpm",
+        static_cast<unsigned int>(motor_id_), test_goal_position_, present_position,
+        static_cast<int>(present_current), present_velocity_rpm);
+    } else {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Failed to read motion test result: current=%s, velocity=%s, position=%s",
+        current_result.success ? "ok" : current_result.error_message.c_str(),
+        velocity_result.success ? "ok" : velocity_result.error_message.c_str(),
+        position_result.success ? "ok" : position_result.error_message.c_str());
+    }
+
+    disable_torque();
+
+    if (motion_timer_) {
+      motion_timer_->cancel();
+    }
+  }
+
+  void disable_torque()
+  {
+    if (!torque_enabled_ || !bus_) {
+      return;
+    }
+
+    const auto result =
+      bus_->write_one_byte(motor_id_, thing_hardware::xl330::TORQUE_ENABLE_ADDRESS, 0U);
+
+    if (!result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to disable Torque: %s", result.error_message.c_str());
+      return;
+    }
+
+    torque_enabled_ = false;
+    RCLCPP_INFO(
+      this->get_logger(), "Torque disabled after motion test: ID=%u",
+      static_cast<unsigned int>(motor_id_));
+  }
+
   static const char * torque_enable_name(uint8_t torque_enable)
   {
     if (torque_enable == 0U) {
@@ -467,6 +597,9 @@ private:
   uint8_t motor_id_{3};
 
   std::unique_ptr<thing_hardware::DynamixelBus> bus_;
+  rclcpp::TimerBase::SharedPtr motion_timer_;
+  int32_t test_goal_position_{0};
+  bool torque_enabled_{false};
 };
 
 int main(int argc, char ** argv)
