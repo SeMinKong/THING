@@ -88,4 +88,34 @@ DriverResult DynamixelBus::read_four_bytes(uint8_t motor_id, uint16_t address, u
   return check_result(communication_result, dynamixel_error);
 }
 
+DriverResult DynamixelBus::write_one_byte(uint8_t motor_id, uint16_t address, uint8_t value)
+{
+  uint8_t dynamixel_error = 0;
+
+  const int communication_result = packet_handler_->write1ByteTxRx(
+    port_handler_.get(), motor_id, address, value, &dynamixel_error);
+
+  return check_result(communication_result, dynamixel_error);
+}
+
+DriverResult DynamixelBus::write_two_bytes(uint8_t motor_id, uint16_t address, uint16_t value)
+{
+  uint8_t dynamixel_error = 0;
+
+  const int communication_result = packet_handler_->write2ByteTxRx(
+    port_handler_.get(), motor_id, address, value, &dynamixel_error);
+
+  return check_result(communication_result, dynamixel_error);
+}
+
+DriverResult DynamixelBus::write_four_bytes(uint8_t motor_id, uint16_t address, uint32_t value)
+{
+  uint8_t dynamixel_error = 0;
+
+  const int communication_result = packet_handler_->write4ByteTxRx(
+    port_handler_.get(), motor_id, address, value, &dynamixel_error);
+
+  return check_result(communication_result, dynamixel_error);
+}
+
 }  // namespace thing_hardware

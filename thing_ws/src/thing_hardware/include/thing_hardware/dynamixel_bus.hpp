@@ -23,11 +23,16 @@ public:
   DynamixelBus(std::string device_name, int baud_rate, float protocol_version);
 
   DriverResult initialize();
+
   DriverResult ping(uint8_t motor_id, uint16_t & model_number);
 
   DriverResult read_one_byte(uint8_t motor_id, uint16_t address, uint8_t & value);
   DriverResult read_two_bytes(uint8_t motor_id, uint16_t address, uint16_t & value);
   DriverResult read_four_bytes(uint8_t motor_id, uint16_t address, uint32_t & value);
+
+  DriverResult write_one_byte(uint8_t motor_id, uint16_t address, uint8_t value);
+  DriverResult write_two_bytes(uint8_t motor_id, uint16_t address, uint16_t value);
+  DriverResult write_four_bytes(uint8_t motor_id, uint16_t address, uint32_t value);
 
 private:
   DriverResult check_result(int communication_result, uint8_t dynamixel_error) const;
