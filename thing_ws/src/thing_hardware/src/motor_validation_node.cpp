@@ -134,6 +134,131 @@ public:
       this->get_logger(), "Present Position: ID=%u, position=%d pulse (%.2f deg)",
       static_cast<unsigned int>(motor_id_), present_position, present_position_degrees);
     // ===============================
+
+    // ==== torque enable read ====
+    uint8_t torque_enable = 0;
+
+    const auto torque_enable_result =
+      bus_->read_one_byte(motor_id_, thing_hardware::xl330::TORQUE_ENABLE_ADDRESS, torque_enable);
+
+    if (!torque_enable_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Torque Enable: %s",
+        torque_enable_result.error_message.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(), "Torque Enable: ID=%u, enabled=%s, raw=%u",
+      static_cast<unsigned int>(motor_id_), torque_enable == 1U ? "true" : "false",
+      static_cast<unsigned int>(torque_enable));
+    // ============================
+
+    // ==== operating mode read ====
+    uint8_t operating_mode = 0;
+
+    const auto operating_mode_result =
+      bus_->read_one_byte(motor_id_, thing_hardware::xl330::OPERATING_MODE_ADDRESS, operating_mode);
+
+    if (!operating_mode_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Operating Mode: %s",
+        operating_mode_result.error_message.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(), "Operating Mode: ID=%u, mode=%u", static_cast<unsigned int>(motor_id_),
+      static_cast<unsigned int>(operating_mode));
+    // =============================
+
+    // ==== current limit read ====
+    uint16_t raw_current_limit = 0;
+
+    const auto current_limit_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::CURRENT_LIMIT_ADDRESS, raw_current_limit);
+
+    if (!current_limit_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Current Limit: %s",
+        current_limit_result.error_message.c_str());
+      return;
+    }
+
+    const double current_limit_ma =
+      static_cast<double>(raw_current_limit) * thing_hardware::xl330::CURRENT_MILLIAMPERE_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Current Limit: ID=%u, raw=%u, limit=%.1f mA",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_current_limit),
+      current_limit_ma);
+    // ============================
+
+    // ==== velocity limit read ====
+    uint32_t raw_velocity_limit = 0;
+
+    const auto velocity_limit_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::VELOCITY_LIMIT_ADDRESS, raw_velocity_limit);
+
+    if (!velocity_limit_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Velocity Limit: %s",
+        velocity_limit_result.error_message.c_str());
+      return;
+    }
+
+    const double velocity_limit_rpm =
+      static_cast<double>(raw_velocity_limit) * thing_hardware::xl330::VELOCITY_RPM_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Velocity Limit: ID=%u, raw=%u, limit=%.2f rpm",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_velocity_limit),
+      velocity_limit_rpm);
+    // =============================
+
+    // ==== maximum position limit read ====
+    uint32_t raw_max_position_limit = 0;
+
+    const auto max_position_limit_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::MAX_POSITION_LIMIT_ADDRESS, raw_max_position_limit);
+
+    if (!max_position_limit_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Max Position Limit: %s",
+        max_position_limit_result.error_message.c_str());
+      return;
+    }
+
+    const double max_position_limit_degrees =
+      static_cast<double>(raw_max_position_limit) * thing_hardware::xl330::POSITION_DEGREE_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Max Position Limit: ID=%u, limit=%u pulse (%.2f deg)",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_max_position_limit),
+      max_position_limit_degrees);
+    // =====================================
+
+    // ==== minimum position limit read ====
+    uint32_t raw_min_position_limit = 0;
+
+    const auto min_position_limit_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::MIN_POSITION_LIMIT_ADDRESS, raw_min_position_limit);
+
+    if (!min_position_limit_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Min Position Limit: %s",
+        min_position_limit_result.error_message.c_str());
+      return;
+    }
+
+    const double min_position_limit_degrees =
+      static_cast<double>(raw_min_position_limit) * thing_hardware::xl330::POSITION_DEGREE_UNIT;
+
+    RCLCPP_INFO(
+      this->get_logger(), "Min Position Limit: ID=%u, limit=%u pulse (%.2f deg)",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(raw_min_position_limit),
+      min_position_limit_degrees);
+    // =====================================
   }
 
 private:
