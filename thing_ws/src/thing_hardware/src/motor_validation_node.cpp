@@ -264,6 +264,165 @@ public:
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(present_temperature),
       static_cast<unsigned int>(present_temperature));
     // ==================================
+
+    // ==== write test ====
+    if (operating_mode != 5U) {
+      RCLCPP_ERROR(this->get_logger(), "Expected Current-based Position Control Mode");
+      return;
+    }
+
+    if (torque_enable != 0U) {
+      RCLCPP_ERROR(this->get_logger(), "Torque must be disabled before test setup");
+      return;
+    }
+
+    if (hardware_error_status != 0U) {
+      RCLCPP_ERROR(this->get_logger(), "Hardware error detected");
+      return;
+    }
+
+    static constexpr uint16_t TEST_GOAL_CURRENT = 100;  // 100 mA
+    static constexpr uint32_t TEST_PROFILE_ACCELERATION = 5;
+    static constexpr uint32_t TEST_PROFILE_VELOCITY = 20;  // 약 4.58 rpm
+    static constexpr int32_t TEST_POSITION_DELTA = 30;
+
+    if (TEST_GOAL_CURRENT > raw_current_limit) {
+      RCLCPP_ERROR(this->get_logger(), "Test Goal Current exceeds Current Limit");
+      return;
+    }
+
+    if (TEST_PROFILE_VELOCITY > raw_velocity_limit) {
+      RCLCPP_ERROR(this->get_logger(), "Test Profile Velocity exceeds Velocity Limit");
+      return;
+    }
+
+    const int32_t test_goal_position = present_position + TEST_POSITION_DELTA;
+
+    if (
+      test_goal_position < static_cast<int32_t>(raw_min_position_limit) ||
+      test_goal_position > static_cast<int32_t>(raw_max_position_limit)) {
+      RCLCPP_ERROR(this->get_logger(), "Test goal position is outside configured limits");
+      return;
+    }
+
+    const uint32_t raw_test_goal_position = static_cast<uint32_t>(test_goal_position);
+
+    const auto write_goal_current_result = bus_->write_two_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_CURRENT_ADDRESS, TEST_GOAL_CURRENT);
+
+    if (!write_goal_current_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Goal Current: %s",
+        write_goal_current_result.error_message.c_str());
+      return;
+    }
+
+    const auto write_profile_acceleration_result = bus_->write_four_bytes(
+      motor_id_, thing_hardware::xl330::PROFILE_ACCELERATION_ADDRESS, TEST_PROFILE_ACCELERATION);
+
+    if (!write_profile_acceleration_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Profile Acceleration: %s",
+        write_profile_acceleration_result.error_message.c_str());
+      return;
+    }
+
+    const auto write_profile_velocity_result = bus_->write_four_bytes(
+      motor_id_, thing_hardware::xl330::PROFILE_VELOCITY_ADDRESS, TEST_PROFILE_VELOCITY);
+
+    if (!write_profile_velocity_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Profile Velocity: %s",
+        write_profile_velocity_result.error_message.c_str());
+      return;
+    }
+
+    const auto write_goal_position_result = bus_->write_four_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS, raw_test_goal_position);
+
+    if (!write_goal_position_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Goal Position: %s",
+        write_goal_position_result.error_message.c_str());
+      return;
+    }
+
+    uint16_t readback_goal_current = 0;
+    uint32_t readback_profile_acceleration = 0;
+    uint32_t readback_profile_velocity = 0;
+    uint32_t readback_goal_position = 0;
+
+    const auto readback_goal_current_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_CURRENT_ADDRESS, readback_goal_current);
+
+    if (!readback_goal_current_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read back Goal Current: %s",
+        readback_goal_current_result.error_message.c_str());
+      return;
+    }
+
+    const auto readback_profile_acceleration_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::PROFILE_ACCELERATION_ADDRESS,
+      readback_profile_acceleration);
+
+    if (!readback_profile_acceleration_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read back Profile Acceleration: %s",
+        readback_profile_acceleration_result.error_message.c_str());
+      return;
+    }
+
+    const auto readback_profile_velocity_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::PROFILE_VELOCITY_ADDRESS, readback_profile_velocity);
+
+    if (!readback_profile_velocity_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read back Profile Velocity: %s",
+        readback_profile_velocity_result.error_message.c_str());
+      return;
+    }
+
+    const auto readback_goal_position_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS, readback_goal_position);
+
+    if (!readback_goal_position_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read back Goal Position: %s",
+        readback_goal_position_result.error_message.c_str());
+      return;
+    }
+
+    if (
+      readback_goal_current != TEST_GOAL_CURRENT ||
+      readback_profile_acceleration != TEST_PROFILE_ACCELERATION ||
+      readback_profile_velocity != TEST_PROFILE_VELOCITY ||
+      readback_goal_position != raw_test_goal_position) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Test command read-back mismatch: "
+        "goal_current=%u/%u, profile_acceleration=%u/%u, "
+        "profile_velocity=%u/%u, goal_position=%u/%u",
+        static_cast<unsigned int>(readback_goal_current),
+        static_cast<unsigned int>(TEST_GOAL_CURRENT),
+        static_cast<unsigned int>(readback_profile_acceleration),
+        static_cast<unsigned int>(TEST_PROFILE_ACCELERATION),
+        static_cast<unsigned int>(readback_profile_velocity),
+        static_cast<unsigned int>(TEST_PROFILE_VELOCITY),
+        static_cast<unsigned int>(readback_goal_position),
+        static_cast<unsigned int>(raw_test_goal_position));
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(),
+      "Test command verified: ID=%u, goal_current=%u mA, "
+      "profile_acceleration=%u, profile_velocity=%u, "
+      "goal_position=%d pulse; torque remains disabled",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_goal_current),
+      static_cast<unsigned int>(readback_profile_acceleration),
+      static_cast<unsigned int>(readback_profile_velocity), test_goal_position);
+    // ====================
   }
 
 private:
