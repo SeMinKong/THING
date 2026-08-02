@@ -9,8 +9,12 @@ camera_node:
 mediapipe_node:
   ros__parameters:
     max_num_hands: 1
+    model_complexity: 0
     min_detection_confidence: 0.6
     min_tracking_confidence: 0.6
+    input_is_mirrored: false
+    input_timeout_ms: 1000
+    diagnostics_rate_hz: 1.0
 
 hand_target_node:
   ros__parameters:
