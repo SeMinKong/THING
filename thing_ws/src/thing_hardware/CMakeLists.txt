@@ -38,6 +38,12 @@ add_executable(
   src/dynamixel_bus.cpp
 )
 
+add_executable(
+  thumb_calibration_node
+  src/thumb_calibration_node.cpp
+  src/dynamixel_bus.cpp
+)
+
 target_include_directories(
   motor_validation_node
   PRIVATE
@@ -46,6 +52,12 @@ target_include_directories(
 
 target_include_directories(
   motor_home_calibration_node
+  PRIVATE
+    include
+)
+
+target_include_directories(
+  thumb_calibration_node
   PRIVATE
     include
 )
@@ -58,6 +70,12 @@ ament_target_dependencies(
 
 ament_target_dependencies(
   motor_home_calibration_node
+  rclcpp
+  dynamixel_sdk
+)
+
+ament_target_dependencies(
+  thumb_calibration_node
   rclcpp
   dynamixel_sdk
 )
@@ -66,6 +84,7 @@ install(
   TARGETS
     motor_home_calibration_node
     motor_validation_node
+    thumb_calibration_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
