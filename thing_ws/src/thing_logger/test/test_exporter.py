@@ -10,9 +10,15 @@ import pytest
 from thing_logger.exporter import ExportJob
 from thing_logger.exporter import ExportValidationError
 from thing_logger.exporter import RosbagSessionReader
+from thing_logger.exporter import SessionExporter
+from thing_logger.exporter import BagRecord
+from thing_logger.exporter import build_metadata
+from thing_logger.exporter import calculate_content_digest
+from thing_logger.exporter import inspect_export_file
 from thing_logger.exporter import validate_export_job
 from thing_logger.exporter import write_hand_command_csv
 from thing_logger.exporter import write_landmark_json
+from thing_logger.exporter import write_metadata_json
 from thing_logger.exporter import write_motor_status_csv
 from thing_logger.bag_recorder import TOPIC_TYPES
 from thing_logger.export_schema import HAND_COMMAND_HEADER
@@ -136,6 +142,60 @@ def make_landmarks(**overrides):
     }
     values.update(overrides)
     return SimpleNamespace(**values)
+
+
+def make_recording_state(state, session_id=123):
+    """변환 생명주기를 확인할 기록 상태 테스트 객체를 만든다."""
+    return SimpleNamespace(
+        header=SimpleNamespace(
+            stamp=SimpleNamespace(
+                sec=20 if state == 3 else 10,
+                nanosec=0,
+            ),
+        ),
+        state=state,
+        active_session_id=session_id,
+        active_started_at=SimpleNamespace(sec=10, nanosec=0),
+    )
+
+
+class FakeSessionReader:
+    """미리 준비한 역직렬화 메시지를 반환하는 session reader다."""
+
+    def __init__(self, records):
+        """반환할 기록 목록을 저장한다."""
+        self.records = records
+
+    def iter_records(self, bag_path):
+        """저장된 기록을 입력 순서대로 반환한다."""
+        yield from self.records
+
+
+def make_complete_bag_records():
+    """정상 완료 세션의 최소 export 입력을 만든다."""
+    return [
+        BagRecord(
+            '/thing/recording_state',
+            make_recording_state(2),
+            10_000_000_000,
+        ),
+        BagRecord('/thing/command', make_hand_command(), 10_250_000_000),
+        BagRecord(
+            '/thing/motor_status',
+            make_motor_status(),
+            10_500_000_000,
+        ),
+        BagRecord(
+            '/thing/landmarks',
+            make_landmarks(),
+            10_750_000_000,
+        ),
+        BagRecord(
+            '/thing/recording_state',
+            make_recording_state(3),
+            20_000_000_000,
+        ),
+    ]
 
 
 @pytest.mark.parametrize('result', ['SUCCESS', 'FAILURE'])
@@ -482,7 +542,7 @@ def test_landmark_json_allows_empty_data(tmp_path):
     )
 
     assert row_count == 0
-    assert output_path.read_text(encoding='utf-8') == '[]\n'
+    assert output_path.read_text(encoding='utf-8') == '[\n]\n'
 
 
 @pytest.mark.parametrize(
@@ -510,3 +570,245 @@ def test_landmark_json_rejects_invalid_values(
             started_at_ns=10_000_000_000,
             messages=[make_landmarks(**overrides)],
         )
+
+
+def make_file_infos(tmp_path):
+    """세 canonical 파일의 metadata 테스트 정보를 만든다."""
+    infos = {}
+    for file_kind in ('hand_command', 'motor_status', 'landmark'):
+        path = tmp_path / f'session_123_{file_kind}.data.part'
+        path.write_bytes(file_kind.encode('utf-8'))
+        infos[file_kind] = inspect_export_file(path, row_count=1)
+    return infos
+
+
+def test_inspect_export_file_calculates_size_and_sha256(tmp_path):
+    """파일의 실제 byte 크기와 SHA-256을 계산한다."""
+    path = tmp_path / 'session_123_hand_command.csv.part'
+    path.write_bytes(b'abc')
+
+    info = inspect_export_file(path, row_count=7)
+
+    assert info.path == str(path)
+    assert info.filename == 'session_123_hand_command.csv'
+    assert info.size_bytes == 3
+    assert info.row_count == 7
+    assert info.sha256 == (
+        'ba7816bf8f01cfea414140de5dae2223'
+        'b00361a396177a9cb410ff61f20015ad'
+    )
+
+
+def test_build_metadata_uses_three_data_files_and_canonical_digest(tmp_path):
+    """metadata에 세 데이터 파일 정보와 canonical digest를 기록한다."""
+    files = make_file_infos(tmp_path)
+
+    metadata = build_metadata(
+        robot_id='THING-001',
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        ended_at_ns=20_000_000_000,
+        exported_at_ns=21_000_000_000,
+        result='SUCCESS',
+        time_sync=True,
+        files=files,
+    )
+
+    assert metadata['session_id'] == '123'
+    assert metadata['started_at'] == '1970-01-01T00:00:10.000Z'
+    assert metadata['ended_at'] == '1970-01-01T00:00:20.000Z'
+    assert tuple(metadata['files']) == (
+        'hand_command', 'motor_status', 'landmark',
+    )
+    assert metadata['content_digest'].startswith('sha256:')
+    assert len(metadata['content_digest']) == 71
+    assert metadata['content_digest'] == calculate_content_digest(metadata)
+
+
+def test_content_digest_ignores_export_time_but_detects_content_change(
+    tmp_path,
+):
+    """변환 시각은 무시하고 데이터 hash 또는 판정 변경은 감지한다."""
+    files = make_file_infos(tmp_path)
+    base = build_metadata(
+        robot_id='THING-001',
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        ended_at_ns=20_000_000_000,
+        exported_at_ns=21_000_000_000,
+        result='SUCCESS',
+        time_sync=True,
+        files=files,
+    )
+    later = build_metadata(
+        robot_id='THING-001',
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        ended_at_ns=20_000_000_000,
+        exported_at_ns=30_000_000_000,
+        result='SUCCESS',
+        time_sync=True,
+        files=files,
+    )
+    failure = build_metadata(
+        robot_id='THING-001',
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        ended_at_ns=20_000_000_000,
+        exported_at_ns=30_000_000_000,
+        result='FAILURE',
+        time_sync=True,
+        files=files,
+    )
+
+    assert base['content_digest'] == later['content_digest']
+    assert base['content_digest'] != failure['content_digest']
+
+
+def test_write_metadata_json_preserves_schema_order(tmp_path):
+    """JSON metadata를 schema 순서와 compact UTF-8 형식으로 쓴다."""
+    metadata = build_metadata(
+        robot_id='THING-001',
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        ended_at_ns=20_000_000_000,
+        exported_at_ns=21_000_000_000,
+        result='SUCCESS',
+        time_sync=True,
+        files=make_file_infos(tmp_path),
+    )
+    path = tmp_path / 'metadata.json.part'
+
+    write_metadata_json(path, metadata)
+
+    parsed = json.loads(path.read_text(encoding='utf-8'))
+    assert tuple(parsed) == tuple(metadata)
+    assert parsed == metadata
+
+
+def test_session_exporter_atomically_exposes_four_valid_files(tmp_path):
+    """정상 완료 bag은 검증된 canonical 4파일 디렉터리로 노출한다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    export_root = tmp_path / 'tmp-upload'
+    exporter = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(make_complete_bag_records()),
+        clock_ns=lambda: 21_000_000_000,
+    )
+
+    result = exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    final_directory = export_root / '123'
+    assert result.session_id == 123
+    assert result.directory == str(final_directory)
+    assert set(result.files) == {
+        'metadata', 'hand_command', 'motor_status', 'landmark',
+    }
+    assert {path.name for path in final_directory.iterdir()} == {
+        'session_123_metadata.json',
+        'session_123_hand_command.csv',
+        'session_123_motor_status.csv',
+        'session_123_landmark.json',
+    }
+    assert not (export_root / '.123.part').exists()
+    assert not list(final_directory.glob('*.part'))
+
+    metadata = json.loads(
+        (final_directory / 'session_123_metadata.json').read_text(
+            encoding='utf-8',
+        )
+    )
+    assert result.content_digest == metadata['content_digest']
+    assert metadata['files']['hand_command']['row_count'] == 1
+    assert metadata['files']['motor_status']['row_count'] == 7
+    assert metadata['files']['landmark']['row_count'] == 1
+
+
+def test_session_exporter_produces_same_digest_for_same_content(tmp_path):
+    """같은 완료 bag과 판정은 변환 시각이 달라도 같은 digest를 만든다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    first = SessionExporter(
+        'THING-001',
+        str(tmp_path / 'first'),
+        reader=FakeSessionReader(make_complete_bag_records()),
+        clock_ns=lambda: 21_000_000_000,
+    ).export(ExportJob(str(bag_path), 'SUCCESS'))
+    second = SessionExporter(
+        'THING-001',
+        str(tmp_path / 'second'),
+        reader=FakeSessionReader(make_complete_bag_records()),
+        clock_ns=lambda: 30_000_000_000,
+    ).export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    assert first.content_digest == second.content_digest
+
+
+def test_session_exporter_cleans_staging_after_invalid_landmarks(tmp_path):
+    """좌표 계약 위반 시 staging과 최종 파일을 모두 노출하지 않는다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    records = make_complete_bag_records()
+    records[3] = BagRecord(
+        '/thing/landmarks',
+        make_landmarks(landmarks=[]),
+        10_750_000_000,
+    )
+    export_root = tmp_path / 'tmp-upload'
+    exporter = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(records),
+        clock_ns=lambda: 21_000_000_000,
+    )
+
+    with pytest.raises(ExportValidationError, match='exactly 21'):
+        exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    assert not (export_root / '.123.part').exists()
+    assert not (export_root / '123').exists()
+
+
+def test_session_exporter_rejects_incomplete_recording_lifecycle(tmp_path):
+    """정상 RECORDING·STOPPING 흐름이 없는 bag을 공개하지 않는다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    records = make_complete_bag_records()[:-1]
+    export_root = tmp_path / 'tmp-upload'
+    exporter = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(records),
+        clock_ns=lambda: 21_000_000_000,
+    )
+
+    with pytest.raises(ExportValidationError, match='lifecycle is missing'):
+        exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    assert not (export_root / '.123.part').exists()
+    assert not (export_root / '123').exists()
+
+
+def test_session_exporter_never_overwrites_existing_final_directory(
+    tmp_path,
+):
+    """같은 Session ID의 기존 완료 디렉터리를 덮어쓰지 않는다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    export_root = tmp_path / 'tmp-upload'
+    final_directory = export_root / '123'
+    final_directory.mkdir(parents=True)
+    marker = final_directory / 'existing'
+    marker.write_text('keep', encoding='utf-8')
+    exporter = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(make_complete_bag_records()),
+    )
+
+    with pytest.raises(ExportValidationError, match='already exists'):
+        exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    assert marker.read_text(encoding='utf-8') == 'keep'
