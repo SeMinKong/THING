@@ -578,6 +578,8 @@ public:
 
 private:
   static constexpr int64_t POSITION_TOLERANCE = 5;
+  static constexpr int64_t SETTLED_VELOCITY_RAW = 1;
+  static constexpr uint8_t REQUIRED_SETTLED_SAMPLES = 3;
   static constexpr uint16_t RETURN_POSITION_I_GAIN = 30;
   static constexpr std::chrono::seconds MOTION_TIMEOUT{6};
 
@@ -633,6 +635,18 @@ private:
     const int64_t position_error =
       static_cast<int64_t>(test_goal_position_) - static_cast<int64_t>(present_position);
     const int64_t absolute_position_error = position_error >= 0 ? position_error : -position_error;
+    const int64_t velocity = static_cast<int64_t>(present_velocity);
+    const int64_t absolute_velocity = velocity >= 0 ? velocity : -velocity;
+    const bool profile_ongoing = (moving_status & 0x02U) != 0U;
+
+    if (!profile_ongoing && absolute_velocity <= SETTLED_VELOCITY_RAW) {
+      if (settled_sample_count_ < REQUIRED_SETTLED_SAMPLES) {
+        ++settled_sample_count_;
+      }
+    } else {
+      settled_sample_count_ = 0;
+    }
+
     const double present_velocity_rpm =
       static_cast<double>(present_velocity) * thing_hardware::xl330::VELOCITY_RPM_UNIT;
     const double present_pwm_percent =
@@ -644,12 +658,13 @@ private:
       this->get_logger(),
       "Motion monitoring: phase=%s, ID=%u, elapsed=%ld ms, goal=%d, trajectory=%d, position=%d, "
       "error=%ld pulse, moving_status=0x%02X, profile_ongoing=%s, in_position=%s, "
-      "pwm=%d (%.2f%%), current=%d mA, velocity=%.2f rpm",
+      "settled=%u/%u, pwm=%d (%.2f%%), current=%d mA, velocity=%.2f rpm",
       return_motion_started_ ? "return" : "forward", static_cast<unsigned int>(motor_id_),
       static_cast<long>(elapsed_ms), test_goal_position_, position_trajectory, present_position,
       static_cast<long>(absolute_position_error), static_cast<unsigned int>(moving_status),
-      (moving_status & 0x02U) != 0U ? "true" : "false",
-      (moving_status & 0x01U) != 0U ? "true" : "false", static_cast<int>(present_pwm),
+      profile_ongoing ? "true" : "false", (moving_status & 0x01U) != 0U ? "true" : "false",
+      static_cast<unsigned int>(settled_sample_count_),
+      static_cast<unsigned int>(REQUIRED_SETTLED_SAMPLES), static_cast<int>(present_pwm),
       present_pwm_percent, static_cast<int>(present_current), present_velocity_rpm);
 
     if (hardware_error_status != 0U) {
@@ -660,11 +675,13 @@ private:
       return;
     }
 
-    if (absolute_position_error <= POSITION_TOLERANCE) {
+    if (settled_sample_count_ >= REQUIRED_SETTLED_SAMPLES) {
       RCLCPP_INFO(
-        this->get_logger(), "%s motion target reached: goal=%d, position=%d, error=%ld pulse",
+        this->get_logger(),
+        "%s motion settled: goal=%d, position=%d, error=%ld pulse, precision=%s",
         return_motion_started_ ? "Return" : "Forward", test_goal_position_, present_position,
-        static_cast<long>(absolute_position_error));
+        static_cast<long>(absolute_position_error),
+        absolute_position_error <= POSITION_TOLERANCE ? "passed" : "not_reached");
 
       if (!return_motion_started_) {
         if (!start_return_motion()) {
@@ -752,6 +769,7 @@ private:
 
     return_motion_started_ = true;
     test_goal_position_ = start_position_;
+    settled_sample_count_ = 0;
     motion_start_time_ = std::chrono::steady_clock::now();
 
     RCLCPP_WARN(
@@ -841,6 +859,7 @@ private:
   std::chrono::steady_clock::time_point motion_start_time_;
   int32_t start_position_{0};
   int32_t test_goal_position_{0};
+  uint8_t settled_sample_count_{0};
   bool return_motion_started_{false};
   bool torque_enabled_{false};
 };
