@@ -182,6 +182,35 @@ public:
       static_cast<unsigned int>(raw_min_position_limit), min_position_limit_degrees);
     // =====================================
 
+    // ==== position gain read ====
+    uint16_t position_d_gain = 0;
+    uint16_t position_i_gain = 0;
+    uint16_t position_p_gain = 0;
+
+    const auto position_d_gain_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_D_GAIN_ADDRESS, position_d_gain);
+    const auto position_i_gain_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, position_i_gain);
+    const auto position_p_gain_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_P_GAIN_ADDRESS, position_p_gain);
+
+    if (
+      !position_d_gain_result.success || !position_i_gain_result.success ||
+      !position_p_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read Position Gain: d=%s, i=%s, p=%s",
+        position_d_gain_result.success ? "ok" : position_d_gain_result.error_message.c_str(),
+        position_i_gain_result.success ? "ok" : position_i_gain_result.error_message.c_str(),
+        position_p_gain_result.success ? "ok" : position_p_gain_result.error_message.c_str());
+      return;
+    }
+
+    RCLCPP_INFO(
+      this->get_logger(), "Position Gain: ID=%u, d=%u, i=%u, p=%u",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(position_d_gain),
+      static_cast<unsigned int>(position_i_gain), static_cast<unsigned int>(position_p_gain));
+    // ============================
+
     // ==== torque enable read ====
     uint8_t torque_enable = 0;
 
@@ -500,51 +529,72 @@ private:
   void monitor_motion_test()
   {
     uint8_t hardware_error_status = 0;
+    uint8_t moving_status = 0;
+    uint16_t raw_present_pwm = 0;
     uint16_t raw_present_current = 0;
     uint32_t raw_present_velocity = 0;
     uint32_t raw_present_position = 0;
+    uint32_t raw_position_trajectory = 0;
 
     const auto hardware_error_result = bus_->read_one_byte(
       motor_id_, thing_hardware::xl330::HARDWARE_ERROR_STATUS_ADDRESS, hardware_error_status);
+    const auto moving_status_result =
+      bus_->read_one_byte(motor_id_, thing_hardware::xl330::MOVING_STATUS_ADDRESS, moving_status);
+    const auto pwm_result =
+      bus_->read_two_bytes(motor_id_, thing_hardware::xl330::PRESENT_PWM_ADDRESS, raw_present_pwm);
     const auto current_result = bus_->read_two_bytes(
       motor_id_, thing_hardware::xl330::PRESENT_CURRENT_ADDRESS, raw_present_current);
     const auto velocity_result = bus_->read_four_bytes(
       motor_id_, thing_hardware::xl330::PRESENT_VELOCITY_ADDRESS, raw_present_velocity);
     const auto position_result = bus_->read_four_bytes(
       motor_id_, thing_hardware::xl330::PRESENT_POSITION_ADDRESS, raw_present_position);
+    const auto trajectory_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_TRAJECTORY_ADDRESS, raw_position_trajectory);
 
     if (
-      !hardware_error_result.success || !current_result.success || !velocity_result.success ||
-      !position_result.success) {
+      !hardware_error_result.success || !moving_status_result.success || !pwm_result.success ||
+      !current_result.success || !velocity_result.success || !position_result.success ||
+      !trajectory_result.success) {
       RCLCPP_ERROR(
         this->get_logger(),
-        "Failed to monitor motion test: hardware_error=%s, current=%s, velocity=%s, position=%s",
+        "Failed to monitor motion test: hardware_error=%s, moving_status=%s, pwm=%s, "
+        "current=%s, velocity=%s, position=%s, trajectory=%s",
         hardware_error_result.success ? "ok" : hardware_error_result.error_message.c_str(),
+        moving_status_result.success ? "ok" : moving_status_result.error_message.c_str(),
+        pwm_result.success ? "ok" : pwm_result.error_message.c_str(),
         current_result.success ? "ok" : current_result.error_message.c_str(),
         velocity_result.success ? "ok" : velocity_result.error_message.c_str(),
-        position_result.success ? "ok" : position_result.error_message.c_str());
+        position_result.success ? "ok" : position_result.error_message.c_str(),
+        trajectory_result.success ? "ok" : trajectory_result.error_message.c_str());
       stop_motion_test();
       return;
     }
 
+    const int16_t present_pwm = static_cast<int16_t>(raw_present_pwm);
     const int16_t present_current = static_cast<int16_t>(raw_present_current);
     const int32_t present_velocity = static_cast<int32_t>(raw_present_velocity);
     const int32_t present_position = static_cast<int32_t>(raw_present_position);
+    const int32_t position_trajectory = static_cast<int32_t>(raw_position_trajectory);
     const int64_t position_error =
       static_cast<int64_t>(test_goal_position_) - static_cast<int64_t>(present_position);
     const int64_t absolute_position_error = position_error >= 0 ? position_error : -position_error;
     const double present_velocity_rpm =
       static_cast<double>(present_velocity) * thing_hardware::xl330::VELOCITY_RPM_UNIT;
+    const double present_pwm_percent =
+      static_cast<double>(present_pwm) * thing_hardware::xl330::PWM_PERCENT_UNIT;
     const auto elapsed = std::chrono::steady_clock::now() - motion_start_time_;
     const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count();
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Motion monitoring: ID=%u, elapsed=%ld ms, goal=%d, position=%d, error=%ld pulse, "
-      "current=%d mA, velocity=%.2f rpm",
+      "Motion monitoring: ID=%u, elapsed=%ld ms, goal=%d, trajectory=%d, position=%d, "
+      "error=%ld pulse, moving_status=0x%02X, profile_ongoing=%s, in_position=%s, "
+      "pwm=%d (%.2f%%), current=%d mA, velocity=%.2f rpm",
       static_cast<unsigned int>(motor_id_), static_cast<long>(elapsed_ms), test_goal_position_,
-      present_position, static_cast<long>(absolute_position_error),
-      static_cast<int>(present_current), present_velocity_rpm);
+      position_trajectory, present_position, static_cast<long>(absolute_position_error),
+      static_cast<unsigned int>(moving_status), (moving_status & 0x02U) != 0U ? "true" : "false",
+      (moving_status & 0x01U) != 0U ? "true" : "false", static_cast<int>(present_pwm),
+      present_pwm_percent, static_cast<int>(present_current), present_velocity_rpm);
 
     if (hardware_error_status != 0U) {
       RCLCPP_ERROR(
