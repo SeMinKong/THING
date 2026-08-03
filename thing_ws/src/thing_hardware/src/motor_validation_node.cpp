@@ -340,6 +340,7 @@ public:
     static constexpr uint16_t TEST_POSITION_I_GAIN = 30;
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 50;
     static constexpr uint32_t TEST_PROFILE_VELOCITY = 200;  // 약 45.80 rpm
+    static constexpr int32_t TEST_HOME_POSITION = 750;
     static constexpr int32_t TEST_POSITION_DELTA = 2300;
 
     if (TEST_GOAL_CURRENT > raw_current_limit) {
@@ -352,7 +353,7 @@ public:
       return;
     }
 
-    const int32_t test_goal_position = present_position + TEST_POSITION_DELTA;
+    const int32_t test_goal_position = TEST_HOME_POSITION + TEST_POSITION_DELTA;
 
     if (
       test_goal_position < static_cast<int32_t>(raw_min_position_limit) ||
@@ -558,14 +559,14 @@ public:
       return;
     }
 
-    start_position_ = present_position;
+    start_position_ = TEST_HOME_POSITION;
     test_goal_position_ = test_goal_position;
 
     RCLCPP_WARN(
       this->get_logger(),
-      "Forward motion test started: ID=%u, start=%d pulse, goal=%d pulse; "
+      "Forward motion test started: ID=%u, current=%d pulse, home=%d pulse, goal=%d pulse; "
       "monitoring every 100 ms with a %ld second timeout",
-      static_cast<unsigned int>(motor_id_), present_position, test_goal_position_,
+      static_cast<unsigned int>(motor_id_), present_position, start_position_, test_goal_position_,
       static_cast<long>(MOTION_TIMEOUT.count()));
 
     motion_start_time_ = std::chrono::steady_clock::now();
