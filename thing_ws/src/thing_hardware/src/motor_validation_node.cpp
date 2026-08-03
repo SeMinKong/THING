@@ -578,6 +578,7 @@ public:
 
 private:
   static constexpr int64_t POSITION_TOLERANCE = 5;
+  static constexpr uint16_t RETURN_POSITION_I_GAIN = 0;
   static constexpr std::chrono::seconds MOTION_TIMEOUT{6};
 
   void monitor_motion_test()
@@ -699,6 +700,30 @@ private:
 
   bool start_return_motion()
   {
+    const auto write_i_gain_result = bus_->write_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, RETURN_POSITION_I_GAIN);
+
+    if (!write_i_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write return Position I Gain: %s",
+        write_i_gain_result.error_message.c_str());
+      return false;
+    }
+
+    uint16_t readback_i_gain = 0;
+    const auto readback_i_gain_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, readback_i_gain);
+
+    if (!readback_i_gain_result.success || readback_i_gain != RETURN_POSITION_I_GAIN) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Failed to verify return Position I Gain: received=%u, expected=%u, error=%s",
+        static_cast<unsigned int>(readback_i_gain),
+        static_cast<unsigned int>(RETURN_POSITION_I_GAIN),
+        readback_i_gain_result.success ? "none" : readback_i_gain_result.error_message.c_str());
+      return false;
+    }
+
     const auto write_result = bus_->write_four_bytes(
       motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS,
       static_cast<uint32_t>(start_position_));
@@ -731,9 +756,10 @@ private:
 
     RCLCPP_WARN(
       this->get_logger(),
-      "Return motion test started: ID=%u, goal=%d pulse; monitoring with a %ld second timeout",
-      static_cast<unsigned int>(motor_id_), test_goal_position_,
-      static_cast<long>(MOTION_TIMEOUT.count()));
+      "Return motion test started: ID=%u, position_i_gain=%u, goal=%d pulse; "
+      "monitoring with a %ld second timeout",
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_i_gain),
+      test_goal_position_, static_cast<long>(MOTION_TIMEOUT.count()));
     return true;
   }
 
