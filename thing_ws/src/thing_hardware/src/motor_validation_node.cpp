@@ -336,6 +336,7 @@ public:
     }
 
     static constexpr uint16_t TEST_GOAL_CURRENT = 500;  // 500 mA
+    static constexpr uint16_t TEST_POSITION_P_GAIN = 300;
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 5;
     static constexpr uint32_t TEST_PROFILE_VELOCITY = 20;  // 약 4.58 rpm
     static constexpr int32_t TEST_POSITION_DELTA = 100;
@@ -360,6 +361,16 @@ public:
     }
 
     const uint32_t raw_test_goal_position = static_cast<uint32_t>(test_goal_position);
+
+    const auto write_position_p_gain_result = bus_->write_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_P_GAIN_ADDRESS, TEST_POSITION_P_GAIN);
+
+    if (!write_position_p_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Position P Gain: %s",
+        write_position_p_gain_result.error_message.c_str());
+      return;
+    }
 
     const auto write_goal_current_result = bus_->write_two_bytes(
       motor_id_, thing_hardware::xl330::GOAL_CURRENT_ADDRESS, TEST_GOAL_CURRENT);
@@ -391,9 +402,20 @@ public:
       return;
     }
 
+    uint16_t readback_position_p_gain = 0;
     uint16_t readback_goal_current = 0;
     uint32_t readback_profile_acceleration = 0;
     uint32_t readback_profile_velocity = 0;
+
+    const auto readback_position_p_gain_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_P_GAIN_ADDRESS, readback_position_p_gain);
+
+    if (!readback_position_p_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read back Position P Gain: %s",
+        readback_position_p_gain_result.error_message.c_str());
+      return;
+    }
 
     const auto readback_goal_current_result = bus_->read_two_bytes(
       motor_id_, thing_hardware::xl330::GOAL_CURRENT_ADDRESS, readback_goal_current);
@@ -427,14 +449,17 @@ public:
     }
 
     if (
+      readback_position_p_gain != TEST_POSITION_P_GAIN ||
       readback_goal_current != TEST_GOAL_CURRENT ||
       readback_profile_acceleration != TEST_PROFILE_ACCELERATION ||
       readback_profile_velocity != TEST_PROFILE_VELOCITY) {
       RCLCPP_ERROR(
         this->get_logger(),
         "Test command read-back mismatch: "
-        "goal_current=%u/%u, profile_acceleration=%u/%u, "
+        "position_p_gain=%u/%u, goal_current=%u/%u, profile_acceleration=%u/%u, "
         "profile_velocity=%u/%u",
+        static_cast<unsigned int>(readback_position_p_gain),
+        static_cast<unsigned int>(TEST_POSITION_P_GAIN),
         static_cast<unsigned int>(readback_goal_current),
         static_cast<unsigned int>(TEST_GOAL_CURRENT),
         static_cast<unsigned int>(readback_profile_acceleration),
@@ -446,10 +471,11 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Test profile verified: ID=%u, goal_current=%u mA, "
+      "Test profile verified: ID=%u, position_p_gain=%u, goal_current=%u mA, "
       "profile_acceleration=%u, profile_velocity=%u, "
       "planned_goal_position=%d pulse; torque remains disabled",
-      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_goal_current),
+      static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_position_p_gain),
+      static_cast<unsigned int>(readback_goal_current),
       static_cast<unsigned int>(readback_profile_acceleration),
       static_cast<unsigned int>(readback_profile_velocity), test_goal_position);
 
@@ -523,7 +549,7 @@ public:
   ~MotorValidatorNode() override { disable_torque(); }
 
 private:
-  static constexpr int64_t POSITION_TOLERANCE = 20;
+  static constexpr int64_t POSITION_TOLERANCE = 5;
   static constexpr std::chrono::seconds MOTION_TIMEOUT{3};
 
   void monitor_motion_test()
