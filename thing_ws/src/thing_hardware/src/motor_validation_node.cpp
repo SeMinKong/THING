@@ -336,10 +336,11 @@ public:
     }
 
     static constexpr uint16_t TEST_GOAL_CURRENT = 500;  // 500 mA
-    static constexpr uint16_t TEST_POSITION_P_GAIN = 300;
+    static constexpr uint16_t TEST_POSITION_P_GAIN = 500;
+    static constexpr uint16_t TEST_POSITION_I_GAIN = 10;
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 5;
-    static constexpr uint32_t TEST_PROFILE_VELOCITY = 20;  // 약 4.58 rpm
-    static constexpr int32_t TEST_POSITION_DELTA = 100;
+    static constexpr uint32_t TEST_PROFILE_VELOCITY = 60;  // 약 13.74 rpm
+    static constexpr int32_t TEST_POSITION_DELTA = 600;
 
     if (TEST_GOAL_CURRENT > raw_current_limit) {
       RCLCPP_ERROR(this->get_logger(), "Test Goal Current exceeds Current Limit");
@@ -369,6 +370,16 @@ public:
       RCLCPP_ERROR(
         this->get_logger(), "Failed to write Position P Gain: %s",
         write_position_p_gain_result.error_message.c_str());
+      return;
+    }
+
+    const auto write_position_i_gain_result = bus_->write_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, TEST_POSITION_I_GAIN);
+
+    if (!write_position_i_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Position I Gain: %s",
+        write_position_i_gain_result.error_message.c_str());
       return;
     }
 
@@ -403,6 +414,7 @@ public:
     }
 
     uint16_t readback_position_p_gain = 0;
+    uint16_t readback_position_i_gain = 0;
     uint16_t readback_goal_current = 0;
     uint32_t readback_profile_acceleration = 0;
     uint32_t readback_profile_velocity = 0;
@@ -414,6 +426,16 @@ public:
       RCLCPP_ERROR(
         this->get_logger(), "Failed to read back Position P Gain: %s",
         readback_position_p_gain_result.error_message.c_str());
+      return;
+    }
+
+    const auto readback_position_i_gain_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, readback_position_i_gain);
+
+    if (!readback_position_i_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read back Position I Gain: %s",
+        readback_position_i_gain_result.error_message.c_str());
       return;
     }
 
@@ -450,16 +472,19 @@ public:
 
     if (
       readback_position_p_gain != TEST_POSITION_P_GAIN ||
+      readback_position_i_gain != TEST_POSITION_I_GAIN ||
       readback_goal_current != TEST_GOAL_CURRENT ||
       readback_profile_acceleration != TEST_PROFILE_ACCELERATION ||
       readback_profile_velocity != TEST_PROFILE_VELOCITY) {
       RCLCPP_ERROR(
         this->get_logger(),
         "Test command read-back mismatch: "
-        "position_p_gain=%u/%u, goal_current=%u/%u, profile_acceleration=%u/%u, "
-        "profile_velocity=%u/%u",
+        "position_p_gain=%u/%u, position_i_gain=%u/%u, goal_current=%u/%u, "
+        "profile_acceleration=%u/%u, profile_velocity=%u/%u",
         static_cast<unsigned int>(readback_position_p_gain),
         static_cast<unsigned int>(TEST_POSITION_P_GAIN),
+        static_cast<unsigned int>(readback_position_i_gain),
+        static_cast<unsigned int>(TEST_POSITION_I_GAIN),
         static_cast<unsigned int>(readback_goal_current),
         static_cast<unsigned int>(TEST_GOAL_CURRENT),
         static_cast<unsigned int>(readback_profile_acceleration),
@@ -471,10 +496,11 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Test profile verified: ID=%u, position_p_gain=%u, goal_current=%u mA, "
-      "profile_acceleration=%u, profile_velocity=%u, "
+      "Test profile verified: ID=%u, position_p_gain=%u, position_i_gain=%u, "
+      "goal_current=%u mA, profile_acceleration=%u, profile_velocity=%u, "
       "planned_goal_position=%d pulse; torque remains disabled",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_position_p_gain),
+      static_cast<unsigned int>(readback_position_i_gain),
       static_cast<unsigned int>(readback_goal_current),
       static_cast<unsigned int>(readback_profile_acceleration),
       static_cast<unsigned int>(readback_profile_velocity), test_goal_position);
