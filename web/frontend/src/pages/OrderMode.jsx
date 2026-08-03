@@ -8,54 +8,45 @@
 // FR-25: 모터 상태 확인
 // FR-27: 위험 상태에서 새 명령 비활성화
 // ============================================================================
-import { useEffect, useRef, useState } from "react";
 import { useHandSocket } from "../context/HandSocketContext";
 import { BASIC_GESTURES, SEQUENCE_ACTIONS } from "../config/commandPresets";
 import { CONTROL_MODE, CONTROL_OWNER } from "../config/messageProtocol";
 import MotorStatusPanel from "../components/MotorStatusPanel";
 import ModeAcquirePanel from "../components/ModeAcquirePanel";
 import CameraStream from "../components/CameraStream";
-import "./OrderMode.css";
+import { motion } from "motion/react";
+import { Panel, Head, Body, Tag } from "../ui/Sheet";
+import GesturePreview from "../components/GesturePreview";
 
 export default function OrderMode() {
   const {
     connectionState,
     controlState,
-    lastError,
+    controlStateKnown,
     safetyState,
     safetyStateKnown,
     motorStatus,
-    snapshotAt,
+    sectionUpdatedAt,
     snapshotReceivedAt,
-    modeRejectedReason,
     needsResumeConfirmation,
     isSafeToOperate,
     webHasControl,
+    commandInFlight,
     sendGesture,
     sendSequence,
     sendStop,
   } = useHandSocket();
-  // FR-22: 현재 명령이 실행 중이면 다음 명령은 큐잉하지 않고 무시한다.
-  const [pendingCommandId, setPendingCommandId] = useState(null);
 
   // FR-22 "같은 시점에 Gesture 하나만 실행하고 새 일반 동작은 큐에 쌓지 않고
-  // 거부한다." 잠금은 임의 타이머가 아니라 로봇이 알려주는 사실로 푼다.
-  //   · 거부되면(lastError) 애초에 실행되지 않았으므로 즉시 해제
-  //   · 수락되면 control_state.sequence_running 이 서고, 초기 유지시간이 끝나
-  //     내려갈 때 해제한다 (FR-22: open·fist 1000ms, 그 외 3000ms)
-  const sequenceRunning = controlState.sequence_running;
-  const wasRunningRef = useRef(false);
-  useEffect(() => {
-    if (sequenceRunning) wasRunningRef.current = true;
-    if (pendingCommandId === null) return;
-    if (lastError || (wasRunningRef.current && !sequenceRunning)) {
-      wasRunningRef.current = false;
-      setPendingCommandId(null);
-    }
-  }, [pendingCommandId, lastError, sequenceRunning]);
+  // 거부한다." 이 판정 주체는 로봇이다. 웹은 ack 왕복 동안만 잠가 더블클릭을
+  // 막고, 실제 중복 실행은 FR-37 motion_active 거부 문구로 안내한다.
+  //
+  // (이전 구현은 control_state.sequence_running 의 true→false 로 잠금을 풀었다.
+  //  그 필드는 이름 그대로 ExecuteSequence 액션용일 수 있고 — FR-31 은 Gesture 와
+  //  Action 을 구분한다 — 브릿지가 Gesture 실행 중에 세워 주지 않으면 제스처를
+  //  한 번 보낸 뒤 패널이 영구히 잠겼다. 브릿지 구현에 대한 의존을 끊었다.)
 
   const isManualActive = controlState.active_mode === CONTROL_MODE.MANUAL;
-
   const isConnected = connectionState === "open";
 
   const commandsDisabled =
@@ -64,141 +55,128 @@ export default function OrderMode() {
     !isSafeToOperate ||
     !webHasControl ||
     needsResumeConfirmation ||
-    controlState.sequence_running ||
-    pendingCommandId !== null;
+    commandInFlight;
+
+  // 왜 잠겼는지 한 가지만 말한다. 여러 이유를 나열하면 읽지 않는다.
+  const reason = !isConnected ? "서버에 연결되어 있지 않습니다."
+    : !controlStateKnown ? "로봇의 제어 상태를 아직 받지 못했습니다."
+    : needsResumeConfirmation ? "제어가 재개되지 않았습니다. 모드를 다시 획득하세요."
+    : !isSafeToOperate
+      ? (safetyStateKnown
+        ? `안전 상태 ${safetyState.state} 에서는 조작 명령을 보낼 수 없습니다.`
+        : "안전 상태를 아직 받지 못했습니다.")
+    : controlState.active_owner === CONTROL_OWNER.LOCAL
+      ? "로컬 프로그램이 제어권을 보유하고 있습니다."
+    : !webHasControl ? "제어권을 먼저 획득하세요."
+    : !isManualActive ? "조작 모드가 아닙니다."
+    : commandInFlight ? "직전 명령의 응답을 기다리는 중입니다."
+    : "";
 
   const runGesture = (gesture) => {
     if (commandsDisabled) return;
-    setPendingCommandId(gesture.id);
-    const ok = sendGesture(gesture);
-    if (!ok) setPendingCommandId(null);
-    // TODO(ROS2 확정 후): 실제로는 브릿지가 보내는 완료/ack 신호(control_state
-    // 또는 별도 gesture 완료 메시지)로 해제하는 것이 정확하다. 지금은 프론트
-    // 단독 데모용으로 일정 시간 후 잠금을 해제한다.
-    // 임의 타이머가 아니라 서버 ack 로 잠금을 푼다.
-    // 500ms 고정이면 FR-22 의 초기 유지시간(open·fist 1000ms,
-    // cylindrical_grasp·pinch 3000ms)보다 먼저 풀려 두 번째 요청이
-    // motion_active 로 거부된다. 잠금 해제는 아래 useEffect 가 맡는다.
+    sendGesture(gesture);
   };
 
-  const runSequence = (sequenceId) => {
+  const runSequence = (action) => {
     if (commandsDisabled) return;
-    sendSequence(sequenceId);
+    sendSequence(action.id, action.speed_limit);
   };
 
   const handleStop = () => {
-    // FR-23: 정지 명령은 다른 일반 명령보다 우선 처리 - 잠금 상태와 무관하게 항상 전송
-    setPendingCommandId(null);
+    // FR-23: 정지는 다른 일반 명령보다 우선한다. 잠금과 무관하게 항상 전송한다.
     sendStop();
   };
 
   return (
-    <div className="container my-5 px-4">
-      <h2 className="mb-4 fw-bold text-dark text-center">명령 제공 모드</h2>
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(330px,1fr)] lg:items-start">
+      <div className="flex flex-col gap-4">
+        {/* FR-19 인수조건: 조작 모드에서도 영상·손 검출을 관제할 수 있어야 한다 */}
+        <CameraStream />
+        {/* FR-25: 명령 결과를 바로 확인할 수 있도록 영상 아래에 둔다 */}
+        <MotorStatusPanel
+          motorStatus={motorStatus}
+          motorUpdatedAt={sectionUpdatedAt.motor_state ?? null}
+          receivedAt={snapshotReceivedAt}
+        />
+      </div>
 
-      {/* FR-19 / FR-35 / NFR-23: 제어권은 사용자가 직접 획득한다. 자동 획득하지 않는다. */}
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MANUAL} />
+      <div className="flex flex-col gap-4">
+        {/* FR-19 / FR-35 / NFR-23: 제어권은 사용자가 직접 획득한다 */}
+        <ModeAcquirePanel targetMode={CONTROL_MODE.MANUAL} />
 
-      {modeRejectedReason && (
-        <div className="alert alert-warning text-center" role="alert">
-          {modeRejectedReason}
-        </div>
-      )}
-      {!isConnected && (
-        <div className="alert alert-danger text-center" role="alert">
-          서버와 연결되어 있지 않아 명령을 보낼 수 없습니다.
-        </div>
-      )}
-      {isConnected && !webHasControl && controlState.active_owner === CONTROL_OWNER.LOCAL && (
-        <div className="alert alert-warning text-center" role="alert">
-          로컬 프로그램(teleop)이 제어권을 보유하고 있어 웹에서 조작할 수 없습니다.
-          해당 주체가 해제해야 합니다.
-        </div>
-      )}
-      {needsResumeConfirmation && (
-        <div className="alert alert-warning text-center" role="alert">
-          제어권을 잃었습니다. 이전 명령은 자동으로 재개되지 않습니다(NFR-23).
-          상단의 "제어 재개"로 안내를 닫고 아래에서 모드를 다시 획득하십시오.
-        </div>
-      )}
-      {!isSafeToOperate && (
-        <div className="alert alert-danger text-center" role="alert">
-          {safetyStateKnown
-            ? `현재 안전 상태(${safetyState.state})에서는 일반 조작 명령이 비활성화됩니다.`
-            : "안전 상태를 아직 수신하지 못했습니다. 확인되기 전까지 조작 명령을 보내지 않습니다."}
-        </div>
-      )}
+        <Panel>
+          <div aria-label="명령">
+            <Head title="명령">
+              <GesturePreview />
+              <Tag tone={commandsDisabled ? "idle" : "live"}>
+                {commandsDisabled ? "잠김" : "전송 가능"}
+              </Tag>
+            </Head>
 
-      <div className="row g-4 align-items-start">
-        <div className="col-lg-7">
-          {/* FR-19 인수조건: 두 모드 모두 영상/손 검출 관제 가능해야 함 - VisionMode와 동일한 공통 컴포넌트 사용 */}
-          <CameraStream compact />
+            <Body className="flex flex-col gap-4">
+              {reason && <p className="text-xs leading-relaxed text-ink-500">{reason}</p>}
 
-          <p className="text-center mt-2 mb-0 small text-muted">
-            현재 안전 상태:{" "}
-            <strong>{safetyStateKnown ? safetyState.state : "수신 대기"}</strong>
-          </p>
-
-          {/* FR-25: 모터 상태 - 조작 모드에서 명령 결과를 바로 확인할 수 있도록 배치 */}
-          <div className="mt-4">
-            <MotorStatusPanel
-              motorStatus={motorStatus}
-              snapshotAt={snapshotAt}
-              receivedAt={snapshotReceivedAt}
-            />
-          </div>
-        </div>
-
-        <div className="col-lg-5 d-flex justify-content-lg-end">
-          <div className="command-panel w-100">
-            {/* FR-22 기본 명령 (Gesture) */}
-            <div className="row row-cols-2 g-3 mb-3">
-              {BASIC_GESTURES.map((gesture) => (
-                <div className="col" key={gesture.id}>
-                  <button
+              {/* FR-22 기본 명령 (Gesture) */}
+              <div className="grid grid-cols-2 gap-2">
+                {BASIC_GESTURES.map((gesture) => (
+                  <motion.button
+                    key={gesture.id}
                     type="button"
-                    className="btn btn-outline-secondary w-100 py-3 fw-semibold fs-5 rounded-3"
                     onClick={() => runGesture(gesture)}
                     disabled={commandsDisabled}
                     aria-label={gesture.label}
                     title={gesture.label}
+                    whileHover={commandsDisabled ? undefined : { y: -2 }}
+                    whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                    className="flex flex-col items-center gap-1.5 rounded border
+                               border-ink-300 bg-ink-50 px-2 py-4
+                               transition-colors hover:bg-white disabled:opacity-30"
                   >
-                    {gesture.icon}
-                    <span className="d-block fs-6 fw-normal mt-1">{gesture.label}</span>
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <span className="text-2xl leading-none" aria-hidden="true">
+                      {gesture.icon}
+                    </span>
+                    <span className="text-xs font-medium">{gesture.label}</span>
+                    <span className="font-mono text-[10px] text-ink-400">{gesture.id}</span>
+                  </motion.button>
+                ))}
+              </div>
 
-            {/* FR-22 추가 명령 (Sequence 액션) */}
-            <div className="row row-cols-2 g-3 mb-4">
-              {SEQUENCE_ACTIONS.map((action) => (
-                <div className="col" key={action.id}>
-                  <button
+              {/* FR-22 추가 명령 (Sequence) — FR-39 Could */}
+              <div className="grid grid-cols-2 gap-2">
+                {SEQUENCE_ACTIONS.map((action) => (
+                  <motion.button
+                    key={action.id}
                     type="button"
-                    className="btn btn-outline-info w-100 py-2 fw-semibold rounded-3"
-                    onClick={() => runSequence(action.id)}
+                    onClick={() => runSequence(action)}
                     disabled={commandsDisabled}
                     title={action.label}
+                    whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
+                    className="rounded-full bg-ink-100 px-3 py-2 text-xs font-medium
+                               transition-colors hover:bg-ink-200/70 disabled:opacity-30"
                   >
-                    {action.icon} {action.label}
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <span aria-hidden="true">{action.icon}</span> {action.label}
+                  </motion.button>
+                ))}
+              </div>
 
-            <div className="text-lg-end text-center">
-              <button
+              <div className="h-px bg-ink-200" />
+
+              <motion.button
                 type="button"
-                className="btn btn-danger btn-lg px-5 py-2 fw-bold shadow-sm w-100"
-                style={{ maxWidth: 240 }}
                 onClick={handleStop}
+                whileTap={{ scale: 0.98 }}
+                className="w-full rounded-full bg-st-fault py-2.5 text-[13px] font-semibold
+                           text-white transition-opacity hover:opacity-90"
               >
                 기능 중지
-              </button>
-            </div>
+              </motion.button>
+              <p className="text-xs text-ink-400">
+                정지는 잠금과 무관하게 항상 전송됩니다.
+              </p>
+            </Body>
           </div>
-        </div>
+        </Panel>
       </div>
     </div>
   );

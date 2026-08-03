@@ -1,68 +1,44 @@
-import { NavLink, Outlet } from "react-router-dom";
-import StatusBar from "../components/StatusBar";
+// ============================================================================
+// 셸
+// ----------------------------------------------------------------------------
+// 색으로 채운 머리 → 알림 → 작업 영역.
+//
+// 화면 전환 시 영상이 사라졌다 다시 뜨지 않는다. 모방과 조작 둘 다 영상을
+// 쓰는데, 전환할 때마다 MJPEG 연결이 끊기면 몇 프레임을 놓친다.
+// layoutId 로 같은 요소임을 알려 자리만 옮긴다.
+// ============================================================================
+import { Outlet, useLocation } from "react-router-dom";
+import { motion, AnimatePresence } from "motion/react";
+import Header from "../components/Header";
 import SafetyBanner from "../components/SafetyBanner";
+import { useHandSocket } from "../context/HandSocketContext";
 
-// base.html의 nav/footer 구조를 그대로 이식.
-// Django의 {% block content %}는 <Outlet /> 이 대신한다.
 export default function Layout() {
+  const { safetyState, safetyStateKnown } = useHandSocket();
+  const location = useLocation();
+
   return (
-    <div className="d-flex flex-column min-vh-100">
-      {/* 중앙 정렬된 네비게이션 바 */}
-      <nav className="navbar navbar-expand-lg navbar-light bg-white border-bottom py-3">
-        <div className="container-fluid">
-          <div className="navbar-collapse justify-content-center">
-            <ul className="navbar-nav gap-4 fs-5 fw-semibold">
-              <li className="nav-item">
-                <NavLink
-                  className={({ isActive }) =>
-                    "nav-link" + (isActive ? " active fw-bold" : "")
-                  }
-                  to="/"
-                  end
-                >
-                  홈
-                </NavLink>
-              </li>
-              <li className="nav-item">
-                <NavLink
-                  className={({ isActive }) =>
-                    "nav-link" + (isActive ? " active fw-bold" : "")
-                  }
-                  to="/vision"
-                >
-                  손 모방 페이지
-                </NavLink>
-              </li>
-              <li className="nav-item">
-                <NavLink
-                  className={({ isActive }) =>
-                    "nav-link" + (isActive ? " active fw-bold" : "")
-                  }
-                  to="/order"
-                >
-                  명령 제공 페이지
-                </NavLink>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </nav>
+    <div
+      className="min-h-screen bg-ink-0"
+      data-safety={safetyStateKnown ? safetyState.state : "INIT"}
+    >
+      <Header />
 
-      {/* FR-24: 현재 모드/연결 상태/안전 상태를 화면 상단에 고정 표시 */}
-      <StatusBar />
+      <main className="mx-auto flex max-w-[1400px] flex-col gap-4 px-6 py-6">
+        <SafetyBanner />
 
-      {/* FR-27: 오류/안전 상태 안내 - 모든 페이지 공통으로 노출 */}
-      <SafetyBanner />
-
-      {/* 본문 콘텐츠 영역 - 각 페이지가 여기 렌더링됨 */}
-      <main className="flex-grow-1">
-        <Outlet />
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
+          >
+            <Outlet />
+          </motion.div>
+        </AnimatePresence>
       </main>
-
-      {/* 푸터 */}
-      <footer className="py-4 bg-white border-top text-center text-muted mt-5">
-        <small>&copy; Tendon-driven robot Hand with Intelligent Neural Grasping - THING<br></br>All rights reserved.</small>
-      </footer>
     </div>
   );
 }
