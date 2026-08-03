@@ -4,7 +4,6 @@ from threading import Event
 
 import pytest
 
-from thing_logger.export_worker import ExportBusyError
 from thing_logger.export_worker import ExportWorker
 from thing_logger.exporter import ExportJob
 from thing_logger.exporter import ExportResult
@@ -77,23 +76,42 @@ def test_export_worker_runs_one_job_asynchronously(tmp_path):
     assert worker.is_busy is False
 
 
-def test_export_worker_rejects_overlapping_job(tmp_path):
-    """앞선 결과가 회수되기 전에는 다음 export를 받지 않는다."""
+def test_export_worker_queues_overlapping_jobs_in_memory(tmp_path):
+    """겹친 완료 세션을 거부하지 않고 메모리에서 순서대로 처리한다."""
     first_path = tmp_path / '123'
     second_path = tmp_path / '124'
     first_path.mkdir()
     second_path.mkdir()
     exporter = FakeExporter()
     worker = ExportWorker(exporter)
-    worker.submit(ExportJob(str(first_path), 'SUCCESS'))
+    first_job = ExportJob(str(first_path), 'SUCCESS')
+    second_job = ExportJob(str(second_path), 'FAILURE')
+    worker.submit(first_job)
     assert exporter.started.wait(timeout=1)
-
-    with pytest.raises(ExportBusyError, match='already in progress'):
-        worker.submit(ExportJob(str(second_path), 'FAILURE'))
+    worker.submit(second_job)
 
     exporter.release.set()
-    wait_for_completed(worker)
+    first_completed = wait_for_completed(worker)
+    second_completed = wait_for_completed(worker)
     worker.shutdown()
+
+    assert [first_completed.job, second_completed.job] == [
+        first_job, second_job,
+    ]
+    assert exporter.jobs == [first_job, second_job]
+    assert worker.is_busy is False
+
+
+def test_export_worker_rejects_submit_after_shutdown(tmp_path):
+    """종료가 시작된 worker에는 새 메모리 작업을 추가하지 않는다."""
+    bag_path = tmp_path / '123'
+    bag_path.mkdir()
+    exporter = FakeExporter()
+    worker = ExportWorker(exporter)
+    worker.shutdown()
+
+    with pytest.raises(RuntimeError, match='shutting down'):
+        worker.submit(ExportJob(str(bag_path), 'SUCCESS'))
 
 
 def test_export_worker_reports_export_error(tmp_path):

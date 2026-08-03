@@ -221,8 +221,8 @@ def test_interrupted_bag_is_deleted_and_ready_restores_idle(tmp_path):
     assert logger.session_manager.result_pending is False
 
 
-def test_start_is_rejected_while_export_is_busy(tmp_path):
-    """이전 세션 export 중에는 새 rosbag2 기록을 시작하지 않는다."""
+def test_start_is_allowed_while_previous_export_is_busy(tmp_path):
+    """판정이 끝났다면 이전 export 중에도 새 기록을 시작한다."""
     logger = LoggerHarness(tmp_path)
     logger.active_mode = ControlState.MODE_MIMIC
     logger.safety_state = SafetyState.READY
@@ -235,10 +235,12 @@ def test_start_is_rejected_while_export_is_busy(tmp_path):
         response,
     )
 
-    assert response.accepted is False
-    assert response.reason == 'start_failed'
-    assert logger.session_manager.state == RecordingState.IDLE
-    assert logger.bag_recorder.is_recording is False
+    assert response.accepted is True
+    assert response.reason == ''
+    assert logger.session_manager.state == RecordingState.RECORDING
+    assert logger.bag_recorder.is_recording is True
+
+    logger.interrupt_recording('test cleanup')
 
 
 def test_export_completion_and_failure_are_logged(tmp_path):

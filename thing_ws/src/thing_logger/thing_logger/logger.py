@@ -18,7 +18,6 @@ from thing_interfaces.srv import SetMimicResult
 from thing_interfaces.srv import StartRecording
 from thing_interfaces.srv import StopRecording
 from thing_logger.bag_recorder import BagRecorderError
-from thing_logger.export_worker import ExportBusyError
 from thing_logger.export_worker import ExportWorker
 from thing_logger.exporter import ExportJob
 from thing_logger.exporter import SessionExporter
@@ -230,11 +229,6 @@ class Logger(Node):
 
     def handle_start_recording(self, request, response):
         """안전한 MIMIC 상태에서 새로운 rosbag2 기록을 시작한다."""
-        if self.export_worker.is_busy:
-            response.accepted = False
-            response.reason = 'start_failed'
-            return response
-
         accepted, reason = self.session_manager.can_start(
             self.active_mode,
             self.safety_state,
@@ -331,10 +325,7 @@ class Logger(Node):
                 completed_session.bag_path,
                 result_name,
             )
-            try:
-                self.export_worker.submit(job)
-            except ExportBusyError as error:
-                self.get_logger().error(str(error))
+            self.export_worker.submit(job)
 
         return response
 

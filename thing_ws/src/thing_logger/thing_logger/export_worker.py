@@ -9,10 +9,6 @@ from thing_logger.exporter import ExportJob
 from thing_logger.exporter import ExportResult
 
 
-class ExportBusyError(RuntimeError):
-    """이전 세션 export가 아직 끝나지 않았음을 나타낸다."""
-
-
 @dataclass(frozen=True)
 class CompletedExport:
     """worker가 완료한 export 결과 또는 오류를 나타낸다."""
@@ -31,10 +27,11 @@ class ExportWorker:
         """주입된 exporter를 실행하는 단일 worker thread를 시작한다."""
         self._exporter = exporter
         self._uploader_client = uploader_client
-        self._tasks = Queue(maxsize=1)
-        self._completed = Queue(maxsize=1)
+        self._tasks = Queue()
+        self._completed = Queue()
         self._state_lock = Lock()
-        self._busy = False
+        self._pending_count = 0
+        self._shutdown_requested = False
         self._thread = Thread(
             target=self._run,
             name='thing-logger-exporter',
@@ -46,14 +43,14 @@ class ExportWorker:
     def is_busy(self) -> bool:
         """대기·실행·결과 회수 중인 export가 있는지 반환한다."""
         with self._state_lock:
-            return self._busy
+            return self._pending_count > 0
 
     def submit(self, job: ExportJob) -> None:
-        """빈 worker에 export 작업을 넣고 즉시 반환한다."""
+        """완료 세션을 비영구 메모리 Queue에 넣고 즉시 반환한다."""
         with self._state_lock:
-            if self._busy:
-                raise ExportBusyError('an export is already in progress')
-            self._busy = True
+            if self._shutdown_requested:
+                raise RuntimeError('export worker is shutting down')
+            self._pending_count += 1
         self._tasks.put_nowait(job)
 
     def take_completed(self) -> Optional[CompletedExport]:
@@ -65,14 +62,19 @@ class ExportWorker:
 
         self._completed.task_done()
         with self._state_lock:
-            self._busy = False
+            self._pending_count -= 1
         return completed
 
     def shutdown(self) -> None:
         """진행 중 작업을 마친 뒤 worker thread를 종료한다."""
-        if not self._thread.is_alive():
-            return
-        self._tasks.put(self._SHUTDOWN)
+        with self._state_lock:
+            if self._shutdown_requested:
+                should_signal = False
+            else:
+                self._shutdown_requested = True
+                should_signal = self._thread.is_alive()
+        if should_signal:
+            self._tasks.put(self._SHUTDOWN)
         self._thread.join()
 
     def _run(self) -> None:
