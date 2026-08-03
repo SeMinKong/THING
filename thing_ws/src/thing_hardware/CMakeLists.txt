@@ -32,8 +32,20 @@ add_executable(
   src/dynamixel_bus.cpp
 )
 
+add_executable(
+  motor_home_calibration_node
+  src/motor_home_calibration_node.cpp
+  src/dynamixel_bus.cpp
+)
+
 target_include_directories(
   motor_validation_node
+  PRIVATE
+    include
+)
+
+target_include_directories(
+  motor_home_calibration_node
   PRIVATE
     include
 )
@@ -44,8 +56,15 @@ ament_target_dependencies(
   dynamixel_sdk
 )
 
+ament_target_dependencies(
+  motor_home_calibration_node
+  rclcpp
+  dynamixel_sdk
+)
+
 install(
   TARGETS
+    motor_home_calibration_node
     motor_validation_node
   DESTINATION lib/${PROJECT_NAME}
 )

@@ -340,7 +340,7 @@ public:
     static constexpr uint16_t TEST_POSITION_I_GAIN = 30;
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 50;
     static constexpr uint32_t TEST_PROFILE_VELOCITY = 200;  // 약 45.80 rpm
-    static constexpr int32_t TEST_POSITION_DELTA = 2000;
+    static constexpr int32_t TEST_POSITION_DELTA = 2300;
 
     if (TEST_GOAL_CURRENT > raw_current_limit) {
       RCLCPP_ERROR(this->get_logger(), "Test Goal Current exceeds Current Limit");
