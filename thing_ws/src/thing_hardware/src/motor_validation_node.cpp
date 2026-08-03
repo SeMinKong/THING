@@ -1,5 +1,6 @@
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -339,18 +340,12 @@ public:
       return;
     }
 
-    static constexpr uint16_t TEST_GOAL_CURRENT = 500;  // 500 mA
-    static constexpr uint16_t TEST_POSITION_P_GAIN = 500;
-    static constexpr uint16_t TEST_POSITION_I_GAIN = 30;
-    static constexpr uint32_t TEST_PROFILE_ACCELERATION = 50;
-    static constexpr uint32_t TEST_PROFILE_VELOCITY = 200;  // 약 45.80 rpm
-
-    if (TEST_GOAL_CURRENT > raw_current_limit) {
+    if (goal_current_ > raw_current_limit) {
       RCLCPP_ERROR(this->get_logger(), "Test Goal Current exceeds Current Limit");
       return;
     }
 
-    if (TEST_PROFILE_VELOCITY > raw_velocity_limit) {
+    if (profile_velocity_ > raw_velocity_limit) {
       RCLCPP_ERROR(this->get_logger(), "Test Profile Velocity exceeds Velocity Limit");
       return;
     }
@@ -367,7 +362,7 @@ public:
     const uint32_t raw_test_goal_position = static_cast<uint32_t>(test_goal_position);
 
     const auto write_position_p_gain_result = bus_->write_two_bytes(
-      motor_id_, thing_hardware::xl330::POSITION_P_GAIN_ADDRESS, TEST_POSITION_P_GAIN);
+      motor_id_, thing_hardware::xl330::POSITION_P_GAIN_ADDRESS, position_p_gain_);
 
     if (!write_position_p_gain_result.success) {
       RCLCPP_ERROR(
@@ -377,7 +372,7 @@ public:
     }
 
     const auto write_position_i_gain_result = bus_->write_two_bytes(
-      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, TEST_POSITION_I_GAIN);
+      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, position_i_gain_);
 
     if (!write_position_i_gain_result.success) {
       RCLCPP_ERROR(
@@ -386,8 +381,18 @@ public:
       return;
     }
 
-    const auto write_goal_current_result = bus_->write_two_bytes(
-      motor_id_, thing_hardware::xl330::GOAL_CURRENT_ADDRESS, TEST_GOAL_CURRENT);
+    const auto write_position_d_gain_result = bus_->write_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_D_GAIN_ADDRESS, position_d_gain_);
+
+    if (!write_position_d_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write Position D Gain: %s",
+        write_position_d_gain_result.error_message.c_str());
+      return;
+    }
+
+    const auto write_goal_current_result =
+      bus_->write_two_bytes(motor_id_, thing_hardware::xl330::GOAL_CURRENT_ADDRESS, goal_current_);
 
     if (!write_goal_current_result.success) {
       RCLCPP_ERROR(
@@ -397,7 +402,7 @@ public:
     }
 
     const auto write_profile_acceleration_result = bus_->write_four_bytes(
-      motor_id_, thing_hardware::xl330::PROFILE_ACCELERATION_ADDRESS, TEST_PROFILE_ACCELERATION);
+      motor_id_, thing_hardware::xl330::PROFILE_ACCELERATION_ADDRESS, profile_acceleration_);
 
     if (!write_profile_acceleration_result.success) {
       RCLCPP_ERROR(
@@ -407,7 +412,7 @@ public:
     }
 
     const auto write_profile_velocity_result = bus_->write_four_bytes(
-      motor_id_, thing_hardware::xl330::PROFILE_VELOCITY_ADDRESS, TEST_PROFILE_VELOCITY);
+      motor_id_, thing_hardware::xl330::PROFILE_VELOCITY_ADDRESS, profile_velocity_);
 
     if (!write_profile_velocity_result.success) {
       RCLCPP_ERROR(
@@ -418,6 +423,7 @@ public:
 
     uint16_t readback_position_p_gain = 0;
     uint16_t readback_position_i_gain = 0;
+    uint16_t readback_position_d_gain = 0;
     uint16_t readback_goal_current = 0;
     uint32_t readback_profile_acceleration = 0;
     uint32_t readback_profile_velocity = 0;
@@ -439,6 +445,16 @@ public:
       RCLCPP_ERROR(
         this->get_logger(), "Failed to read back Position I Gain: %s",
         readback_position_i_gain_result.error_message.c_str());
+      return;
+    }
+
+    const auto readback_position_d_gain_result = bus_->read_two_bytes(
+      motor_id_, thing_hardware::xl330::POSITION_D_GAIN_ADDRESS, readback_position_d_gain);
+
+    if (!readback_position_d_gain_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to read back Position D Gain: %s",
+        readback_position_d_gain_result.error_message.c_str());
       return;
     }
 
@@ -474,36 +490,40 @@ public:
     }
 
     if (
-      readback_position_p_gain != TEST_POSITION_P_GAIN ||
-      readback_position_i_gain != TEST_POSITION_I_GAIN ||
-      readback_goal_current != TEST_GOAL_CURRENT ||
-      readback_profile_acceleration != TEST_PROFILE_ACCELERATION ||
-      readback_profile_velocity != TEST_PROFILE_VELOCITY) {
+      readback_position_p_gain != position_p_gain_ ||
+      readback_position_i_gain != position_i_gain_ ||
+      readback_position_d_gain != position_d_gain_ || readback_goal_current != goal_current_ ||
+      readback_profile_acceleration != profile_acceleration_ ||
+      readback_profile_velocity != profile_velocity_) {
       RCLCPP_ERROR(
         this->get_logger(),
         "Test command read-back mismatch: "
-        "position_p_gain=%u/%u, position_i_gain=%u/%u, goal_current=%u/%u, "
+        "position_p_gain=%u/%u, position_i_gain=%u/%u, position_d_gain=%u/%u, "
+        "goal_current=%u/%u, "
         "profile_acceleration=%u/%u, profile_velocity=%u/%u",
         static_cast<unsigned int>(readback_position_p_gain),
-        static_cast<unsigned int>(TEST_POSITION_P_GAIN),
+        static_cast<unsigned int>(position_p_gain_),
         static_cast<unsigned int>(readback_position_i_gain),
-        static_cast<unsigned int>(TEST_POSITION_I_GAIN),
-        static_cast<unsigned int>(readback_goal_current),
-        static_cast<unsigned int>(TEST_GOAL_CURRENT),
+        static_cast<unsigned int>(position_i_gain_),
+        static_cast<unsigned int>(readback_position_d_gain),
+        static_cast<unsigned int>(position_d_gain_),
+        static_cast<unsigned int>(readback_goal_current), static_cast<unsigned int>(goal_current_),
         static_cast<unsigned int>(readback_profile_acceleration),
-        static_cast<unsigned int>(TEST_PROFILE_ACCELERATION),
+        static_cast<unsigned int>(profile_acceleration_),
         static_cast<unsigned int>(readback_profile_velocity),
-        static_cast<unsigned int>(TEST_PROFILE_VELOCITY));
+        static_cast<unsigned int>(profile_velocity_));
       return;
     }
 
     RCLCPP_INFO(
       this->get_logger(),
       "Test profile verified: ID=%u, position_p_gain=%u, position_i_gain=%u, "
+      "position_d_gain=%u, "
       "goal_current=%u mA, profile_acceleration=%u, profile_velocity=%u, "
       "planned_goal_position=%d pulse; torque remains disabled",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_position_p_gain),
       static_cast<unsigned int>(readback_position_i_gain),
+      static_cast<unsigned int>(readback_position_d_gain),
       static_cast<unsigned int>(readback_goal_current),
       static_cast<unsigned int>(readback_profile_acceleration),
       static_cast<unsigned int>(readback_profile_velocity), test_goal_position);
@@ -569,7 +589,7 @@ public:
       "Forward motion test started: ID=%u, current=%d pulse, home=%d pulse, goal=%d pulse; "
       "monitoring every 100 ms with a %ld second timeout",
       static_cast<unsigned int>(motor_id_), present_position, start_position_, test_goal_position_,
-      static_cast<long>(MOTION_TIMEOUT.count()));
+      static_cast<long>(motion_timeout_seconds_.count()));
 
     motion_start_time_ = std::chrono::steady_clock::now();
     motion_timer_ =
@@ -580,19 +600,83 @@ public:
   ~MotorValidatorNode() override { disable_torque(); }
 
 private:
+  // Bus parameter
+  std::string device_name_{
+    "/dev/serial/by-id/"
+    "usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"};
+  int baud_rate_{57600};
+  float protocol_version_{2.0F};
+
+  // Axis parameter
+  uint8_t motor_id_{3};
+  int64_t home_position_{750};
+  int64_t closed_position_{1000};
+
+  // Controller parameter
+  uint16_t position_p_gain_{500};
+  uint16_t position_i_gain_{30};
+  uint16_t position_d_gain_{600};
+  uint16_t goal_current_{500};  // mA
+  uint32_t profile_acceleration_{50};
+  uint32_t profile_velocity_{200};  // 약 45.80 rpm
+
+  // Completion and safety parameter
+  int64_t position_tolerance_{5};
+  int64_t settled_velocity_raw_{1};
+  uint8_t required_settled_samples_{3};
+  std::chrono::seconds motion_timeout_seconds_{6};
+
   void declare_parameters()
   {
+    this->declare_parameter<std::string>("device_name", "");
+    this->declare_parameter<int64_t>("baud_rate", 57600);
+    this->declare_parameter<double>("protocol_version", 2.0);
     this->declare_parameter<int64_t>("motor_id", 3);
     this->declare_parameter<int64_t>("home_position", 750);
     this->declare_parameter<int64_t>("closed_position", 1000);
+    this->declare_parameter<int64_t>("position_p_gain", 250);
+    this->declare_parameter<int64_t>("position_i_gain", 0);
+    this->declare_parameter<int64_t>("position_d_gain", 600);
+    this->declare_parameter<int64_t>("goal_current", 500);
+    this->declare_parameter<int64_t>("profile_acceleration", 5);
+    this->declare_parameter<int64_t>("profile_velocity", 50);
+    this->declare_parameter<int64_t>("position_tolerance", 5);
+    this->declare_parameter<int64_t>("settled_velocity_raw", 1);
+    this->declare_parameter<int64_t>("required_settled_samples", 3);
+    this->declare_parameter<int64_t>("motion_timeout_seconds", 6);
   }
 
   void load_and_validate_parameters()
   {
+    device_name_ = this->get_parameter("device_name").as_string();
+    const int64_t baud_rate = this->get_parameter("baud_rate").as_int();
+    const double protocol_version = this->get_parameter("protocol_version").as_double();
     const int64_t motor_id = this->get_parameter("motor_id").as_int();
-
     home_position_ = this->get_parameter("home_position").as_int();
     closed_position_ = this->get_parameter("closed_position").as_int();
+    const int64_t position_p_gain = this->get_parameter("position_p_gain").as_int();
+    const int64_t position_i_gain = this->get_parameter("position_i_gain").as_int();
+    const int64_t position_d_gain = this->get_parameter("position_d_gain").as_int();
+    const int64_t goal_current = this->get_parameter("goal_current").as_int();
+    const int64_t profile_acceleration = this->get_parameter("profile_acceleration").as_int();
+    const int64_t profile_velocity = this->get_parameter("profile_velocity").as_int();
+    position_tolerance_ = this->get_parameter("position_tolerance").as_int();
+    settled_velocity_raw_ = this->get_parameter("settled_velocity_raw").as_int();
+    const int64_t required_settled_samples =
+      this->get_parameter("required_settled_samples").as_int();
+    const int64_t motion_timeout_seconds = this->get_parameter("motion_timeout_seconds").as_int();
+
+    if (device_name_.empty()) {
+      throw std::runtime_error("device_name must not be empty");
+    }
+
+    if (baud_rate <= 0 || baud_rate > std::numeric_limits<int>::max()) {
+      throw std::runtime_error("baud_rate must be between 1 and INT_MAX");
+    }
+
+    if (protocol_version != 2.0) {
+      throw std::runtime_error("protocol_version must be 2.0 for XL330");
+    }
 
     if (motor_id < 0 || motor_id > 252) {
       throw std::runtime_error("motor_id must be between 0 and 252");
@@ -610,14 +694,64 @@ private:
       throw std::runtime_error("closed_position must differ from home_position");
     }
 
-    motor_id_ = static_cast<uint8_t>(motor_id);
-  }
+    if (position_p_gain < 0 || position_p_gain > 16383) {
+      throw std::runtime_error("position_p_gain must be between 0 and 16383");
+    }
 
-  static constexpr int64_t POSITION_TOLERANCE = 5;
-  static constexpr int64_t SETTLED_VELOCITY_RAW = 1;
-  static constexpr uint8_t REQUIRED_SETTLED_SAMPLES = 3;
-  static constexpr uint16_t RETURN_POSITION_I_GAIN = 30;
-  static constexpr std::chrono::seconds MOTION_TIMEOUT{6};
+    if (position_i_gain < 0 || position_i_gain > 16383) {
+      throw std::runtime_error("position_i_gain must be between 0 and 16383");
+    }
+
+    if (position_d_gain < 0 || position_d_gain > 16383) {
+      throw std::runtime_error("position_d_gain must be between 0 and 16383");
+    }
+
+    if (goal_current < 0 || goal_current > std::numeric_limits<uint16_t>::max()) {
+      throw std::runtime_error("goal_current must fit in an unsigned 16-bit value");
+    }
+
+    if (
+      profile_acceleration < 0 ||
+      static_cast<uint64_t>(profile_acceleration) > std::numeric_limits<uint32_t>::max()) {
+      throw std::runtime_error("profile_acceleration must fit in an unsigned 32-bit value");
+    }
+
+    if (
+      profile_velocity < 0 ||
+      static_cast<uint64_t>(profile_velocity) > std::numeric_limits<uint32_t>::max()) {
+      throw std::runtime_error("profile_velocity must fit in an unsigned 32-bit value");
+    }
+
+    if (position_tolerance_ < 0 || position_tolerance_ > 4095) {
+      throw std::runtime_error("position_tolerance must be between 0 and 4095");
+    }
+
+    if (settled_velocity_raw_ < 0 || settled_velocity_raw_ > std::numeric_limits<int32_t>::max()) {
+      throw std::runtime_error("settled_velocity_raw must be between 0 and INT32_MAX");
+    }
+
+    if (
+      required_settled_samples < 1 ||
+      required_settled_samples > std::numeric_limits<uint8_t>::max()) {
+      throw std::runtime_error("required_settled_samples must be between 1 and 255");
+    }
+
+    if (motion_timeout_seconds < 1 || motion_timeout_seconds > 3600) {
+      throw std::runtime_error("motion_timeout_seconds must be between 1 and 3600");
+    }
+
+    baud_rate_ = static_cast<int>(baud_rate);
+    protocol_version_ = static_cast<float>(protocol_version);
+    motor_id_ = static_cast<uint8_t>(motor_id);
+    position_p_gain_ = static_cast<uint16_t>(position_p_gain);
+    position_i_gain_ = static_cast<uint16_t>(position_i_gain);
+    position_d_gain_ = static_cast<uint16_t>(position_d_gain);
+    goal_current_ = static_cast<uint16_t>(goal_current);
+    profile_acceleration_ = static_cast<uint32_t>(profile_acceleration);
+    profile_velocity_ = static_cast<uint32_t>(profile_velocity);
+    required_settled_samples_ = static_cast<uint8_t>(required_settled_samples);
+    motion_timeout_seconds_ = std::chrono::seconds(motion_timeout_seconds);
+  }
 
   void monitor_motion_test()
   {
@@ -675,8 +809,8 @@ private:
     const int64_t absolute_velocity = velocity >= 0 ? velocity : -velocity;
     const bool profile_ongoing = (moving_status & 0x02U) != 0U;
 
-    if (!profile_ongoing && absolute_velocity <= SETTLED_VELOCITY_RAW) {
-      if (settled_sample_count_ < REQUIRED_SETTLED_SAMPLES) {
+    if (!profile_ongoing && absolute_velocity <= settled_velocity_raw_) {
+      if (settled_sample_count_ < required_settled_samples_) {
         ++settled_sample_count_;
       }
     } else {
@@ -700,7 +834,7 @@ private:
       static_cast<long>(absolute_position_error), static_cast<unsigned int>(moving_status),
       profile_ongoing ? "true" : "false", (moving_status & 0x01U) != 0U ? "true" : "false",
       static_cast<unsigned int>(settled_sample_count_),
-      static_cast<unsigned int>(REQUIRED_SETTLED_SAMPLES), static_cast<int>(present_pwm),
+      static_cast<unsigned int>(required_settled_samples_), static_cast<int>(present_pwm),
       present_pwm_percent, static_cast<int>(present_current), present_velocity_rpm);
 
     if (hardware_error_status != 0U) {
@@ -711,13 +845,13 @@ private:
       return;
     }
 
-    if (settled_sample_count_ >= REQUIRED_SETTLED_SAMPLES) {
+    if (settled_sample_count_ >= required_settled_samples_) {
       RCLCPP_INFO(
         this->get_logger(),
         "%s motion settled: goal=%d, position=%d, error=%ld pulse, precision=%s",
         return_motion_started_ ? "Return" : "Forward", test_goal_position_, present_position,
         static_cast<long>(absolute_position_error),
-        absolute_position_error <= POSITION_TOLERANCE ? "passed" : "not_reached");
+        absolute_position_error <= position_tolerance_ ? "passed" : "not_reached");
 
       if (!return_motion_started_) {
         if (!start_return_motion()) {
@@ -730,7 +864,7 @@ private:
       return;
     }
 
-    if (elapsed >= MOTION_TIMEOUT) {
+    if (elapsed >= motion_timeout_seconds_) {
       if (!return_motion_started_) {
         RCLCPP_WARN(
           this->get_logger(),
@@ -754,7 +888,7 @@ private:
   bool start_return_motion()
   {
     const auto write_i_gain_result = bus_->write_two_bytes(
-      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, RETURN_POSITION_I_GAIN);
+      motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, position_i_gain_);
 
     if (!write_i_gain_result.success) {
       RCLCPP_ERROR(
@@ -767,12 +901,11 @@ private:
     const auto readback_i_gain_result = bus_->read_two_bytes(
       motor_id_, thing_hardware::xl330::POSITION_I_GAIN_ADDRESS, readback_i_gain);
 
-    if (!readback_i_gain_result.success || readback_i_gain != RETURN_POSITION_I_GAIN) {
+    if (!readback_i_gain_result.success || readback_i_gain != position_i_gain_) {
       RCLCPP_ERROR(
         this->get_logger(),
         "Failed to verify return Position I Gain: received=%u, expected=%u, error=%s",
-        static_cast<unsigned int>(readback_i_gain),
-        static_cast<unsigned int>(RETURN_POSITION_I_GAIN),
+        static_cast<unsigned int>(readback_i_gain), static_cast<unsigned int>(position_i_gain_),
         readback_i_gain_result.success ? "none" : readback_i_gain_result.error_message.c_str());
       return false;
     }
@@ -813,7 +946,7 @@ private:
       "Return motion test started: ID=%u, position_i_gain=%u, goal=%d pulse; "
       "monitoring with a %ld second timeout",
       static_cast<unsigned int>(motor_id_), static_cast<unsigned int>(readback_i_gain),
-      test_goal_position_, static_cast<long>(MOTION_TIMEOUT.count()));
+      test_goal_position_, static_cast<long>(motion_timeout_seconds_.count()));
     return true;
   }
 
@@ -882,15 +1015,6 @@ private:
         return "unknown";
     }
   }
-
-  std::string device_name_{
-    "/dev/serial/by-id/"
-    "usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"};
-  int baud_rate_{57600};
-  float protocol_version_{2.0F};
-  uint8_t motor_id_{3};
-  int64_t home_position_{750};
-  int64_t closed_position_{1000};
 
   std::unique_ptr<thing_hardware::DynamixelBus> bus_;
   rclcpp::TimerBase::SharedPtr motion_timer_;
