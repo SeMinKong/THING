@@ -2,6 +2,7 @@
 
 import csv
 from dataclasses import FrozenInstanceError
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -11,8 +12,12 @@ from thing_logger.exporter import ExportValidationError
 from thing_logger.exporter import RosbagSessionReader
 from thing_logger.exporter import validate_export_job
 from thing_logger.exporter import write_hand_command_csv
+from thing_logger.exporter import write_landmark_json
+from thing_logger.exporter import write_motor_status_csv
 from thing_logger.bag_recorder import TOPIC_TYPES
 from thing_logger.export_schema import HAND_COMMAND_HEADER
+from thing_logger.export_schema import LANDMARK_RECORD_FIELDS
+from thing_logger.export_schema import MOTOR_STATUS_HEADER
 
 
 class FakeTopic:
@@ -71,6 +76,63 @@ def make_hand_command(**overrides):
         'little_flex': 0.7,
         'speed_limit': 0.8,
         'confidence': 0.9,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def make_motor_state(motor_id, **overrides):
+    """유효한 기본 MotorState 테스트 객체를 만든다."""
+    values = {
+        'motor_id': motor_id,
+        'actuator_name': f'axis_{motor_id}',
+        'goal_position_raw': 100 + motor_id,
+        'present_position_raw': 90 + motor_id,
+        'goal_position_rad': 0.1 * motor_id,
+        'present_position_rad': 0.09 * motor_id,
+        'velocity_rad_s': 0.2,
+        'current_ampere': 0.3,
+        'voltage_volt': 12.0,
+        'temperature_celsius': 35.0,
+        'hardware_error': 0,
+        'communication_result': 0,
+        'communication_ok': True,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def make_motor_status(**overrides):
+    """일곱 모터를 포함한 기본 MotorStatus 테스트 객체를 만든다."""
+    values = {
+        'header': SimpleNamespace(
+            stamp=SimpleNamespace(sec=10, nanosec=500_000_000),
+            frame_id='motor_bus',
+        ),
+        'motors': [make_motor_state(index) for index in range(1, 8)],
+        'bus_communication_ok': True,
+        'failed_read_count': 0,
+    }
+    values.update(overrides)
+    return SimpleNamespace(**values)
+
+
+def make_landmarks(**overrides):
+    """21개 좌표를 포함한 기본 HandLandmarks 테스트 객체를 만든다."""
+    values = {
+        'header': SimpleNamespace(
+            stamp=SimpleNamespace(sec=10, nanosec=750_000_000),
+        ),
+        'detected': True,
+        'confidence': 0.95,
+        'handedness': 2,
+        'handedness_confidence': 0.98,
+        'image_width': 640,
+        'image_height': 480,
+        'landmarks': [
+            SimpleNamespace(x=index / 100, y=0.2, z=-0.01)
+            for index in range(21)
+        ],
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -302,4 +364,149 @@ def test_hand_command_csv_rejects_invalid_values(
             session_id=123,
             started_at_ns=10_000_000_000,
             messages=[make_hand_command(**overrides)],
+        )
+
+
+def test_motor_status_csv_flattens_seven_motors(tmp_path):
+    """모터 상태 하나를 고정 헤더의 모터별 일곱 행으로 기록한다."""
+    output_path = tmp_path / 'motor_status.csv.part'
+
+    row_count = write_motor_status_csv(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=[make_motor_status()],
+    )
+
+    with output_path.open(encoding='utf-8', newline='') as output:
+        rows = list(csv.reader(output))
+
+    assert row_count == 7
+    assert rows[0] == list(MOTOR_STATUS_HEADER)
+    assert len(rows) == 8
+    assert rows[1][:7] == [
+        '123', '10', '500000000', '500', 'motor_bus', '1', 'axis_1',
+    ]
+    assert rows[1][-4:] == ['0', 'true', 'true', '0']
+
+
+def test_motor_status_csv_allows_empty_data(tmp_path):
+    """모터 상태가 없는 세션도 헤더만 가진 CSV로 표현한다."""
+    output_path = tmp_path / 'motor_status.csv.part'
+
+    row_count = write_motor_status_csv(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=[],
+    )
+
+    assert row_count == 0
+    assert output_path.read_text(encoding='utf-8') == (
+        ','.join(MOTOR_STATUS_HEADER) + '\n'
+    )
+
+
+def test_motor_status_csv_rejects_wrong_motor_count(tmp_path):
+    """한 수신 시각에 모터가 일곱 개가 아니면 거부한다."""
+    output_path = tmp_path / 'motor_status.csv.part'
+    message = make_motor_status(
+        motors=[make_motor_state(index) for index in range(1, 7)],
+    )
+
+    with pytest.raises(ExportValidationError, match='exactly 7'):
+        write_motor_status_csv(
+            output_path,
+            session_id=123,
+            started_at_ns=10_000_000_000,
+            messages=[message],
+        )
+
+
+def test_motor_status_csv_rejects_duplicate_ids_and_nonfinite_values(
+    tmp_path,
+):
+    """중복 모터 ID와 유한하지 않은 측정값을 거부한다."""
+    output_path = tmp_path / 'motor_status.csv.part'
+    duplicate_ids = [make_motor_state(1) for _ in range(7)]
+    with pytest.raises(ExportValidationError, match='must be unique'):
+        write_motor_status_csv(
+            output_path,
+            123,
+            10_000_000_000,
+            [make_motor_status(motors=duplicate_ids)],
+        )
+
+    invalid_motors = [make_motor_state(index) for index in range(1, 8)]
+    invalid_motors[0].current_ampere = float('inf')
+    with pytest.raises(ExportValidationError, match='must be finite'):
+        write_motor_status_csv(
+            output_path,
+            123,
+            10_000_000_000,
+            [make_motor_status(motors=invalid_motors)],
+        )
+
+
+def test_landmark_json_writes_canonical_record(tmp_path):
+    """HandLandmarks를 고정 필드와 21개 좌표 JSON으로 기록한다."""
+    output_path = tmp_path / 'landmark.json.part'
+
+    row_count = write_landmark_json(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=[make_landmarks()],
+    )
+
+    records = json.loads(output_path.read_text(encoding='utf-8'))
+    assert row_count == 1
+    assert len(records) == 1
+    assert tuple(records[0]) == LANDMARK_RECORD_FIELDS
+    assert records[0]['session_id'] == '123'
+    assert records[0]['timestamp'] == '1970-01-01T00:00:10.750Z'
+    assert records[0]['elapsed_ms'] == 750
+    assert len(records[0]['landmarks']) == 21
+    assert tuple(records[0]['landmarks'][0]) == ('x', 'y', 'z')
+
+
+def test_landmark_json_allows_empty_data(tmp_path):
+    """landmark가 없는 세션은 빈 JSON 배열로 표현한다."""
+    output_path = tmp_path / 'landmark.json.part'
+
+    row_count = write_landmark_json(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=[],
+    )
+
+    assert row_count == 0
+    assert output_path.read_text(encoding='utf-8') == '[]\n'
+
+
+@pytest.mark.parametrize(
+    ('overrides', 'error_pattern'),
+    [
+        ({'landmarks': []}, 'exactly 21'),
+        ({'confidence': 1.1}, 'between 0 and 1'),
+        ({'handedness': 9}, 'handedness is invalid'),
+        ({'image_width': 0}, 'dimensions must be positive'),
+        ({'detected': 1}, 'must be boolean'),
+    ],
+)
+def test_landmark_json_rejects_invalid_values(
+    tmp_path,
+    overrides,
+    error_pattern,
+):
+    """좌표 개수·enum·범위·타입 계약 위반을 거부한다."""
+    output_path = tmp_path / 'landmark.json.part'
+
+    with pytest.raises(ExportValidationError, match=error_pattern):
+        write_landmark_json(
+            output_path,
+            session_id=123,
+            started_at_ns=10_000_000_000,
+            messages=[make_landmarks(**overrides)],
         )

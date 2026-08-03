@@ -2,6 +2,8 @@
 
 import csv
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import json
 import math
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
@@ -12,6 +14,9 @@ from rosidl_runtime_py.utilities import get_message
 
 from thing_logger.bag_recorder import TOPIC_TYPES
 from thing_logger.export_schema import HAND_COMMAND_HEADER
+from thing_logger.export_schema import LANDMARK_POINT_FIELDS
+from thing_logger.export_schema import LANDMARK_RECORD_FIELDS
+from thing_logger.export_schema import MOTOR_STATUS_HEADER
 
 
 ALLOWED_RESULTS = frozenset({'SUCCESS', 'FAILURE'})
@@ -25,6 +30,7 @@ HAND_COMMAND_AXES = (
     'little_flex',
 )
 HAND_COMMAND_SOURCES = frozenset(range(6))
+HANDEDNESS_VALUES = frozenset(range(3))
 
 
 class ExportError(RuntimeError):
@@ -329,4 +335,315 @@ def _require_normalized(value: Any, field_name: str) -> float:
         raise ExportValidationError(
             f'{field_name} must be between 0 and 1'
         )
+    return converted
+
+
+def write_motor_status_csv(
+    path: Path,
+    session_id: int,
+    started_at_ns: int,
+    messages: Iterable[Any],
+) -> int:
+    """모터 상태를 모터별 canonical CSV 행으로 쓰고 행 수를 반환한다."""
+    row_count = 0
+    try:
+        with path.open('w', encoding='utf-8', newline='') as output:
+            writer = csv.writer(output, lineterminator='\n')
+            writer.writerow(MOTOR_STATUS_HEADER)
+            for message in messages:
+                rows = _motor_status_rows(
+                    session_id,
+                    started_at_ns,
+                    message,
+                )
+                writer.writerows(rows)
+                row_count += len(rows)
+    except ExportValidationError:
+        raise
+    except Exception as error:
+        raise ExportError(
+            f'failed to write MotorStatus CSV: {error}'
+        ) from error
+
+    return row_count
+
+
+def _motor_status_rows(
+    session_id: int,
+    started_at_ns: int,
+    message: Any,
+) -> list:
+    """모터 상태 메시지 하나를 검증해 일곱 CSV 행으로 평탄화한다."""
+    stamp_sec, stamp_nanosec, elapsed_ms = _timestamp_parts(
+        message.header.stamp,
+        started_at_ns,
+        'MotorStatus',
+    )
+    motors = list(message.motors)
+    if len(motors) != 7:
+        raise ExportValidationError(
+            'MotorStatus must contain exactly 7 motors'
+        )
+
+    motor_ids = [
+        _require_integer(motor.motor_id, 'MotorState motor_id')
+        for motor in motors
+    ]
+    if len(set(motor_ids)) != 7:
+        raise ExportValidationError('MotorStatus motor IDs must be unique')
+
+    failed_read_count = _require_integer(
+        message.failed_read_count,
+        'MotorStatus failed_read_count',
+    )
+    if not 0 <= failed_read_count < 2**32:
+        raise ExportValidationError(
+            'MotorStatus failed_read_count is invalid'
+        )
+
+    rows = []
+    for motor, motor_id in zip(motors, motor_ids):
+        if not 0 <= motor_id < 2**8:
+            raise ExportValidationError('MotorState motor_id is invalid')
+        if not isinstance(motor.actuator_name, str):
+            raise ExportValidationError(
+                'MotorState actuator_name must be a string'
+            )
+
+        rows.append((
+            str(session_id),
+            stamp_sec,
+            stamp_nanosec,
+            elapsed_ms,
+            str(message.header.frame_id),
+            motor_id,
+            motor.actuator_name,
+            _require_int32(
+                motor.goal_position_raw,
+                'MotorState goal_position_raw',
+            ),
+            _require_int32(
+                motor.present_position_raw,
+                'MotorState present_position_raw',
+            ),
+            _require_finite(
+                motor.goal_position_rad,
+                'MotorState goal_position_rad',
+            ),
+            _require_finite(
+                motor.present_position_rad,
+                'MotorState present_position_rad',
+            ),
+            _require_finite(
+                motor.velocity_rad_s,
+                'MotorState velocity_rad_s',
+            ),
+            _require_finite(
+                motor.current_ampere,
+                'MotorState current_ampere',
+            ),
+            _require_finite(
+                motor.voltage_volt,
+                'MotorState voltage_volt',
+            ),
+            _require_finite(
+                motor.temperature_celsius,
+                'MotorState temperature_celsius',
+            ),
+            _require_uint32(
+                motor.hardware_error,
+                'MotorState hardware_error',
+            ),
+            _require_int32(
+                motor.communication_result,
+                'MotorState communication_result',
+            ),
+            _canonical_bool(
+                motor.communication_ok,
+                'MotorState communication_ok',
+            ),
+            _canonical_bool(
+                message.bus_communication_ok,
+                'MotorStatus bus_communication_ok',
+            ),
+            failed_read_count,
+        ))
+
+    return rows
+
+
+def write_landmark_json(
+    path: Path,
+    session_id: int,
+    started_at_ns: int,
+    messages: Iterable[Any],
+) -> int:
+    """손 좌표 메시지를 canonical JSON 배열로 쓰고 행 수를 반환한다."""
+    row_count = 0
+    try:
+        with path.open('w', encoding='utf-8', newline='') as output:
+            output.write('[')
+            for message in messages:
+                if row_count:
+                    output.write(',')
+                record = _landmark_record(
+                    session_id,
+                    started_at_ns,
+                    message,
+                )
+                output.write(json.dumps(
+                    record,
+                    ensure_ascii=False,
+                    separators=(',', ':'),
+                ))
+                row_count += 1
+            output.write(']\n')
+    except ExportValidationError:
+        raise
+    except Exception as error:
+        raise ExportError(
+            f'failed to write LandMark JSON: {error}'
+        ) from error
+
+    return row_count
+
+
+def _landmark_record(
+    session_id: int,
+    started_at_ns: int,
+    message: Any,
+) -> dict:
+    """손 좌표 메시지 하나를 검증해 canonical JSON 객체로 변환한다."""
+    stamp_sec, stamp_nanosec, elapsed_ms = _timestamp_parts(
+        message.header.stamp,
+        started_at_ns,
+        'HandLandmarks',
+    )
+    confidence = _require_normalized(
+        message.confidence,
+        'HandLandmarks confidence',
+    )
+    handedness = _require_integer(
+        message.handedness,
+        'HandLandmarks handedness',
+    )
+    if handedness not in HANDEDNESS_VALUES:
+        raise ExportValidationError(
+            'HandLandmarks handedness is invalid'
+        )
+    handedness_confidence = _require_normalized(
+        message.handedness_confidence,
+        'HandLandmarks handedness_confidence',
+    )
+    image_width = _require_uint32(
+        message.image_width,
+        'HandLandmarks image_width',
+    )
+    image_height = _require_uint32(
+        message.image_height,
+        'HandLandmarks image_height',
+    )
+    if image_width == 0 or image_height == 0:
+        raise ExportValidationError(
+            'HandLandmarks image dimensions must be positive'
+        )
+
+    landmarks = list(message.landmarks)
+    if len(landmarks) != 21:
+        raise ExportValidationError(
+            'HandLandmarks must contain exactly 21 points'
+        )
+    points = [
+        {
+            field_name: _require_finite(
+                getattr(point, field_name),
+                f'HandLandmarks point {field_name}',
+            )
+            for field_name in LANDMARK_POINT_FIELDS
+        }
+        for point in landmarks
+    ]
+
+    record = {
+        'session_id': str(session_id),
+        'timestamp': _format_timestamp_utc(stamp_sec, stamp_nanosec),
+        'stamp_sec': stamp_sec,
+        'stamp_nanosec': stamp_nanosec,
+        'elapsed_ms': elapsed_ms,
+        'detected': _require_bool(
+            message.detected,
+            'HandLandmarks detected',
+        ),
+        'confidence': confidence,
+        'handedness': handedness,
+        'handedness_confidence': handedness_confidence,
+        'image_width': image_width,
+        'image_height': image_height,
+        'landmarks': points,
+    }
+    if tuple(record) != LANDMARK_RECORD_FIELDS:
+        raise ExportValidationError(
+            'LandMark JSON field order does not match schema'
+        )
+    return record
+
+
+def _timestamp_parts(
+    stamp: Any,
+    started_at_ns: int,
+    message_name: str,
+) -> tuple:
+    """ROS 시각을 검증하고 초·나노초·세션 상대 밀리초로 반환한다."""
+    stamp_sec = _require_integer(stamp.sec, f'{message_name} stamp.sec')
+    stamp_nanosec = _require_integer(
+        stamp.nanosec,
+        f'{message_name} stamp.nanosec',
+    )
+    if stamp_sec < 0 or not 0 <= stamp_nanosec < 1_000_000_000:
+        raise ExportValidationError(f'{message_name} timestamp is invalid')
+
+    timestamp_ns = stamp_sec * 1_000_000_000 + stamp_nanosec
+    elapsed_ns = timestamp_ns - started_at_ns
+    if elapsed_ns < 0:
+        raise ExportValidationError(
+            f'{message_name} timestamp precedes session start'
+        )
+    return stamp_sec, stamp_nanosec, elapsed_ns // 1_000_000
+
+
+def _format_timestamp_utc(stamp_sec: int, stamp_nanosec: int) -> str:
+    """ROS 시각을 millisecond 정밀도의 RFC 3339 UTC 문자열로 만든다."""
+    try:
+        utc_time = datetime.fromtimestamp(stamp_sec, timezone.utc)
+    except (OverflowError, OSError, ValueError) as error:
+        raise ExportValidationError('timestamp is outside UTC range') from error
+    milliseconds = stamp_nanosec // 1_000_000
+    return f'{utc_time:%Y-%m-%dT%H:%M:%S}.{milliseconds:03d}Z'
+
+
+def _require_bool(value: Any, field_name: str) -> bool:
+    """실제 boolean 필드만 반환한다."""
+    if not isinstance(value, bool):
+        raise ExportValidationError(f'{field_name} must be boolean')
+    return value
+
+
+def _canonical_bool(value: Any, field_name: str) -> str:
+    """boolean을 CSV용 소문자 문자열로 변환한다."""
+    return 'true' if _require_bool(value, field_name) else 'false'
+
+
+def _require_int32(value: Any, field_name: str) -> int:
+    """ROS int32 범위의 정수만 반환한다."""
+    converted = _require_integer(value, field_name)
+    if not -(2**31) <= converted < 2**31:
+        raise ExportValidationError(f'{field_name} is outside int32 range')
+    return converted
+
+
+def _require_uint32(value: Any, field_name: str) -> int:
+    """ROS uint32 범위의 정수만 반환한다."""
+    converted = _require_integer(value, field_name)
+    if not 0 <= converted < 2**32:
+        raise ExportValidationError(f'{field_name} is outside uint32 range')
     return converted
