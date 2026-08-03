@@ -1,9 +1,36 @@
 """
-여러 명령원 중 현재 제어권을 가진 하나만 고르는 ROS 2 adapter.
+Command Manager 정책을 ROS 2 topic/service에 연결하는 어댑터.
 
-Command Manager는 교차로의 신호수처럼 mode·owner·lease를 관리하고 선택된 명령만
-``/thing/command/selected``로 보낸다. 명령 수치가 안전한지는 Command Guard가 다시
-검사하며, 최종 안전 상태 전이는 Safety Manager가 담당한다.
+초보자용 간단 매뉴얼
+---------------------
+1. 역할
+   여러 producer(mimic, teleop, gesture/sequence)가 동시에 명령을 보내더라도 현재
+   mode·owner·lease 조건을 만족하는 한 종류만 골라 ``/thing/command/selected``로
+   전달한다. 제어권 변경과 STOP은 service로 받고 현재 중재 상태는 topic으로 알린다.
+2. 입력
+   ``/thing/command/{mimic,teleop,manual}``의 ``HandCommand``, Safety/Recording 상태,
+   Gesture executor를 포함한 동작 실행기의 ``/thing/control/motion_active``, 그리고
+   ``/thing/set_control_mode`` service 요청을 입력으로 받는다.
+3. 출력
+   선택된 ``HandCommand``, latched ``/thing/control_state``, STOP 요청 이벤트와 mode
+   service 응답을 출력한다. STOP 완료 확인은 Guard의 barrier ACK를 기다린 뒤 응답한다.
+4. 주요 실행 흐름
+   mode 요청 → 코어가 owner 충돌·lease·Safety·녹화·재획득 gate를 판정 → 각 producer
+   명령의 topic과 ``source``를 함께 검증 → 통과한 명령만 publish한다. STOP이면 먼저
+   코어를 DISABLED/NONE으로 닫고 Guard ACK까지 제한 시간 동안 기다린다.
+5. 사용/실행 방법
+   ROS 2 workspace에서 패키지를 build/source한 뒤 패키지의 ``command_manager``
+   executable을 실행한다(일반적으로 ``ros2 run thing_control command_manager``).
+   단위 정책만 시험하려면 ROS 의존성이 없는 ``command_manager_core.py``를 사용한다.
+6. 책임 경계와 하지 않는 일
+   이 파일은 '누가 명령할 수 있는가'와 ROS 통신만 담당한다. 관절 수치·속도 같은 명령
+   내용의 안전성 검사는 Command Guard, 최종 안전 상태 전이는 Safety Manager, gesture나
+   sequence의 생성·실행은 각각의 producer/executor 책임이다. 이 노드는 명령을 보정하거나
+   대신 실행하지 않는다.
+
+동시성 핵심: mode service가 STOP ACK를 기다리는 동안 ACK callback이 다른 executor
+thread에서 진행되어야 한다. 따라서 callback group을 분리하고, 실제 중재 상태 접근은
+재진입 mutex(``RLock``) 하나로 직렬화하여 검사와 publish 사이의 경쟁을 막는다.
 """
 
 from functools import partial
@@ -34,17 +61,20 @@ from thing_interfaces.srv import SetControlMode
 from thing_control.command_manager_core import CommandManagerCore
 
 
+# 명령은 최신 값 하나만 필요하지만 유실되면 안 되므로 RELIABLE/KEEP_LAST(1)을 쓴다.
 _COMMAND_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
 )
+# 늦게 접속한 노드도 현재 상태를 즉시 받아야 하므로 상태 topic은 TRANSIENT_LOCAL이다.
 _STATE_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.TRANSIENT_LOCAL,
 )
+# STOP transaction과 동작 여부는 순간 이벤트도 보존할 수 있도록 여유 있는 depth를 둔다.
 _INTERNAL_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=10,
@@ -53,9 +83,16 @@ _INTERNAL_QOS = QoSProfile(
 
 
 class CommandManagerNode(Node):
-    """mode·owner·SafetyState로 명령원 하나를 선택하고 lease를 관리한다."""
+    """
+    ROS callback을 직렬화해 ``CommandManagerCore`` 정책을 외부에 제공한다.
+
+    ``_arbitration_lock``은 command, timer, state, service callback이 서로 다른 executor
+    thread에서 실행되어도 '상태 확인 → 결정 → publish'를 한 덩어리로 보이게 한다.
+    코어에도 자체 lock이 있지만, 노드 lock은 코어 변경과 ROS 발행 사이까지 보호한다.
+    """
 
     def __init__(self, parameter_overrides=None) -> None:
+        """파라미터를 검증하고 중재 코어, ROS 입출력, 주기 timer를 구성한다."""
         super().__init__(
             'command_manager',
             parameter_overrides=parameter_overrides,
@@ -109,12 +146,17 @@ class CommandManagerNode(Node):
             500,
         )
 
+        # RLock인 이유는 lock을 잡은 callback이 _publish_control_state()를 호출하면서
+        # 동일 lock을 다시 획득하기 때문이다. 일반 Lock이면 이 경로가 교착된다.
         self._arbitration_lock = RLock()
         # STOP service가 ACK를 기다리는 동안 같은 default callback group의 ACK callback이
         # 굶지 않도록 두 callback을 별도 group에 둔다. 중재 상태 자체는 위 lock으로
         # 계속 직렬화한다.
         self._mode_service_group = MutuallyExclusiveCallbackGroup()
         self._stop_ack_group = MutuallyExclusiveCallbackGroup()
+        # Condition은 ACK를 기다리는 service thread를 잠들게 하고 ACK callback이 깨운다.
+        # count snapshot은 요청 전에 이미 수신·계수된 ACK를 이번 응답에서 제외한다.
+        # 요청별 correlation ID는 없으므로 count 자체가 개별 transaction을 식별하지는 않는다.
         self._stop_ack_condition = Condition()
         self._stop_ack_count = 0
         self._stop_barrier_pending = False
@@ -146,6 +188,9 @@ class CommandManagerNode(Node):
             callback_group=self._stop_ack_group,
         )
 
+        # producer 선택은 topic 이름만으로 끝나지 않는다. callback에 허용 source를 함께
+        # 묶으므로 잘못된 topic으로 들어온 명령도 거부된다. manual topic은 Gesture와
+        # Sequence producer가 공유한다.
         self._command_subscriptions = [
             self.create_subscription(
                 HandCommand,
@@ -217,6 +262,7 @@ class CommandManagerNode(Node):
 
     @staticmethod
     def _validate_bounded_parameter(name: str, value, maximum: int) -> None:
+        """안전 관련 시간값이 양의 정수이며 설계 상한 이하인지 시작 시 확인한다."""
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise ValueError(f'{name} must be a positive integer')
         if value > maximum:
@@ -227,6 +273,12 @@ class CommandManagerNode(Node):
         message: HandCommand,
         expected_sources: Iterable[int],
     ) -> None:
+        """
+        topic/source와 현재 중재 상태가 모두 맞는 명령만 selected로 전달한다.
+
+        명령 payload는 여기서 해석하거나 보정하지 않는다. source 선택 이후의 값 검사는
+        Command Guard가 담당하므로 이 callback은 '누가 말하는가'만 판정한다.
+        """
         with self._arbitration_lock:
             if message.source not in expected_sources:
                 return
@@ -244,6 +296,7 @@ class CommandManagerNode(Node):
             self._selected_publisher.publish(message)
 
     def _on_safety_state(self, message: SafetyState) -> None:
+        """유효한 source timestamp를 나노초로 바꿔 순서 보장 상태로 코어에 전달한다."""
         with self._arbitration_lock:
             if message.stamp.nanosec < 0 or message.stamp.nanosec >= 1_000_000_000:
                 return
@@ -260,6 +313,7 @@ class CommandManagerNode(Node):
                 self._publish_control_state()
 
     def _on_recording_state(self, message: RecordingState) -> None:
+        """녹화 중 새 mode 획득을 막는 데 필요한 상태를 코어에 반영한다."""
         with self._arbitration_lock:
             self._core.update_recording_state(
                 message.state,
@@ -267,12 +321,23 @@ class CommandManagerNode(Node):
             )
 
     def _on_motion_active(self, message: Bool) -> None:
+        """
+        Gesture/Sequence 실행기의 실제 동작 여부를 재획득 중재에 반영한다.
+
+        executor의 동작 시작은 MANUAL owner가 유효할 때만 수용된다. 동작 중에는 다른
+        mode/owner가 끼어들 수 없고 STOP·lease 만료 시 running 상태도 함께 닫힌다.
+        """
         with self._arbitration_lock:
             if self._core.set_sequence_running(message.data):
                 self._publish_control_state()
 
     def _on_stop_barrier_ack(self, message: Empty) -> None:
-        """Guard가 latch를 닫은 뒤 보낸 ACK로 대기 중인 STOP transaction을 깨운다."""
+        """
+        Guard가 latch를 닫은 뒤 보낸 ACK로 대기 중인 STOP transaction을 깨운다.
+
+        mode service와 다른 callback group/thread에서 실행되어야 한다. 그렇지 않으면
+        service가 ACK를 기다리는 동안 ACK callback도 실행되지 못하는 교착이 난다.
+        """
         del message
         with self._stop_ack_condition:
             self._stop_ack_count += 1
@@ -284,6 +349,13 @@ class CommandManagerNode(Node):
         request: SetControlMode.Request,
         response: SetControlMode.Response,
     ) -> SetControlMode.Response:
+        """
+        mode·owner 획득/갱신/STOP을 처리하고 실제 활성 상태를 응답한다.
+
+        fail-closed 원칙에 따라 lease 만료나 미완료 STOP barrier가 보이면 활성 요청을
+        받지 않는다. STOP 성공은 이벤트 발행이 아니라 Guard ACK 수신까지를 뜻하며,
+        timeout이어도 코어 상태는 이미 DISABLED/NONE인 채 실패로 응답한다.
+        """
         with self._arbitration_lock:
             if self._core.check_lease():
                 self._publish_control_state()
@@ -331,7 +403,8 @@ class CommandManagerNode(Node):
             if request.requested_mode == ControlState.MODE_DISABLED:
                 # service 성공은 publish 호출이 아니라 Guard latch 완료를 뜻한다. ACK 전
                 # response를 보내면 호출자가 "정지 완료"로 오해할 수 있으므로 bounded
-                # wait로 분산 STOP transaction을 선형화한다.
+                # wait로 STOP 요청 뒤 새 ACK가 관측될 때까지 응답을 보류한다. 요청별
+                # correlation ID 대신 직렬화된 STOP service와 count 경계를 사용한다.
                 with self._stop_ack_condition:
                     ack_count_before_request = self._stop_ack_count
                     self._stop_barrier_pending = True
@@ -349,11 +422,13 @@ class CommandManagerNode(Node):
             return response
 
     def _on_lease_timer(self) -> None:
+        """heartbeat가 끊긴 owner를 주기적으로 해제하고 변경 상태를 즉시 알린다."""
         with self._arbitration_lock:
             if self._core.check_lease():
                 self._publish_control_state()
 
     def _publish_control_state(self) -> None:
+        """코어의 일관된 snapshot을 ROS ``ControlState`` 메시지로 발행한다."""
         with self._arbitration_lock:
             state = self._core.snapshot()
             message = ControlState()
