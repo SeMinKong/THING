@@ -337,9 +337,9 @@ public:
 
     static constexpr uint16_t TEST_GOAL_CURRENT = 500;  // 500 mA
     static constexpr uint16_t TEST_POSITION_P_GAIN = 500;
-    static constexpr uint16_t TEST_POSITION_I_GAIN = 20;
-    static constexpr uint32_t TEST_PROFILE_ACCELERATION = 5;
-    static constexpr uint32_t TEST_PROFILE_VELOCITY = 60;  // 약 13.74 rpm
+    static constexpr uint16_t TEST_POSITION_I_GAIN = 30;
+    static constexpr uint32_t TEST_PROFILE_ACCELERATION = 50;
+    static constexpr uint32_t TEST_PROFILE_VELOCITY = 200;  // 약 45.80 rpm
     static constexpr int32_t TEST_POSITION_DELTA = 2000;
 
     if (TEST_GOAL_CURRENT > raw_current_limit) {
@@ -578,7 +578,7 @@ public:
 
 private:
   static constexpr int64_t POSITION_TOLERANCE = 5;
-  static constexpr uint16_t RETURN_POSITION_I_GAIN = 0;
+  static constexpr uint16_t RETURN_POSITION_I_GAIN = 30;
   static constexpr std::chrono::seconds MOTION_TIMEOUT{6};
 
   void monitor_motion_test()
