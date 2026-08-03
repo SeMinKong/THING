@@ -9,6 +9,8 @@ from thing_interfaces.msg import ControlState
 from thing_interfaces.msg import RecordingState
 from thing_interfaces.msg import SafetyState
 from thing_logger.bag_recorder import BagRecorder
+from thing_logger.export_worker import CompletedExport
+from thing_logger.exporter import ExportResult
 from thing_logger.logger import Logger
 from thing_logger.session import SessionManager
 
@@ -49,10 +51,38 @@ class FakeRosLogger:
     def __init__(self):
         """빈 오류 목록을 만든다."""
         self.errors = []
+        self.infos = []
 
     def error(self, message):
         """오류 메시지를 저장한다."""
         self.errors.append(message)
+
+    def info(self, message):
+        """정보 메시지를 저장한다."""
+        self.infos.append(message)
+
+
+class FakeExportWorker:
+    """Logger가 제출한 ExportJob과 완료 결과를 보관한다."""
+
+    def __init__(self):
+        """비활성 worker와 빈 작업 목록을 만든다."""
+        self.is_busy = False
+        self.jobs = []
+        self.completed = None
+
+    def submit(self, job):
+        """제출된 작업을 저장하고 busy 상태로 전환한다."""
+        self.jobs.append(job)
+        self.is_busy = True
+
+    def take_completed(self):
+        """준비된 완료 결과를 한 번 반환한다."""
+        completed = self.completed
+        self.completed = None
+        if completed is not None:
+            self.is_busy = False
+        return completed
 
 
 class LoggerHarness:
@@ -65,6 +95,7 @@ class LoggerHarness:
             session_id_factory=lambda: 123,
         )
         self.bag_recorder = BagRecorder()
+        self.export_worker = FakeExportWorker()
         self.active_mode = ControlState.MODE_DISABLED
         self.safety_state = SafetyState.INIT
         self.recording_state_publisher = FakePublisher()
@@ -161,6 +192,9 @@ def test_normal_stop_preserves_bag_and_waits_for_result(tmp_path):
     assert result_response.accepted is True
     assert logger.session_manager.state == RecordingState.IDLE
     assert logger.session_manager.result_pending is False
+    assert len(logger.export_worker.jobs) == 1
+    assert logger.export_worker.jobs[0].bag_path == str(bag_path)
+    assert logger.export_worker.jobs[0].result == 'SUCCESS'
 
 
 def test_interrupted_bag_is_deleted_and_ready_restores_idle(tmp_path):
@@ -185,3 +219,47 @@ def test_interrupted_bag_is_deleted_and_ready_restores_idle(tmp_path):
     Logger.handle_safety_state(logger, safety_message)
     assert logger.session_manager.state == RecordingState.IDLE
     assert logger.session_manager.result_pending is False
+
+
+def test_start_is_rejected_while_export_is_busy(tmp_path):
+    """이전 세션 export 중에는 새 rosbag2 기록을 시작하지 않는다."""
+    logger = LoggerHarness(tmp_path)
+    logger.active_mode = ControlState.MODE_MIMIC
+    logger.safety_state = SafetyState.READY
+    logger.export_worker.is_busy = True
+    response = make_response()
+
+    Logger.handle_start_recording(
+        logger,
+        SimpleNamespace(label='test'),
+        response,
+    )
+
+    assert response.accepted is False
+    assert response.reason == 'start_failed'
+    assert logger.session_manager.state == RecordingState.IDLE
+    assert logger.bag_recorder.is_recording is False
+
+
+def test_export_completion_and_failure_are_logged(tmp_path):
+    """변환 성공과 실패를 회수해 각각 진단 로그에 남긴다."""
+    logger = LoggerHarness(tmp_path)
+    result = ExportResult(123, '/tmp/123', 'sha256:test', {})
+    logger.export_worker.completed = CompletedExport(
+        SimpleNamespace(),
+        result=result,
+    )
+
+    Logger.handle_export_worker_result(logger)
+
+    assert logger.ros_logger.infos == [
+        'export completed: session_id=123 content_digest=sha256:test'
+    ]
+
+    logger.export_worker.completed = CompletedExport(
+        SimpleNamespace(),
+        error=RuntimeError('broken bag'),
+    )
+    Logger.handle_export_worker_result(logger)
+
+    assert logger.ros_logger.errors == ['export failed: broken bag']

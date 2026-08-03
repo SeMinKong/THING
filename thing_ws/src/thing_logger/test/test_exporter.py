@@ -3,10 +3,18 @@
 import csv
 from dataclasses import FrozenInstanceError
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from geometry_msgs.msg import Point32
+from thing_interfaces.msg import HandCommand
+from thing_interfaces.msg import HandLandmarks
+from thing_interfaces.msg import MotorState
+from thing_interfaces.msg import MotorStatus
+from thing_interfaces.msg import RecordingState
+from thing_logger.bag_recorder import BagRecorder
 from thing_logger.exporter import ExportJob
 from thing_logger.exporter import ExportValidationError
 from thing_logger.exporter import RosbagSessionReader
@@ -721,6 +729,102 @@ def test_session_exporter_atomically_exposes_four_valid_files(tmp_path):
         )
     )
     assert result.content_digest == metadata['content_digest']
+    assert metadata['files']['hand_command']['row_count'] == 1
+    assert metadata['files']['motor_status']['row_count'] == 7
+    assert metadata['files']['landmark']['row_count'] == 1
+
+
+def test_session_exporter_reads_actual_rosbag2_fixture(tmp_path):
+    """실제 rosbag2 기록을 읽어 canonical 4파일로 변환한다."""
+    bag_path = tmp_path / 'bags' / '123'
+    recorder = BagRecorder()
+    recorder.start(str(bag_path))
+
+    recording = RecordingState()
+    recording.header.stamp.sec = 10
+    recording.state = RecordingState.RECORDING
+    recording.active_session_id = 123
+    recording.active_started_at.sec = 10
+    recorder.write('/thing/recording_state', recording, 10_000_000_000)
+
+    command = HandCommand()
+    command.stamp.sec = 10
+    command.stamp.nanosec = 250_000_000
+    command.sequence = 7
+    command.source = HandCommand.SOURCE_MIMIC
+    command.thumb_flex = 0.1
+    command.thumb_opp = 0.2
+    command.thumb_abd = 0.3
+    command.index_flex = 0.4
+    command.middle_flex = 0.5
+    command.ring_flex = 0.6
+    command.little_flex = 0.7
+    command.speed_limit = 0.8
+    command.confidence = 0.9
+    recorder.write('/thing/command', command, 10_250_000_000)
+
+    motor_status = MotorStatus()
+    motor_status.header.stamp.sec = 10
+    motor_status.header.stamp.nanosec = 500_000_000
+    motor_status.header.frame_id = 'motor_bus'
+    motor_status.bus_communication_ok = True
+    for motor_id in range(1, 8):
+        motor = MotorState()
+        motor.motor_id = motor_id
+        motor.actuator_name = f'axis_{motor_id}'
+        motor.goal_position_raw = 100 + motor_id
+        motor.present_position_raw = 90 + motor_id
+        motor.goal_position_rad = 0.1 * motor_id
+        motor.present_position_rad = 0.09 * motor_id
+        motor.velocity_rad_s = 0.2
+        motor.current_ampere = 0.3
+        motor.voltage_volt = 12.0
+        motor.temperature_celsius = 35.0
+        motor.communication_ok = True
+        motor_status.motors.append(motor)
+    recorder.write(
+        '/thing/motor_status',
+        motor_status,
+        10_500_000_000,
+    )
+
+    landmarks = HandLandmarks()
+    landmarks.header.stamp.sec = 10
+    landmarks.header.stamp.nanosec = 750_000_000
+    landmarks.detected = True
+    landmarks.confidence = 0.95
+    landmarks.handedness = HandLandmarks.HANDEDNESS_RIGHT
+    landmarks.handedness_confidence = 0.98
+    landmarks.image_width = 640
+    landmarks.image_height = 480
+    for index in range(21):
+        landmarks.landmarks[index] = Point32(
+            x=index / 100,
+            y=0.2,
+            z=-0.01,
+        )
+    recorder.write('/thing/landmarks', landmarks, 10_750_000_000)
+
+    stopping = RecordingState()
+    stopping.header.stamp.sec = 20
+    stopping.state = RecordingState.STOPPING
+    stopping.active_session_id = 123
+    stopping.active_started_at.sec = 10
+    recorder.write('/thing/recording_state', stopping, 20_000_000_000)
+    recorder.stop()
+
+    result = SessionExporter(
+        'THING-001',
+        str(tmp_path / 'tmp-upload'),
+        clock_ns=lambda: 21_000_000_000,
+    ).export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    metadata = json.loads(
+        Path(result.files['metadata'].path).read_text(encoding='utf-8')
+    )
+    assert set(result.files) == {
+        'metadata', 'hand_command', 'motor_status', 'landmark',
+    }
     assert metadata['files']['hand_command']['row_count'] == 1
     assert metadata['files']['motor_status']['row_count'] == 7
     assert metadata['files']['landmark']['row_count'] == 1

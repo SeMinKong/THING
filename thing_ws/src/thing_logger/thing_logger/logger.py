@@ -18,8 +18,13 @@ from thing_interfaces.srv import SetMimicResult
 from thing_interfaces.srv import StartRecording
 from thing_interfaces.srv import StopRecording
 from thing_logger.bag_recorder import BagRecorderError
+from thing_logger.export_worker import ExportBusyError
+from thing_logger.export_worker import ExportWorker
+from thing_logger.exporter import ExportJob
+from thing_logger.exporter import SessionExporter
 from thing_logger.recording_worker import RecordingWorker
 from thing_logger.session import SessionManager
+from thing_logger.uploader_handoff import UnixSocketUploaderClient
 
 
 class Logger(Node):
@@ -57,10 +62,32 @@ class Logger(Node):
             '/var/lib/thing-robot-data/rosbag2',
         )
         bag_root = self.get_parameter('bag_root').value
+        self.declare_parameter(
+            'export_root',
+            '/var/lib/thing-robot-data/tmp-upload',
+        )
+        self.declare_parameter('robot_id', 'THING-001')
+        self.declare_parameter('time_sync', True)
+        self.declare_parameter(
+            'uploader_socket',
+            '/run/thing-uploader/uploader.sock',
+        )
+        export_root = self.get_parameter('export_root').value
+        robot_id = self.get_parameter('robot_id').value
+        time_sync = self.get_parameter('time_sync').value
+        uploader_socket = self.get_parameter('uploader_socket').value
 
         # 세션 상태와 rosbag2 기록 구현은 각 전담 객체에 맡긴다.
         self.session_manager = SessionManager(bag_root)
         self.bag_recorder = RecordingWorker()
+        self.export_worker = ExportWorker(
+            SessionExporter(
+                robot_id,
+                export_root,
+                time_sync=time_sync,
+            ),
+            UnixSocketUploaderClient(uploader_socket),
+        )
 
         # StartRecording 요청을 판단하기 위해 최신 제어 모드만 보관한다.
         self.active_mode = ControlState.MODE_DISABLED
@@ -122,6 +149,10 @@ class Logger(Node):
         self.recording_error_timer = self.create_timer(
             0.05,
             self.handle_recording_worker_error,
+        )
+        self.export_result_timer = self.create_timer(
+            0.1,
+            self.handle_export_worker_result,
         )
 
         self.publish_recording_state()
@@ -199,6 +230,11 @@ class Logger(Node):
 
     def handle_start_recording(self, request, response):
         """안전한 MIMIC 상태에서 새로운 rosbag2 기록을 시작한다."""
+        if self.export_worker.is_busy:
+            response.accepted = False
+            response.reason = 'start_failed'
+            return response
+
         accepted, reason = self.session_manager.can_start(
             self.active_mode,
             self.safety_state,
@@ -286,8 +322,37 @@ class Logger(Node):
 
         if accepted:
             self.publish_recording_state()
+            result_name = {
+                RecordingState.RESULT_SUCCESS: 'SUCCESS',
+                RecordingState.RESULT_FAILURE: 'FAILURE',
+            }[request.result]
+            completed_session = self.session_manager.last_session
+            job = ExportJob(
+                completed_session.bag_path,
+                result_name,
+            )
+            try:
+                self.export_worker.submit(job)
+            except ExportBusyError as error:
+                self.get_logger().error(str(error))
 
         return response
+
+    def handle_export_worker_result(self):
+        """완료된 export 결과 또는 오류를 Logger 진단 로그에 남긴다."""
+        completed = self.export_worker.take_completed()
+        if completed is None:
+            return
+        if completed.error is not None:
+            self.get_logger().error(
+                f'export failed: {completed.error}'
+            )
+            return
+        self.get_logger().info(
+            'export completed: '
+            f'session_id={completed.result.session_id} '
+            f'content_digest={completed.result.content_digest}'
+        )
 
     def interrupt_recording(self, message):
         """활성 writer를 닫고 중단된 bag 삭제를 시도한다."""
@@ -368,6 +433,7 @@ def main(args=None):
     finally:
         logger.interrupt_recording('process shutdown')
         logger.bag_recorder.shutdown()
+        logger.export_worker.shutdown()
         logger.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

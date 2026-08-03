@@ -15,7 +15,7 @@ setup(
     zip_safe=True,
     maintainer='C103 Team',
     maintainer_email='dndwlqor@naver.com',
-    description='rosbag2 recording and SQLite experiment session management.',
+    description='rosbag2 recording and canonical session file export.',
     license='Apache-2.0',
     extras_require={
         'test': [

@@ -3,7 +3,7 @@
 <package format="3">
   <name>thing_logger</name>
   <version>0.1.0</version>
-  <description>rosbag2 recording and SQLite experiment session management.</description>
+  <description>rosbag2 recording and canonical session file export.</description>
   <maintainer email="dndwlqor@naver.com">C103 Team</maintainer>
   <license>Apache-2.0</license>
 
