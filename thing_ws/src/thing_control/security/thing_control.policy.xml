@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Generate deployment-specific keys; never commit the generated keystore:
+    ros2 security create_keystore <keystore>
+    ros2 security generate_artifacts -k <keystore> -p thing_control.policy.xml
+
+  Deny-by-default access is enforced by ROS_SECURITY_STRATEGY=Enforce.
+  Hardware and producer enclaves must be added explicitly after their node names
+  and least-privilege topic contracts are implemented and reviewed.
+-->
+<policy version="0.2.0">
+  <enclaves>
+    <enclave path="/thing/control/command_manager">
+      <profiles>
+        <profile node="command_manager" ns="/">
+          <services reply="ALLOW">
+            <service>/thing/set_control_mode</service>
+            <service>~/describe_parameters</service>
+            <service>~/get_parameter_types</service>
+            <service>~/get_parameters</service>
+            <service>~/list_parameters</service>
+            <service>~/set_parameters</service>
+            <service>~/set_parameters_atomically</service>
+          </services>
+          <topics subscribe="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/command/manual</topic>
+            <topic>/thing/command/mimic</topic>
+            <topic>/thing/command/teleop</topic>
+            <topic>/thing/control/motion_active</topic>
+            <topic>/thing/control/stop_barrier_ack</topic>
+            <topic>/thing/recording_state</topic>
+            <topic>/thing/safety_state</topic>
+          </topics>
+          <topics publish="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/command/selected</topic>
+            <topic>/thing/control/stop_requested</topic>
+            <topic>/thing/control_state</topic>
+            <topic>parameter_events</topic>
+            <topic>rosout</topic>
+          </topics>
+        </profile>
+      </profiles>
+    </enclave>
+
+    <enclave path="/thing/control/command_guard">
+      <profiles>
+        <profile node="command_guard" ns="/">
+          <services reply="ALLOW">
+            <service>~/describe_parameters</service>
+            <service>~/get_parameter_types</service>
+            <service>~/get_parameters</service>
+            <service>~/list_parameters</service>
+            <service>~/set_parameters</service>
+            <service>~/set_parameters_atomically</service>
+          </services>
+          <topics subscribe="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/command/selected</topic>
+            <topic>/thing/control/stop_requested</topic>
+            <topic>/thing/control_state</topic>
+            <topic>/thing/safety_state</topic>
+          </topics>
+          <topics publish="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/command</topic>
+            <topic>/thing/command/validation_result</topic>
+            <topic>/thing/control/stop_barrier_ack</topic>
+            <topic>/thing/diagnostics</topic>
+            <topic>parameter_events</topic>
+            <topic>rosout</topic>
+          </topics>
+        </profile>
+      </profiles>
+    </enclave>
+
+    <enclave path="/thing/control/safety_manager">
+      <profiles>
+        <profile node="safety_manager" ns="/">
+          <services reply="ALLOW">
+            <service>/thing/reset_safety</service>
+            <service>~/describe_parameters</service>
+            <service>~/get_parameter_types</service>
+            <service>~/get_parameters</service>
+            <service>~/list_parameters</service>
+            <service>~/set_parameters</service>
+            <service>~/set_parameters_atomically</service>
+          </services>
+          <topics subscribe="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/command</topic>
+            <topic>/thing/command/validation_result</topic>
+            <topic>/thing/control/stop_barrier_ack</topic>
+            <topic>/thing/control_state</topic>
+            <topic>/thing/estop</topic>
+            <topic>/thing/motor_status</topic>
+          </topics>
+          <topics publish="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/safety_state</topic>
+            <topic>parameter_events</topic>
+            <topic>rosout</topic>
+          </topics>
+        </profile>
+      </profiles>
+    </enclave>
+  </enclaves>
+</policy>

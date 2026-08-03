@@ -7,6 +7,7 @@ Control:
   /thing/command/manual
   /thing/command/selected
   /thing/command
+  /thing/command/validation_result
   /thing/control_state
   /thing/safety_state
   /thing/set_control_mode
@@ -16,6 +17,7 @@ Control:
 Hardware:
   /thing/command
   /thing/motor_status
+  /thing/estop
 
 Logger:
   /thing/start_recording

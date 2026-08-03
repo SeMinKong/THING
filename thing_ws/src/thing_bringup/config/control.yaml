@@ -8,21 +8,56 @@ command_manager:
 command_guard:
   ros__parameters:
     command_timeout_ms: 300
-    min_command_timeout_ms: 200
-    max_command_timeout_ms: 500
-    max_axis_delta_per_second: 1.5
-    default_speed_limit: 0.25
+    command_hold_ms: 300
+    command_future_tolerance_ms: 100
+    safety_state_timeout_ms: 1500
+    control_state_timeout_ms: 1500
+    diagnostic_period_ms: 1000
+    axis_limits:
+      thumb_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.0
+      thumb_opp:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.0
+      thumb_abd:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.0
+      index_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
+      middle_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
+      ring_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
+      little_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
 
 safety_manager:
   ros__parameters:
-    hold_duration_ms: 500
-    stop_settle_ms: 500
-    require_manual_resume: true
-    safe_pose:
-      thumb_flex: 0.0
-      thumb_opp: 0.0
-      thumb_abd: 0.0
-      index_flex: 0.0
-      middle_flex: 0.0
-      ring_flex: 0.0
-      little_flex: 0.0
+    command_hold_ms: 300
+    command_safe_ms: 1000
+    safe_action_timeout_ms: 3000
+    recovery_stable_ms: 300
+    recovery_max_gap_ms: 100
+    reset_min_ms: 500
+    reset_timeout_ms: 3000
+    estop_release_ms: 500
+    fault_clear_stable_ms: 1000
+    hardware_status_timeout_ms: 300
+    estop_input_timeout_ms: 300
+    tick_period_ms: 20
+    state_publish_period_ms: 100
+    trip_limits_validated: false
+    max_current_ampere: 0.145
+    max_temperature_celsius: 70.0

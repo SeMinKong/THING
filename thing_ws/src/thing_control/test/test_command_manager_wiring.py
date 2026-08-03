@@ -59,7 +59,61 @@ def test_control_yaml_uses_v6_3_owner_lease_defaults():
     }
 
     safety_parameters = config['safety_manager']['ros__parameters']
-    assert safety_parameters['stop_settle_ms'] == 500
+    assert safety_parameters['safe_action_timeout_ms'] == 3000
+    assert safety_parameters['reset_min_ms'] == 500
+    assert safety_parameters['reset_timeout_ms'] == 3000
+
+
+def test_security_policy_grants_v6_5_stop_and_lease_paths():
+    policy = ElementTree.parse(
+        PACKAGE_ROOT / 'security' / 'thing_control.policy.xml'
+    ).getroot()
+    profiles = {
+        profile.attrib['node']: profile
+        for profile in policy.findall('.//profile')
+    }
+
+    def topic_names(node_name, direction):
+        topics = profiles[node_name].find(f"topics[@{direction}='ALLOW']")
+        assert topics is not None
+        return {topic.text for topic in topics.findall('topic')}
+
+    manager_subscriptions = topic_names('command_manager', 'subscribe')
+    guard_publications = topic_names('command_guard', 'publish')
+    safety_subscriptions = topic_names('safety_manager', 'subscribe')
+
+    assert '/thing/control/stop_barrier_ack' in manager_subscriptions
+    assert '/thing/control/stop_barrier_ack' in guard_publications
+    assert '/thing/control/stop_barrier_ack' in safety_subscriptions
+    assert '/thing/control_state' in safety_subscriptions
+
+
+def test_security_policy_protected_topics_have_exact_authoritative_publishers():
+    policy = ElementTree.parse(
+        PACKAGE_ROOT / 'security' / 'thing_control.policy.xml'
+    ).getroot()
+    protected_publishers = {
+        '/thing/command/selected': {'command_manager'},
+        '/thing/command': {'command_guard'},
+        '/thing/command/validation_result': {'command_guard'},
+        '/thing/control/stop_barrier_ack': {'command_guard'},
+    }
+    publishers = {topic: set() for topic in protected_publishers}
+
+    for profile in policy.findall('.//profile'):
+        topics = profile.find("topics[@publish='ALLOW']")
+        if topics is None:
+            continue
+        granted = {
+            topic.text
+            for topic in topics.findall('topic')
+            if topic.text is not None
+        }
+        assert all('*' not in topic for topic in granted)
+        for protected_topic in protected_publishers.keys() & granted:
+            publishers[protected_topic].add(profile.attrib['node'])
+
+    assert publishers == protected_publishers
 
 
 def test_interfaces_document_control_arbitration_contract():
