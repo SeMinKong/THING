@@ -164,8 +164,14 @@ EC2_DATA_DIR = env('EC2_DATA_DIR', default='/var/lib/thing-data')
 # 명세서 6.5절: metadata 256KiB + hand_command 20MiB + motor_status 60MiB
 #              = 합계 80.25MiB, Django 요청 85MiB, Nginx body 90MiB로 고정.
 # 이전에는 상한이 어디에도 설정되어 있지 않아 Nginx 기본값(1MB)에서 413으로 막혔다.
+from apps import limits as upload_limits   # 순수 상수 모듈. Django 를 쓰지 않는다
+
 MiB = 1024 * 1024
-DATA_UPLOAD_MAX_MEMORY_SIZE = 85 * MiB   # 요청 본문 전체 상한
+# 요청 본문 전체 상한. 숫자를 여기 두지 않는다.
+# landmark JSON 의 실제 용량이 미확정이라(docs/pending-decisions.md P-2) 값이
+# 바뀔 것이고, 그때 Django·Nginx·part 검사가 함께 움직여야 한다.
+# apps/limits.py 한 곳에서만 정한다.
+DATA_UPLOAD_MAX_MEMORY_SIZE = upload_limits.REQUEST_MAX_BYTES
 FILE_UPLOAD_MAX_MEMORY_SIZE = 5 * MiB    # 이 크기를 넘으면 메모리 대신 임시파일로 스풀
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 100
 

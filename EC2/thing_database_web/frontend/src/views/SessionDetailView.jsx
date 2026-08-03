@@ -98,6 +98,15 @@ const FILE_KINDS = [
     icon: Sheet,
     note: '모터별 위치·전류·온도 기록',
   },
+  {
+    // FR-49 는 네 파일을 요구하지만 LandMark JSON 의 형식이 아직 정해지지 않았다.
+    // 서버는 올바른 JSON 이면 받아 두고, 이 표는 실제로 올라온 세션에만 행을
+    // 보여 준다. 없는 파일에 다운로드 버튼을 주면 사용자가 404 를 받는다.
+    key: 'landmark',
+    label: 'LandMark JSON',
+    icon: FileJson,
+    note: '손 랜드마크 기록 (형식 확정 전)',
+  },
 ];
 
 /**
@@ -315,7 +324,9 @@ export default function SessionDetailView() {
       {/* ── 다운로드 ── */}
       <section className="panel">
         <h3>파일 다운로드</h3>
-        <p className="subtle small">세션마다 아래 세 파일만 공개됩니다.</p>
+        <p className="subtle small">
+          이 세션에 공개된 파일입니다. 목록에 없는 종류는 업로드되지 않았습니다.
+        </p>
         <table className="grid">
           <thead>
             <tr>
@@ -326,7 +337,8 @@ export default function SessionDetailView() {
             </tr>
           </thead>
           <tbody>
-            {FILE_KINDS.map(({ key, label, icon: Icon, note }) => (
+            {FILE_KINDS.filter(({ key }) => detail.downloads?.[key]).map(
+              ({ key, label, icon: Icon, note }) => (
               <tr key={key}>
                 <td>
                   <span className="file-row">
@@ -341,7 +353,9 @@ export default function SessionDetailView() {
                 </td>
                 <td className="num">{formatBytes(detail.file_sizes?.[key])}</td>
                 <td className="num">
-                  {key === 'metadata' ? MISSING : formatCount(detail.row_counts?.[key])}
+                  {detail.row_counts?.[key] === undefined
+                    ? MISSING
+                    : formatCount(detail.row_counts[key])}
                 </td>
                 <td className="row-action">
                   <a href={detail.downloads?.[key]} className="btn btn-sm">
@@ -350,7 +364,8 @@ export default function SessionDetailView() {
                   </a>
                 </td>
               </tr>
-            ))}
+              ),
+            )}
           </tbody>
         </table>
       </section>

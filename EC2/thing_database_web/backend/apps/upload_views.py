@@ -56,9 +56,26 @@ from .validators import (
     validate_metadata,
 )
 
+from . import landmark_contract
+
 logger = logging.getLogger(__name__)
 
+#: 반드시 있어야 하는 part
 REQUIRED_PARTS = ("metadata", "hand_command", "motor_status")
+
+#: 있으면 처리하고 없으면 넘어가는 part.
+#: FR-49 는 네 파일을 요구하지만 landmark 형식이 미정이고 7.6절·NFR-27 은
+#: 세 개라고 적혀 있다. 업로더가 아직 세 part 만 보낼 수 있으므로 선택으로 둔다.
+#: landmark_contract.REQUIRED 를 True 로 바꾸면 필수가 된다.
+OPTIONAL_PARTS = () if landmark_contract.REQUIRED else (landmark_contract.KIND,)
+ALL_PARTS = REQUIRED_PARTS + (
+    (landmark_contract.KIND,) if landmark_contract.REQUIRED else ()
+) + OPTIONAL_PARTS
+
+
+def _present_parts(request):
+    """이번 요청에 실제로 온 part 를 계약 순서대로."""
+    return tuple(name for name in ALL_PARTS if name in request.FILES)
 
 
 class SessionUploadView(APIView):
@@ -100,6 +117,7 @@ class SessionUploadView(APIView):
             sizes, hashes = self._stage_and_hash(request, robot_id, session_id, raw_metadata)
             self._verify_declared_hashes(meta, hashes, sizes)
             self._verify_csv_contents(meta, robot_id, session_id)
+            self._verify_landmark_contents(meta, robot_id, session_id)
             self._verify_digest(request, meta, raw_metadata)
 
             return self._commit(request, meta, robot_id, session_id, sizes, hashes)
@@ -112,19 +130,22 @@ class SessionUploadView(APIView):
     @staticmethod
     def _check_parts(request):
         received = set(request.data.keys()) | set(request.FILES.keys())
-        missing = [p for p in REQUIRED_PARTS if p not in request.FILES]
+        required = REQUIRED_PARTS + (
+            (landmark_contract.KIND,) if landmark_contract.REQUIRED else ()
+        )
+        missing = [p for p in required if p not in request.FILES]
         if missing:
             raise MalformedRequest(
                 details=[f"필수 part 누락: {', '.join(missing)}"]
             )
-        extra = sorted(received - set(REQUIRED_PARTS))
+        extra = sorted(received - set(ALL_PARTS))
         if extra:
             # rosbag2 등 추가 part 를 거부한다 (명세서 6.5절)
             raise UnexpectedPart(details=[f"허용되지 않은 part: {', '.join(extra)}"])
 
     @staticmethod
     def _check_content_types(request):
-        for name in REQUIRED_PARTS:
+        for name in _present_parts(request):
             actual = (request.FILES[name].content_type or "").split(";")[0].strip().lower()
             allowed = PART_CONTENT_TYPES[name]
             if actual not in allowed:
@@ -135,7 +156,7 @@ class SessionUploadView(APIView):
     @staticmethod
     def _check_sizes(request):
         total = 0
-        for name in REQUIRED_PARTS:
+        for name in _present_parts(request):
             size = request.FILES[name].size or 0
             total += size
             if size > PART_MAX_BYTES[name]:
@@ -143,13 +164,15 @@ class SessionUploadView(APIView):
                     details=[f"{name}: 상한 {PART_MAX_BYTES[name] // 1024}KiB 초과"]
                 )
         if total > TOTAL_MAX_BYTES:
-            raise PayloadTooLarge(details=["세 part 합계 상한 80.25MiB 초과"])
+            raise PayloadTooLarge(
+                details=[f"part 합계 상한 {TOTAL_MAX_BYTES // (1024 * 1024)}MiB 초과"]
+            )
 
     @staticmethod
     def _stage_and_hash(request, robot_id, session_id, raw_metadata):
-        """세 part 를 staging 에 저장하고 실제 크기·SHA-256 을 계산한다."""
+        """받은 part 를 staging 에 저장하고 실제 크기·SHA-256 을 계산한다."""
         sizes, hashes = {}, {}
-        for name in REQUIRED_PARTS:
+        for name in _present_parts(request):
             part = request.FILES[name]
             part.seek(0)
             path, written = storage.stream_to_staging(part, robot_id, session_id, name)
@@ -159,9 +182,20 @@ class SessionUploadView(APIView):
 
     @staticmethod
     def _verify_declared_hashes(meta, hashes, sizes):
-        """[NFR-25] metadata 가 주장한 두 CSV 의 크기·SHA-256 이 실제와 일치해야 한다."""
+        """[NFR-25] metadata 가 주장한 크기·SHA-256 이 실제 파일과 일치해야 한다.
+
+        landmark 도 metadata 에 선언되어 있으면 같은 검사를 받는다. 선언만 있고
+        part 가 없거나 반대인 경우도 여기서 걸린다.
+        """
         errors = []
-        for kind in ("hand_command", "motor_status"):
+        declared_kinds = set(meta["files"].keys())
+        staged_kinds = set(hashes.keys())
+        for kind in sorted(declared_kinds - staged_kinds):
+            errors.append(f"files.{kind}: metadata 에 선언됐으나 part 가 없다")
+        for kind in sorted(staged_kinds - declared_kinds - {"metadata"}):
+            errors.append(f"{kind}: part 가 왔으나 metadata.files 에 선언이 없다")
+
+        for kind in sorted(declared_kinds & staged_kinds):
             declared = meta["files"][kind]
             if declared["sha256"].lower() != hashes[kind].lower():
                 errors.append(f"files.{kind}.sha256: 실제 파일과 다르다")
@@ -179,6 +213,24 @@ class SessionUploadView(APIView):
                 session_id, kind
             )
             validate_csv(path, kind, session_id, meta["files"][kind]["row_count"])
+
+    @staticmethod
+    def _verify_landmark_contents(meta, robot_id, session_id):
+        """landmark part 본문을 검증한다.
+
+        형식이 미정이라 지금은 "UTF-8 로 읽히는 올바른 JSON" 까지만 본다.
+        그것만으로도 잘못된 part(CSV·바이너리·잘린 파일)는 걸러진다.
+        규칙은 apps/landmark_contract.py 한 곳에 있다.
+        """
+        LM = landmark_contract.KIND
+        if LM not in meta["files"]:
+            return
+        path = storage.staging_dir(robot_id, session_id) / storage.canonical_filename(
+            session_id, LM
+        )
+        if not path.exists():
+            return
+        landmark_contract.validate_payload(path.read_bytes())
 
     @staticmethod
     def _verify_digest(request, meta, raw_metadata):
@@ -222,6 +274,8 @@ class SessionUploadView(APIView):
             storage.discard_staging(robot_id, session_id)
             return self._success(existing, status.HTTP_200_OK)
 
+        # landmark 의 개수 필드는 6.5절에 json_data 로 적혀 있으나 의미가 불명이라
+        # 담지 않는다 (docs/pending-decisions.md P-4). 두 CSV 만 행 수를 갖는다.
         row_counts = {
             kind: meta["files"][kind]["row_count"] for kind in ("hand_command", "motor_status")
         }

@@ -8,6 +8,7 @@
     클라이언트는 cursor 내부 형식을 해석하지 않는다.
     ... 정수·실수·boolean은 JSON 기본 타입을 사용하고 읽기 실패 숫자는 `null`이다.
 """
+from . import landmark_contract, storage
 import base64
 import binascii
 import csv
@@ -72,6 +73,11 @@ def session_list_item(session):
     }
 
 
+def _has_landmark(session):
+    """metadata 에 landmark 항목이 실제로 있는 세션인지."""
+    return bool((session.file_hashes or {}).get(landmark_contract.KIND))
+
+
 def session_detail(session):
     """상세 GET /api/v1/sessions/{session_id}."""
     base = f"/api/v1/sessions/{session.session_id}/download"
@@ -90,10 +96,12 @@ def session_detail(session):
         "content_digest": session.content_digest,
         "row_counts": session.row_counts,
         "file_sizes": session.file_sizes,
+        # FR-49: 네 파일. landmark 는 업로드된 세션에만 링크를 낸다 —
+        # 없는 파일 링크를 주면 사용자가 404 를 받는다.
         "downloads": {
-            "metadata": f"{base}/metadata",
-            "hand_command": f"{base}/hand_command",
-            "motor_status": f"{base}/motor_status",
+            kind: f"{base}/{kind}"
+            for kind in storage.FILE_KINDS
+            if kind != landmark_contract.KIND or _has_landmark(session)
         },
     }
 
