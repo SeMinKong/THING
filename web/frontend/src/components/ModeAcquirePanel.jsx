@@ -21,7 +21,9 @@
 //
 // 따라서 두 단계를 화면에 그대로 노출하고, 각 단계를 사용자가 누르게 한다.
 // ============================================================================
+import { motion, AnimatePresence } from "motion/react";
 import { useHandSocket } from "../context/HandSocketContext";
+import { Panel, Head, Body } from "../ui/Sheet";
 import {
   ACQUIRE_ALLOWED_STATES,
   CONTROL_MODE,
@@ -41,8 +43,9 @@ export default function ModeAcquirePanel({ targetMode }) {
     safetyState,
     safetyStateKnown,
     recordingState,
-    pendingMode,
-    bridgeConnected,
+    controlStateKnown,
+    requestedMode,
+    modeRejectedReason,
     webHasControl,
     selectMode,
     sendStop,
@@ -64,77 +67,110 @@ export default function ModeAcquirePanel({ targetMode }) {
   const safetyReady = safetyStateKnown && ACQUIRE_ALLOWED_STATES.includes(safetyState.state);
   const recordingBusy = RECORDING_BUSY_STATES.includes(recordingState.state);
 
-  const canStop = isConnected && bridgeConnected && !isDisabled;
+  // 2계층에서는 snapshot 이 도착했다는 것 자체가 브릿지가 살아 있다는 뜻이다.
+  // 별도 bridge_connected 플래그를 요구하지 않는다.
+  const canStop = isConnected && !isDisabled;
   const canAcquire = (
-    isConnected && bridgeConnected && isDisabled && safetyReady
+    isConnected && controlStateKnown && isDisabled && safetyReady
     && !otherOwner && !recordingBusy
   );
 
+  // 왜 못 얻는지 하나만 말한다. 목록으로 나열하면 읽지 않는다.
+  const blocked = !isConnected ? "서버에 연결되어 있지 않습니다."
+    : !controlStateKnown ? "로봇의 제어 상태를 아직 받지 못했습니다."
+    : !isDisabled ? "다른 모드가 활성화되어 있습니다. 먼저 정지하세요."
+    : otherOwner ? `${controlState.active_owner} 이(가) 제어권을 보유하고 있습니다.`
+    : recordingBusy ? `기록 중(${recordingState.state})에는 모드를 바꿀 수 없습니다.`
+    : !safetyReady
+      ? (safetyStateKnown
+        ? `안전 상태 ${safetyState.state} 에서는 획득할 수 없습니다.`
+        : "안전 상태를 아직 받지 못했습니다.")
+      : "";
+
+  const note = modeRejectedReason || blocked;
+
   return (
-    <div className="alert alert-secondary" role="region" aria-label={`${label} 모드 획득`}>
-      <p className="fw-semibold mb-2">
-        {label} 모드를 사용하려면 제어권을 직접 획득해야 합니다.
-      </p>
-      <p className="small text-muted mb-3">
-        모방↔조작은 직접 전환할 수 없습니다. <strong>① 정지(STOP)로 비활성화</strong> →
-        {" "}<strong>② {label} 획득</strong> 두 단계를 순서대로 수행하십시오.
-        재연결·복구 뒤에도 이전 제어권은 자동으로 돌아오지 않습니다.
-      </p>
+    <Panel>
+      <div role="region" aria-label={`${label} 모드 획득`}>
+        <Head title="제어권">
+          <span className="font-mono text-xs text-ink-600">{label}</span>
+        </Head>
 
-      <ol className="mb-3 small">
-        <li className={isDisabled ? "text-success fw-semibold" : ""}>
-          현재 모드: <strong>{activeMode}</strong> / 제어권:{" "}
-          <strong>{controlState.active_owner}</strong>
-          {isDisabled ? " — 비활성화 완료" : " — 먼저 정지가 필요합니다"}
-        </li>
-        <li className={safetyReady ? "text-success fw-semibold" : ""}>
-          안전 상태:{" "}
-          <strong>{safetyStateKnown ? safetyState.state : "수신 대기"}</strong>
-          {safetyReady ? " — 획득 가능" : " — READY 여야 획득할 수 있습니다"}
-        </li>
-      </ol>
+        <Body className="flex flex-col gap-4">
+          {/* 두 단계는 실제 절차다 (FR-19). 번호가 순서를 담는다.
+              1단계가 끝나면 표시가 채워진다 — 진행이 보여야 다음을 누른다 */}
+          <ol className="flex flex-col gap-2">
+            {[
+              { n: 1, text: "정지해서 비활성화 상태로 만듭니다", done: isDisabled },
+              { n: 2, text: `${label} 모드와 제어권을 획득합니다`, done: false },
+            ].map((step) => (
+              <li key={step.n} className="flex items-baseline gap-3 text-[13px]">
+                <motion.span
+                  animate={step.done
+                    ? { borderColor: "var(--color-st-ready)", color: "var(--color-st-ready)" }
+                    : { borderColor: "var(--color-ink-300)", color: "var(--color-ink-400)" }}
+                  transition={{ duration: 0.25 }}
+                  className="shrink-0 rounded border px-1.5 font-mono text-[11px]"
+                >
+                  {step.n}
+                </motion.span>
+                <span className={step.done ? "text-ink-900" : "text-ink-500"}>
+                  {step.text}{step.done && " — 완료"}
+                </span>
+              </li>
+            ))}
+          </ol>
 
-      {otherOwner && (
-        <p className="small text-danger mb-2">
-          현재 제어권은 <strong>{controlState.active_owner}</strong> 이(가) 보유하고 있습니다.
-          해당 주체가 해제한 뒤 획득할 수 있습니다.
-        </p>
-      )}
-      {recordingBusy && (
-        <p className="small text-danger mb-2">
-          기록이 진행 중입니다. 기록을 종료·판정한 뒤 모드를 변경할 수 있습니다.
-        </p>
-      )}
-      {!bridgeConnected && isConnected && (
-        <p className="small text-danger mb-2">
-          ROS 2 브릿지에 연결되어 있지 않아 요청을 전달할 수 없습니다.
-        </p>
-      )}
-      {pendingMode && (
-        <p className="small text-muted mb-2">
-          요청한 모드(<strong>{pendingMode}</strong>)의 확정을 기다리고 있습니다.
-          확정은 <code>/thing/control_state</code> 로만 판단합니다.
-        </p>
-      )}
+          <AnimatePresence mode="wait" initial={false}>
+            {note && (
+              <motion.p
+                key={note}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.18 }}
+                className={`overflow-hidden text-xs leading-relaxed ${
+                  modeRejectedReason ? "text-st-hold" : "text-ink-500"}`}
+              >
+                {note}
+              </motion.p>
+            )}
+          </AnimatePresence>
 
-      <div className="d-flex gap-2 flex-wrap">
-        <button
-          type="button"
-          className="btn btn-outline-dark fw-semibold"
-          onClick={sendStop}
-          disabled={!canStop}
-        >
-          ① 정지(STOP)
-        </button>
-        <button
-          type="button"
-          className="btn btn-primary fw-semibold"
-          onClick={() => selectMode(targetMode)}
-          disabled={!canAcquire}
-        >
-          ② {label} 획득
-        </button>
+          {requestedMode && (
+            <p className="text-xs leading-relaxed text-ink-500">
+              요청한 모드(<strong className="font-semibold text-ink-900">{requestedMode}</strong>)의
+              확정을 기다리는 중입니다. 확정은 <code>/thing/control_state</code> 로만 판단합니다.
+            </p>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={sendStop}
+              disabled={!canStop}
+              className="flex-1 rounded-full bg-st-fault/12 px-3 py-2
+                         text-[13px] font-semibold text-st-fault transition-colors
+                         hover:bg-st-fault/20 disabled:opacity-35"
+            >
+              정지(STOP)
+            </button>
+            <button
+              type="button"
+              onClick={() => selectMode(targetMode)}
+              disabled={!canAcquire}
+              className="flex-1 rounded-full bg-ink-900 px-3 py-2 text-[13px] font-semibold
+                         text-white transition-opacity hover:opacity-90 disabled:opacity-25"
+            >
+              {label} 획득
+            </button>
+          </div>
+
+          <p className="text-xs leading-relaxed text-ink-400">
+            연결이 복구되거나 손이 다시 인식되어도 제어는 자동으로 재개되지 않습니다.
+          </p>
+        </Body>
       </div>
-    </div>
+    </Panel>
   );
 }

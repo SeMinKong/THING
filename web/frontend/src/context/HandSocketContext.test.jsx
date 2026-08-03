@@ -10,10 +10,11 @@
 //   FR-35  재검출·연결 복구만으로 제어가 재개되지 않는다
 //   NFR-15 재연결은 이전 명령을 재생하지 않는다
 
-import { act, render, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { HandSocketProvider, useHandSocket } from "./HandSocketContext";
+import { BASIC_GESTURES } from "../config/commandPresets";
 import {
   CLIENT_MESSAGE,
   CONNECTION_STATE,
@@ -31,7 +32,6 @@ import {
   readySnapshot,
   reject,
   snapshot,
-  validAxes,
 } from "../test/fixtures";
 
 function setup() {
@@ -87,7 +87,6 @@ describe("6.4절 snapshot 파싱", () => {
     for (const key of ["jetson", "rpi", "ros2", "camera", "motor"]) {
       expect(result.current.connectionStatus[key]).toBe(CONNECTION_STATE.UP);
     }
-    expect(result.current.bridgeConnected).toBe(true);
   });
 
   it("빈 객체 {} 로는 표시를 갱신하지 않는다", () => {
@@ -126,7 +125,7 @@ describe("요청 envelope", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({
       type: "set_control_mode",
-      payload: { mode: "MIMIC", owner: "WEB" },
+      payload: { requested_mode: "MIMIC", requested_owner: "WEB" },
     });
     expect(typeof sent[0].request_id).toBe("string");
     expect(sent[0].timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -139,14 +138,14 @@ describe("요청 envelope", () => {
     act(() => { result.current.sendStop(); });
 
     const sent = socket.sentOf(CLIENT_MESSAGE.STOP);
-    expect(sent[0].payload).toEqual({ mode: "DISABLED", owner: "NONE" });
+    expect(sent[0].payload).toEqual({ requested_mode: "DISABLED", requested_owner: "NONE" });
   });
 
   it("6.3절 서비스 이름과 1:1 대응한다", () => {
     const { result, socket } = setup();
     open(socket, mimicSnapshot({
-      recording_detail: {
-        ...mimicSnapshot().recording_detail,
+      recording: {
+        ...mimicSnapshot().recording,
         state: "RECORDING",
         active_session_id: "4242",
         last_session_id: "4141",
@@ -177,10 +176,10 @@ describe("요청 envelope", () => {
   it("stop_recording 은 활성 세션 ID 를 함께 보낸다", () => {
     const { result, socket } = setup();
     open(socket, mimicSnapshot({
-      recording_detail: {
-        ...mimicSnapshot().recording_detail,
+      recording: {
+        ...mimicSnapshot().recording,
         state: "RECORDING",
-        active_session_id: 4242,
+        active_session_id: "4242",
       },
     }));
 
@@ -188,16 +187,16 @@ describe("요청 envelope", () => {
 
     const sent = socket.sentOf(CLIENT_MESSAGE.STOP_RECORDING);
     expect(sent).toHaveLength(1);
-    expect(sent[0].payload).toEqual({ session_id: 4242 });
+    expect(sent[0].payload).toEqual({ session_id: "4242" });
   });
 
   it("set_mimic_result 는 판정 대기 세션 ID 를 함께 보낸다", () => {
     const { result, socket } = setup();
     open(socket, mimicSnapshot({
-      recording_detail: {
-        ...mimicSnapshot().recording_detail,
+      recording: {
+        ...mimicSnapshot().recording,
         state: "COMPLETED",
-        last_session_id: 4141,
+        last_session_id: "4141",
         result_pending: true,
       },
     }));
@@ -206,12 +205,12 @@ describe("요청 envelope", () => {
 
     const sent = socket.sentOf(CLIENT_MESSAGE.SET_MIMIC_RESULT);
     expect(sent).toHaveLength(1);
-    expect(sent[0].payload).toEqual({ session_id: 4141, result: "FAILURE" });
+    expect(sent[0].payload).toEqual({ session_id: "4141", result: "FAILURE" });
   });
 
   it("세션 ID 를 모르면 기록 요청을 보내지 않는다", () => {
     const { result, socket } = setup();
-    open(socket, mimicSnapshot());   // active_session_id·last_session_id = 0
+    open(socket, mimicSnapshot());   // active_session_id·last_session_id = ""
 
     act(() => { result.current.stopRecording(); });
     expect(socket.sentOf(CLIENT_MESSAGE.STOP_RECORDING)).toHaveLength(0);
@@ -226,7 +225,7 @@ describe("요청 envelope", () => {
 describe("6.4절 미수신 객체 {} 규칙", () => {
   it("safety_state 가 {} 면 관측된 상태로 취급하지 않는다", () => {
     const { result, socket } = setup();
-    open(socket, snapshot({ safety_state: {}, bridge_connected: true }));
+    open(socket, snapshot({ safety_state: {} }));
 
     expect(result.current.safetyStateKnown).toBe(false);
     // fail-closed: 상태를 모르면 조작도 reset 도 허용하지 않는다
@@ -268,75 +267,62 @@ describe("FR-20 / FR-27 손 검출 판정", () => {
   });
 });
 
-describe("FR-23 웹측 사전 검증", () => {
-  it("범위 밖 축 값은 보내지 않는다", () => {
+describe("FR-23 / FR-38 웹측 사전 검증", () => {
+  // 7축 값은 검증하지 않는다. ExecuteGesture.srv 가 gesture_name·speed_limit 만
+  // 받고 7축 목표는 FR-41 YAML 소관이므로 웹은 축값을 아예 다루지 않는다.
+
+  it("canonical 이 아닌 gesture 는 보내지 않는다", () => {
     const { result, socket } = setup();
     open(socket, manualSnapshot());
-
-    act(() => { result.current.sendGesture("open", { ...validAxes, thumb_flex: 1.5 }, 0.5); });
+    act(() => { result.current.sendGesture("init_pose", 0.5); });
     expect(socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE)).toHaveLength(0);
-    // lastError 는 {code, message} 객체다. 화면이 code 와 message 를 각각 쓴다.
-    expect(result.current.lastError.code).toBe("INVALID_COMMAND");
-    expect(result.current.lastError.message).toContain("허용 범위");
+    expect(result.current.lastError.code).toBe("INVALID_GESTURE");
+  });
+
+  it("FR-38 alias 는 canonical 이름으로 펴서 보낸다", () => {
+    const { result, socket } = setup();
+    open(socket, manualSnapshot());
+    act(() => { result.current.sendGesture("rock", 1.0); });
+    const sent = socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].payload.gesture_name).toBe("fist");
   });
 
   it("잘못된 speed_limit 은 보내지 않는다", () => {
     const { result, socket } = setup();
     open(socket, manualSnapshot());
-
-    act(() => { result.current.sendGesture("open", validAxes, 0); });
+    act(() => { result.current.sendGesture("open", 0); });
     expect(socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE)).toHaveLength(0);
+    expect(result.current.lastError.code).toBe("INVALID_SPEED_LIMIT");
   });
 
-  it("preset 객체를 그대로 받는다 (화면 호출 형태)", () => {
+  it("실제 화면 preset 을 그대로 받아 보낸다", () => {
     const { result, socket } = setup();
     open(socket, manualSnapshot());
 
-    // OrderMode 는 commandPresets 의 객체를 그대로 넘긴다
-    const preset = {
-      id: "cylindrical_grasp",
-      values: validAxes,
-      speed_limit: 0.5,
-      source: "GESTURE",
-    };
-    act(() => { result.current.sendGesture(preset); });
-
-    const sent = socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE);
-    expect(sent).toHaveLength(1);
-    expect(sent[0].payload).toMatchObject({
-      gesture_id: "cylindrical_grasp",
-      speed_limit: 0.5,
-    });
+    // 회귀 방지: OrderMode 는 commandPresets 의 객체를 그대로 넘기고 그 객체에는
+    // values 가 없다. 검증기가 values 를 요구하면 버튼 4개가 전부 죽는다.
+    for (const preset of BASIC_GESTURES) {
+      socket.sent.length = 0;
+      let ok;
+      act(() => { ok = result.current.sendGesture(preset); });
+      expect(ok, `${preset.id} 가 전송되지 않았다`).toBe(true);
+      const sent = socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE);
+      expect(sent).toHaveLength(1);
+      expect(sent[0].payload).toEqual({
+        gesture_name: preset.id,
+        speed_limit: preset.speed_limit,
+      });
+      act(() => { socket.emit(ack(sent[0].request_id)); });
+    }
   });
 
   it("preset 에 speed_limit 이 없으면 보내지 않는다", () => {
     const { result, socket } = setup();
     open(socket, manualSnapshot());
-    act(() => { result.current.sendGesture({ id: "open", values: validAxes }); });
+    act(() => { result.current.sendGesture({ id: "open" }); });
     expect(socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE)).toHaveLength(0);
     expect(result.current.lastError.code).toBe("INVALID_SPEED_LIMIT");
-  });
-
-  it("성공 시 true, 실패 시 false 를 돌려준다 (화면이 반환값을 쓴다)", () => {
-    const { result, socket } = setup();
-    open(socket, manualSnapshot());
-
-    let ok;
-    act(() => { ok = result.current.sendGesture({ id: "open", values: validAxes, speed_limit: 1 }); });
-    expect(ok).toBe(true);
-
-    act(() => { ok = result.current.sendGesture({ id: "open", values: {}, speed_limit: 1 }); });
-    expect(ok).toBe(false);
-  });
-
-  it("유효한 gesture 는 보낸다", () => {
-    const { result, socket } = setup();
-    open(socket, manualSnapshot());
-
-    act(() => { result.current.sendGesture("cylindrical_grasp", validAxes, 0.5); });
-    const sent = socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE);
-    expect(sent).toHaveLength(1);
-    expect(sent[0].payload.gesture_id).toBe("cylindrical_grasp");
   });
 
   it("FR-39 지원하지 않는 sequence 는 보내지 않는다", () => {
@@ -382,10 +368,13 @@ describe("FR-19 낙관적 반영 금지", () => {
     expect(result.current.webHasControl).toBe(true);
   });
 
-  it("pending 을 노출해 요청 중임을 알린다", () => {
+  it("요청한 mode 를 노출해 확정 대기임을 알린다", () => {
     const { result, socket } = setup();
-    open(socket, readySnapshot({ pending: { mode: "MIMIC", owner: "WEB" } }));
-    expect(result.current.pendingMode).toBe("MIMIC");
+    open(socket, readySnapshot());
+    act(() => { result.current.selectMode("MIMIC"); });
+    // 확정은 control_state 로만 판단한다 (FR-19). 그 전까지는 요청 중 표시.
+    expect(result.current.requestedMode).toBe("MIMIC");
+    expect(result.current.webHasControl).toBe(false);
   });
 });
 
@@ -404,14 +393,32 @@ describe("FR-27 / FR-37 거부 사유 안내", () => {
     expect(result.current.lastError.message).toContain("안전 초기화");
   });
 
-  it("수락되면 안내를 지운다", () => {
+  it("추적한 요청이 수락되면 안내를 지운다", () => {
     const { result, socket } = setup();
-    open(socket, readySnapshot());
+    open(socket, manualSnapshot());
+
     act(() => { socket.emit(reject("r-1", REJECT_REASON.MOTION_ACTIVE)); });
     expect(result.current.modeRejectedReason).not.toBe("");
 
-    act(() => { socket.emit(ack("r-2", true)); });
+    act(() => { result.current.sendGesture("open", 1.0); });
+    const sent = socket.sentOf(CLIENT_MESSAGE.EXECUTE_GESTURE).at(-1);
+    act(() => { socket.emit(ack(sent.request_id, true)); });
     expect(result.current.modeRejectedReason).toBe("");
+  });
+
+  it("추적하지 않은 요청의 수락 ack 는 안내를 지우지 않는다", () => {
+    // lease 갱신은 1000ms 마다 set_control_mode 를 보내고 매번 accepted ack 를
+    // 받는다. 그 ack 로 거부 사유를 지우면 FR-27 이 요구하는 안내가 1초 만에
+    // 사라져 사용자가 읽을 수 없다.
+    const { result, socket } = setup();
+    open(socket, manualSnapshot());
+
+    act(() => { socket.emit(reject("r-1", REJECT_REASON.MOTION_ACTIVE)); });
+    const shown = result.current.lastError.code;
+
+    act(() => { socket.emit(ack("갱신-등-추적하지-않은-요청", true)); });
+    expect(result.current.lastError.code).toBe(shown);
+    expect(result.current.modeRejectedReason).not.toBe("");
   });
 
   it("브릿지 미연결 사유도 안내한다", () => {
@@ -426,7 +433,7 @@ describe("FR-27 / FR-37 거부 사유 안내", () => {
 describe("FR-11 owner lease 갱신", () => {
   it("제어권 확정 후 1000ms 마다 같은 mode·owner 를 재요청한다", () => {
     vi.useFakeTimers();
-    const { result, socket } = setup();
+    const { socket } = setup();
     open(socket, mimicSnapshot());
 
     // 확정 직후에는 갱신 요청이 없다
@@ -435,7 +442,7 @@ describe("FR-11 owner lease 갱신", () => {
     act(() => { vi.advanceTimersByTime(TIMING.CONTROL_RENEW_PERIOD_MS); });
     let renewals = socket.sentOf(CLIENT_MESSAGE.SET_CONTROL_MODE);
     expect(renewals).toHaveLength(1);
-    expect(renewals[0].payload).toEqual({ mode: "MIMIC", owner: "WEB" });
+    expect(renewals[0].payload).toEqual({ requested_mode: "MIMIC", requested_owner: "WEB" });
 
     act(() => { vi.advanceTimersByTime(TIMING.CONTROL_RENEW_PERIOD_MS * 2); });
     renewals = socket.sentOf(CLIENT_MESSAGE.SET_CONTROL_MODE);
@@ -544,16 +551,15 @@ describe("FR-24 브릿지 단절", () => {
     act(() => { socket.closeFromServer(); });
 
     expect(result.current.connectionState).toBe("closed");
-    expect(result.current.bridgeConnected).toBe(false);
+    expect(result.current.controlStateKnown).toBe(false);
     for (const key of ["jetson", "rpi", "ros2", "camera", "motor"]) {
       expect(result.current.connectionStatus[key]).toBe(CONNECTION_STATE.UNKNOWN);
     }
   });
 
-  it("브릿지 미연결 snapshot 을 그대로 표시한다", () => {
+  it("데이터가 비어 있는 snapshot 을 그대로 표시한다", () => {
     const { result, socket } = setup();
     open(socket, snapshot());
-    expect(result.current.bridgeConnected).toBe(false);
     expect(result.current.controlState.active_mode).toBe("DISABLED");
     expect(result.current.landmarks).toBeNull();
   });
