@@ -29,6 +29,7 @@ from thing_logger.exporter import write_landmark_json
 from thing_logger.exporter import write_metadata_json
 from thing_logger.exporter import write_motor_status_csv
 from thing_logger.bag_recorder import TOPIC_TYPES
+from thing_logger.export_schema import canonical_filenames
 from thing_logger.export_schema import HAND_COMMAND_HEADER
 from thing_logger.export_schema import LANDMARK_RECORD_FIELDS
 from thing_logger.export_schema import MOTOR_STATUS_HEADER
@@ -999,3 +1000,115 @@ def test_session_exporter_never_overwrites_existing_final_directory(
         exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
 
     assert marker.read_text(encoding='utf-8') == 'keep'
+
+
+def test_session_exporter_cleanup_removes_files_but_preserves_bag(tmp_path):
+    """Uploader 인계 후 임시 네 파일만 지우고 rosbag2는 보존한다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    bag_marker = bag_path / 'metadata.yaml'
+    bag_marker.write_text('rosbag2', encoding='utf-8')
+    export_root = tmp_path / 'tmp-upload'
+    exporter = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(make_complete_bag_records()),
+        clock_ns=lambda: 21_000_000_000,
+    )
+    result = exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    exporter.cleanup(result)
+
+    assert not Path(result.directory).exists()
+    assert bag_marker.read_text(encoding='utf-8') == 'rosbag2'
+
+
+def test_session_exporter_cleanup_rejects_unexpected_file(tmp_path):
+    """예상하지 않은 파일이 섞인 디렉터리는 재귀 삭제하지 않는다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    exporter = SessionExporter(
+        'THING-001',
+        str(tmp_path / 'tmp-upload'),
+        reader=FakeSessionReader(make_complete_bag_records()),
+        clock_ns=lambda: 21_000_000_000,
+    )
+    result = exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+    unexpected = Path(result.directory) / 'unexpected.txt'
+    unexpected.write_text('keep', encoding='utf-8')
+
+    with pytest.raises(ExportValidationError, match='contents are invalid'):
+        exporter.cleanup(result)
+
+    assert unexpected.read_text(encoding='utf-8') == 'keep'
+
+
+def test_session_exporter_cleans_stale_exports_on_startup(tmp_path):
+    """시작 시 안전한 이전 .part와 완료 네 파일만 정리한다."""
+    export_root = tmp_path / 'tmp-upload'
+    staging_directory = export_root / '.123.part'
+    staging_directory.mkdir(parents=True)
+    (staging_directory / 'session_123_hand_command.csv.part').write_text(
+        'partial',
+        encoding='utf-8',
+    )
+    (staging_directory / 'session_123_motor_status.csv').write_text(
+        'renamed-before-crash',
+        encoding='utf-8',
+    )
+    final_directory = export_root / '456'
+    final_directory.mkdir()
+    for filename in canonical_filenames(456).values():
+        (final_directory / filename).write_text('complete', encoding='utf-8')
+
+    bag_directory = tmp_path / 'rosbag2' / '123'
+    bag_directory.mkdir(parents=True)
+    bag_marker = bag_directory / 'metadata.yaml'
+    bag_marker.write_text('rosbag2', encoding='utf-8')
+    unrelated = export_root / 'operator-note'
+    unrelated.write_text('keep', encoding='utf-8')
+
+    SessionExporter('THING-001', str(export_root))
+
+    assert not staging_directory.exists()
+    assert not final_directory.exists()
+    assert unrelated.read_text(encoding='utf-8') == 'keep'
+    assert bag_marker.read_text(encoding='utf-8') == 'rosbag2'
+
+
+def test_session_exporter_startup_cleanup_does_not_follow_symlink(tmp_path):
+    """잔여 항목 symlink는 대상 디렉터리를 따라가 삭제하지 않는다."""
+    export_root = tmp_path / 'tmp-upload'
+    export_root.mkdir()
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    marker = outside / 'keep.txt'
+    marker.write_text('keep', encoding='utf-8')
+    stale_link = export_root / '.123.part'
+    stale_link.symlink_to(outside, target_is_directory=True)
+
+    SessionExporter('THING-001', str(export_root))
+
+    assert not stale_link.exists()
+    assert marker.read_text(encoding='utf-8') == 'keep'
+
+
+def test_session_exporter_startup_cleanup_preserves_unknown_contents(
+    tmp_path,
+):
+    """Exporter 소유로 확인할 수 없는 잔여 디렉터리는 보존한다."""
+    export_root = tmp_path / 'tmp-upload'
+    suspicious = export_root / '.123.part'
+    suspicious.mkdir(parents=True)
+    marker = suspicious / 'unexpected.txt'
+    marker.write_text('keep', encoding='utf-8')
+
+    SessionExporter('THING-001', str(export_root))
+
+    assert marker.read_text(encoding='utf-8') == 'keep'
+
+
+def test_session_exporter_rejects_relative_export_root():
+    """시작 정리 범위가 모호한 상대 임시 경로를 거부한다."""
+    with pytest.raises(ExportValidationError, match='must be absolute'):
+        SessionExporter('THING-001', 'tmp-upload')

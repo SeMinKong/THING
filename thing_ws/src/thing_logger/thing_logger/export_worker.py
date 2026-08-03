@@ -87,7 +87,10 @@ class ExportWorker:
                 try:
                     result = self._exporter.export(task)
                     if self._uploader_client is not None:
-                        self._uploader_client.handoff(result)
+                        try:
+                            self._uploader_client.handoff(result)
+                        finally:
+                            self._exporter.cleanup(result)
                     completed = CompletedExport(task, result=result)
                 except Exception as error:
                     completed = CompletedExport(task, error=error)

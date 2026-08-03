@@ -316,9 +316,12 @@ class SessionExporter:
         _require_bool(time_sync, 'time_sync')
         self.robot_id = robot_id
         self.export_root = Path(export_root)
+        if not self.export_root.is_absolute():
+            raise ExportValidationError('export root must be absolute')
         self.time_sync = time_sync
         self.reader = reader or RosbagSessionReader()
         self.clock_ns = clock_ns or time.time_ns
+        self.cleanup_stale_exports()
 
     def export(self, job: ExportJob) -> ExportResult:
         """완료 세션을 변환하고 전체가 검증된 경우에만 노출한다."""
@@ -332,7 +335,7 @@ class SessionExporter:
             raise ExportValidationError(
                 'final export directory already exists'
             )
-        self._remove_staging_directory(staging_directory)
+        self._remove_staging_directory(staging_directory, session_id)
         staging_directory.mkdir()
 
         try:
@@ -369,7 +372,7 @@ class SessionExporter:
             os.replace(staging_directory, final_directory)
             self._sync_directory(self.export_root)
         except Exception:
-            self._remove_staging_directory(staging_directory)
+            self._remove_staging_directory(staging_directory, session_id)
             raise
 
         final_files = {
@@ -395,6 +398,92 @@ class SessionExporter:
             content_digest=metadata['content_digest'],
             files=final_files,
         )
+
+    def cleanup(self, result: ExportResult) -> None:
+        """Remove only the four temporary files after uploader handoff."""
+        if not isinstance(result, ExportResult):
+            raise ExportValidationError('export result type is invalid')
+        if result.session_id <= 0 or result.session_id >= 2**63:
+            raise ExportValidationError('export session ID is invalid')
+
+        directory = Path(result.directory)
+        if not directory.is_absolute():
+            raise ExportValidationError(
+                'export cleanup directory must be absolute'
+            )
+        if directory.is_symlink():
+            raise ExportValidationError(
+                'export cleanup directory cannot be a symlink'
+            )
+
+        expected_directory = (
+            self.export_root.resolve() / str(result.session_id)
+        )
+        if directory.resolve() != expected_directory:
+            raise ExportValidationError(
+                'export cleanup directory is outside export root'
+            )
+        if not directory.exists():
+            return
+        if not directory.is_dir():
+            raise ExportValidationError(
+                'export cleanup target is not a directory'
+            )
+
+        expected_names = set(
+            canonical_filenames(result.session_id).values()
+        )
+        children = list(directory.iterdir())
+        if {child.name for child in children} != expected_names:
+            raise ExportValidationError(
+                'export cleanup directory contents are invalid'
+            )
+        if any(child.is_symlink() or not child.is_file() for child in children):
+            raise ExportValidationError(
+                'export cleanup target contains a non-regular file'
+            )
+
+        shutil.rmtree(directory)
+        self._sync_directory(self.export_root)
+
+    def cleanup_stale_exports(self) -> None:
+        """Remove safe leftover export directories from a previous run."""
+        if self.export_root.is_symlink():
+            raise ExportValidationError('export root cannot be a symlink')
+        if not self.export_root.exists():
+            return
+        if not self.export_root.is_dir():
+            raise ExportValidationError('export root is not a directory')
+
+        removed = False
+        for path in self.export_root.iterdir():
+            stale_entry = self._parse_stale_entry(path.name)
+            if stale_entry is None:
+                continue
+            session_id, is_staging = stale_entry
+
+            if path.is_symlink():
+                path.unlink()
+                removed = True
+                continue
+            if not path.is_dir():
+                continue
+            if is_staging:
+                safe_to_remove = self._is_safe_staging_directory(
+                    path,
+                    session_id,
+                )
+            else:
+                safe_to_remove = self._is_safe_final_directory(
+                    path,
+                    session_id,
+                )
+            if safe_to_remove:
+                shutil.rmtree(path)
+                removed = True
+
+        if removed:
+            self._sync_directory(self.export_root)
 
     def _write_data_files(
         self,
@@ -618,13 +707,65 @@ class SessionExporter:
         finally:
             os.close(descriptor)
 
-    @staticmethod
-    def _remove_staging_directory(path: Path) -> None:
+    @classmethod
+    def _remove_staging_directory(
+        cls,
+        path: Path,
+        session_id: int,
+    ) -> None:
         """현재 세션의 미완성 staging 디렉터리만 안전하게 정리한다."""
         if path.is_symlink():
             path.unlink()
         elif path.exists():
+            if not path.is_dir() or not cls._is_safe_staging_directory(
+                path,
+                session_id,
+            ):
+                raise ExportValidationError(
+                    'staging directory contents are invalid'
+                )
             shutil.rmtree(path)
+
+    @staticmethod
+    def _parse_stale_entry(name: str):
+        """임시 export 항목 이름에서 Session ID와 단계를 읽는다."""
+        is_staging = name.startswith('.') and name.endswith('.part')
+        session_text = name[1:-5] if is_staging else name
+        if not session_text.isdigit():
+            return None
+        session_id = int(session_text)
+        if session_id <= 0 or session_id >= 2**63:
+            return None
+        return session_id, is_staging
+
+    @staticmethod
+    def _is_safe_staging_directory(path: Path, session_id: int) -> bool:
+        """작성 중 디렉터리가 exporter 소유 파일만 갖는지 확인한다."""
+        filenames = set(canonical_filenames(session_id).values())
+        allowed_names = filenames | {
+            filename + '.part' for filename in filenames
+        }
+        children = list(path.iterdir())
+        return (
+            {child.name for child in children} <= allowed_names
+            and all(
+                not child.is_symlink() and child.is_file()
+                for child in children
+            )
+        )
+
+    @staticmethod
+    def _is_safe_final_directory(path: Path, session_id: int) -> bool:
+        """완료 디렉터리가 정확한 canonical 네 파일만 갖는지 확인한다."""
+        expected_names = set(canonical_filenames(session_id).values())
+        children = list(path.iterdir())
+        return (
+            {child.name for child in children} == expected_names
+            and all(
+                not child.is_symlink() and child.is_file()
+                for child in children
+            )
+        )
 
     @staticmethod
     def _session_id_from_path(bag_path: Path) -> int:

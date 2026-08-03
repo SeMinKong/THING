@@ -18,6 +18,7 @@ class FakeExporter:
         self.release = Event()
         self.error = None
         self.jobs = []
+        self.cleaned = []
 
     def export(self, job):
         """허용 신호까지 기다린 뒤 성공 결과 또는 오류를 반환한다."""
@@ -27,6 +28,10 @@ class FakeExporter:
         if self.error is not None:
             raise self.error
         return ExportResult(123, '/tmp/123', 'sha256:test', {})
+
+    def cleanup(self, result):
+        """정리 요청을 저장한다."""
+        self.cleaned.append(result)
 
 
 class FakeUploaderClient:
@@ -150,6 +155,7 @@ def test_export_worker_hands_result_to_uploader_before_success(tmp_path):
     worker.shutdown()
 
     assert uploader.results == [completed.result]
+    assert exporter.cleaned == [completed.result]
     assert completed.error is None
 
 
@@ -170,3 +176,5 @@ def test_export_worker_reports_uploader_handoff_error(tmp_path):
     assert completed.result is None
     assert isinstance(completed.error, RuntimeError)
     assert str(completed.error) == 'handoff failed'
+    assert len(exporter.cleaned) == 1
+    assert exporter.cleaned[0].session_id == 123
