@@ -1,0 +1,28 @@
+command_manager:
+  ros__parameters:
+    owner_lease_timeout_ms: 3000
+    stop_reacquire_delay_ms: 500
+    lease_check_period_ms: 100
+    state_publish_period_ms: 1000
+
+command_guard:
+  ros__parameters:
+    command_timeout_ms: 300
+    min_command_timeout_ms: 200
+    max_command_timeout_ms: 500
+    max_axis_delta_per_second: 1.5
+    default_speed_limit: 0.25
+
+safety_manager:
+  ros__parameters:
+    hold_duration_ms: 500
+    stop_settle_ms: 500
+    require_manual_resume: true
+    safe_pose:
+      thumb_flex: 0.0
+      thumb_opp: 0.0
+      thumb_abd: 0.0
+      index_flex: 0.0
+      middle_flex: 0.0
+      ring_flex: 0.0
+      little_flex: 0.0

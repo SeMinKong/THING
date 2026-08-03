@@ -1,0 +1,9 @@
+string sequence_name
+float32 speed_limit
+---
+bool success
+string reason
+---
+uint32 current_step
+uint32 total_steps
+string active_gesture

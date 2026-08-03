@@ -1,0 +1,12 @@
+asgiref==3.12.1
+Django==6.0.7
+django-cors-headers==4.9.0
+django-environ==0.14.0
+djangorestframework==3.17.1
+gunicorn==26.0.0
+packaging==26.2
+python-dateutil==2.9.0.post0
+six==1.17.0
+sqlparse==0.5.5
+tzdata==2026.3
+urllib3==2.7.0

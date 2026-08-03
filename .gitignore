@@ -1,0 +1,73 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# Build and logs
+build/
+dist/
+log/
+*.log
+coverage/
+htmlcov/
+
+# Secrets and local settings
+.env
+.env.*
+!.env.example
+
+# Generated mechanical distribution archives
+mechanical/stl/version3/Thing_V3/Thing_V3_STL.zip
+
+
+# ROS 2 Package
+thing_ws/build/
+thing_ws/install/
+thing_ws/log/
+
+# Runtime data
+*.db
+*.db-journal
+*.db-*
+*.db3
+*.db3-*
+*.sqlite3
+*.sqlite3-*
+*.bag
+*.mcap
+rosbag2_*/
+
+# Local DYNAMIXEL calibration and telemetry
+tools/dynamixel/hand_motion_config.json
+tools/dynamixel/.hand_motion_config.json.*
+tools/dynamixel/.hand_motor_control.lock
+tools/dynamixel/logs/
+tools/dynamixel/*.csv
+
+# Generated DYNAMIXEL spool CAD artifacts
+mechanical/cad/dynamixel-xl330-spool/generated/
+mechanical/cad/dynamixel-xl330-spool/*.blend1
+mechanical/cad/dynamixel-xl330-spool/*.blend2
+mechanical/cad/dynamixel-xl330-spool/*.blend@
+mechanical/cad/dynamixel-xl330-spool/*.autosave
+
+# Web
+web/**/node_modules/
+web/**/dist/
+web/**/.vite/
+EC2/**/node_modules/
+EC2/**/dist/
+EC2/**/.vite/
+EC2/**/staticfiles/
+EC2/thing_database_web/backend/media/

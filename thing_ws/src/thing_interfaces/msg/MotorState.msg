@@ -1,0 +1,13 @@
+uint8 motor_id
+string actuator_name
+int32 goal_position_raw
+int32 present_position_raw
+float64 goal_position_rad
+float64 present_position_rad
+float64 velocity_rad_s
+float64 current_ampere
+float64 voltage_volt
+float32 temperature_celsius
+uint32 hardware_error
+int32 communication_result
+bool communication_ok

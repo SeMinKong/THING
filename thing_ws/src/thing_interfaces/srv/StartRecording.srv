@@ -1,0 +1,6 @@
+string label
+---
+bool accepted
+uint64 session_id
+string bag_path
+string reason

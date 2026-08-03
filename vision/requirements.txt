@@ -1,0 +1,6 @@
+# Install this file with --no-deps. ROS 2 Humble's apt-installed NumPy,
+# OpenCV, attrs, matplotlib, and protobuf remain the single source for those
+# modules so that cv_bridge keeps the ABI it was built against.
+absl-py==2.1.0
+flatbuffers==23.5.26
+mediapipe==0.10.9

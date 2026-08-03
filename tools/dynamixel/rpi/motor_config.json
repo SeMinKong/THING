@@ -1,0 +1,21 @@
+{
+  "baudrate": 57600,
+  "protocol_version": 2.0,
+  "buses": [
+    {
+      "name": "BUS_A",
+      "device": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0",
+      "ids": [1, 2, 3]
+    },
+    {
+      "name": "BUS_B",
+      "device": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0",
+      "ids": [4, 5, 6]
+    },
+    {
+      "name": "BUS_C",
+      "device": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0",
+      "ids": [7]
+    }
+  ]
+}

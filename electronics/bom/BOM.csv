@@ -1,0 +1,11 @@
+category,part,model_or_spec,quantity,status,owner,link,notes
+compute,vision_computer,Jetson Orin Nano,1,planned,,,Camera MediaPipe MJPEG Web Bridge
+compute,control_computer,Raspberry Pi 5,1,planned,,,Ubuntu 24.04 host and Ubuntu 22.04 ROS 2 Humble container
+vision,rgb_camera,USB RGB camera,1,planned,,,Resolution and FPS to be fixed after measurement
+actuator,servo,DYNAMIXEL XL-330-288T,8,available,,,7 active axes and 1 spare
+interface,usb_dynamixel,DYNAMIXEL U2D2,3,available,,,Port and motor grouping managed in motors.yaml
+interface,u2d2_hub,U2D2 PHB,3,available,,,
+power,servo_power_supply,TBD,1,planned,,,Voltage current rating and fuse must be documented
+safety,emergency_stop,NC emergency stop and motor power contactor,1,planned,,,Must cut motor drive power independently of ROS 2
+mechanical,tendon,carpenter thread,1,available,,,Final material and diameter require test
+mechanical,pin,2mm steel pin,1,available,,,Quantity to be counted

@@ -1,0 +1,113 @@
+thing_hardware:
+  ros__parameters:
+    # Physical values measured on the assembled Raspberry Pi hand.
+    # Any remaining null value must fail INIT until it is calibrated.
+    model: XL330-M288-T
+    read_rate_hz: 20.0
+    write_rate_hz: 50.0
+    protocol_version: 2.0
+    baud_rate: 57600
+    operating_mode: 5
+    encoder_resolution_raw: 4096
+
+    profile_velocity_raw: 300
+    profile_acceleration_raw: 1500
+    current_limit_ma: 1470
+    move_goal_current_ma: 1470
+    hold_goal_current_ma: null
+    goal_pwm_raw: 885
+
+    # These protection values are intentionally unset. Do not treat the
+    # discussed 45/50 C policy as active until monitoring and load tests pass.
+    temperature_warning_c: null
+    temperature_trip_c: null
+    fault_current_ma: null
+    fault_current_hold_ms: null
+    bus_watchdog_ms: null
+    max_consecutive_read_failures: 3
+    bus_failure_timeout_ms: 300
+
+    buses:
+      bus_a:
+        device: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
+        ids: [1, 2, 3]
+      bus_b:
+        device: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0
+        ids: [4, 5, 6]
+      bus_c:
+        device: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0
+        ids: [7]
+
+    motors:
+      # ID 2 is confirmed as the thumb grasp motor. Confirm whether this is
+      # the final thumb_flex logical axis before full seven-axis integration.
+      thumb_flex:
+        id: 2
+        bus: bus_a
+        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
+        direction: 1
+        min_position_raw: 3877
+        max_position_raw: 5117
+        open_position_raw: 3877
+        grasp_position_raw: 5117
+        safe_position_raw: 3877
+      thumb_opp:
+        id: null
+        bus: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+        open_position_raw: null
+        grasp_position_raw: null
+        safe_position_raw: null
+      thumb_abd:
+        id: null
+        bus: null
+        port: null
+        direction: 1
+        min_position_raw: null
+        max_position_raw: null
+        open_position_raw: null
+        grasp_position_raw: null
+        safe_position_raw: null
+      index_flex:
+        id: 4
+        bus: bus_b
+        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0
+        direction: 1
+        min_position_raw: 1820
+        max_position_raw: 4368
+        open_position_raw: 1820
+        grasp_position_raw: 4368
+        safe_position_raw: 1820
+      middle_flex:
+        id: 3
+        bus: bus_a
+        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
+        direction: 1
+        min_position_raw: 558
+        max_position_raw: 3228
+        open_position_raw: 558
+        grasp_position_raw: 3228
+        safe_position_raw: 558
+      ring_flex:
+        id: 1
+        bus: bus_a
+        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
+        direction: 1
+        min_position_raw: 117
+        max_position_raw: 2865
+        open_position_raw: 117
+        grasp_position_raw: 2865
+        safe_position_raw: 117
+      little_flex:
+        id: 7
+        bus: bus_c
+        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0
+        direction: 1
+        min_position_raw: 695
+        max_position_raw: 3525
+        open_position_raw: 695
+        grasp_position_raw: 3525
+        safe_position_raw: 695
