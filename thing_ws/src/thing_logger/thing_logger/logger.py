@@ -17,8 +17,8 @@ from thing_interfaces.msg import SafetyState
 from thing_interfaces.srv import SetMimicResult
 from thing_interfaces.srv import StartRecording
 from thing_interfaces.srv import StopRecording
-from thing_logger.bag_recorder import BagRecorder
 from thing_logger.bag_recorder import BagRecorderError
+from thing_logger.recording_worker import RecordingWorker
 from thing_logger.session import SessionManager
 
 
@@ -60,7 +60,7 @@ class Logger(Node):
 
         # 세션 상태와 rosbag2 기록 구현은 각 전담 객체에 맡긴다.
         self.session_manager = SessionManager(bag_root)
-        self.bag_recorder = BagRecorder()
+        self.bag_recorder = RecordingWorker()
 
         # StartRecording 요청을 판단하기 위해 최신 제어 모드만 보관한다.
         self.active_mode = ControlState.MODE_DISABLED
@@ -118,6 +118,10 @@ class Logger(Node):
             SetMimicResult,
             '/thing/set_mimic_result',
             self.handle_set_mimic_result,
+        )
+        self.recording_error_timer = self.create_timer(
+            0.05,
+            self.handle_recording_worker_error,
         )
 
         self.publish_recording_state()
@@ -184,6 +188,14 @@ class Logger(Node):
         except BagRecorderError as error:
             self.get_logger().error(str(error))
             self.interrupt_recording('recording write failed')
+
+    def handle_recording_worker_error(self):
+        """worker의 비동기 write 오류를 Logger 상태 전이에 반영한다."""
+        error = self.bag_recorder.take_async_error()
+        if error is None:
+            return
+        self.get_logger().error(str(error))
+        self.interrupt_recording('recording write failed')
 
     def handle_start_recording(self, request, response):
         """안전한 MIMIC 상태에서 새로운 rosbag2 기록을 시작한다."""
@@ -355,6 +367,7 @@ def main(args=None):
         pass
     finally:
         logger.interrupt_recording('process shutdown')
+        logger.bag_recorder.shutdown()
         logger.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

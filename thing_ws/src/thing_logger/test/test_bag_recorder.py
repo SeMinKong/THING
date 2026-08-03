@@ -151,3 +151,22 @@ def test_topic_registration_failure_removes_partial_bag(
     assert recorder.is_recording is False
     assert recorder.bag_path is None
     assert bag_path.exists() is False
+
+
+def test_stop_close_failure_removes_incomplete_bag(tmp_path, monkeypatch):
+    """정상 Stop의 close 실패도 불완전한 bag 삭제를 시도한다."""
+    bag_path = tmp_path / 'failed_stop'
+    recorder = BagRecorder()
+    recorder.start(str(bag_path))
+
+    def fail_close(writer):
+        raise RuntimeError('close failed')
+
+    monkeypatch.setattr(recorder, '_release_writer', fail_close)
+
+    with pytest.raises(BagRecorderError, match='종료 실패'):
+        recorder.stop()
+
+    assert recorder.is_recording is False
+    assert recorder.bag_path is None
+    assert bag_path.exists() is False

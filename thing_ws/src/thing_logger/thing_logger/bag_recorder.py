@@ -213,10 +213,11 @@ class BagRecorder:
                 writer = None
                 gc.collect()
 
-                if remove_bag:
-                    self._remove_bag_safely(
-                        Path(closed_bag_path)
-                    )
+                # 정상 Stop도 close에 실패하면 완전한 bag으로 볼 수 없다.
+                # 모든 종료 실패 경로에서 불완전한 bag 삭제를 시도한다.
+                self._remove_bag_safely(
+                    Path(closed_bag_path)
+                )
 
                 raise BagRecorderError(
                     f'rosbag2 writer 종료 실패: {error}'

@@ -199,6 +199,11 @@ def test_interrupt_does_not_wait_for_result(tmp_path):
     assert manager.last_session is session
     assert manager.result_pending is False
 
+    assert manager.set_result(
+        session.session_id,
+        RecordingState.RESULT_SUCCESS,
+    ) == (False, 'session_not_found')
+
     # INIT 재검사 중에는 INTERRUPTED를 유지한다.
     assert manager.can_start(
         ControlState.MODE_MIMIC,

@@ -238,6 +238,12 @@ class SessionManager:
         if self.last_session.session_id != session_id:
             return False, 'session_not_found'
 
+        if self.state in (
+            RecordingState.INTERRUPTED,
+            RecordingState.FAILED,
+        ):
+            return False, 'session_not_found'
+
         if not self.result_pending:
             return False, 'result_already_set'
 
