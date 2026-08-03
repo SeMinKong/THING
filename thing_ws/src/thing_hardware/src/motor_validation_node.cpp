@@ -337,10 +337,10 @@ public:
 
     static constexpr uint16_t TEST_GOAL_CURRENT = 500;  // 500 mA
     static constexpr uint16_t TEST_POSITION_P_GAIN = 500;
-    static constexpr uint16_t TEST_POSITION_I_GAIN = 10;
+    static constexpr uint16_t TEST_POSITION_I_GAIN = 20;
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 5;
     static constexpr uint32_t TEST_PROFILE_VELOCITY = 60;  // 약 13.74 rpm
-    static constexpr int32_t TEST_POSITION_DELTA = 600;
+    static constexpr int32_t TEST_POSITION_DELTA = 2000;
 
     if (TEST_GOAL_CURRENT > raw_current_limit) {
       RCLCPP_ERROR(this->get_logger(), "Test Goal Current exceeds Current Limit");
@@ -558,13 +558,15 @@ public:
       return;
     }
 
+    start_position_ = present_position;
     test_goal_position_ = test_goal_position;
 
     RCLCPP_WARN(
       this->get_logger(),
-      "Motion test started: ID=%u, start=%d pulse, goal=%d pulse; "
-      "monitoring every 100 ms with a 3 second timeout",
-      static_cast<unsigned int>(motor_id_), present_position, test_goal_position_);
+      "Forward motion test started: ID=%u, start=%d pulse, goal=%d pulse; "
+      "monitoring every 100 ms with a %ld second timeout",
+      static_cast<unsigned int>(motor_id_), present_position, test_goal_position_,
+      static_cast<long>(MOTION_TIMEOUT.count()));
 
     motion_start_time_ = std::chrono::steady_clock::now();
     motion_timer_ =
@@ -576,7 +578,7 @@ public:
 
 private:
   static constexpr int64_t POSITION_TOLERANCE = 5;
-  static constexpr std::chrono::seconds MOTION_TIMEOUT{3};
+  static constexpr std::chrono::seconds MOTION_TIMEOUT{6};
 
   void monitor_motion_test()
   {
@@ -639,12 +641,13 @@ private:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "Motion monitoring: ID=%u, elapsed=%ld ms, goal=%d, trajectory=%d, position=%d, "
+      "Motion monitoring: phase=%s, ID=%u, elapsed=%ld ms, goal=%d, trajectory=%d, position=%d, "
       "error=%ld pulse, moving_status=0x%02X, profile_ongoing=%s, in_position=%s, "
       "pwm=%d (%.2f%%), current=%d mA, velocity=%.2f rpm",
-      static_cast<unsigned int>(motor_id_), static_cast<long>(elapsed_ms), test_goal_position_,
-      position_trajectory, present_position, static_cast<long>(absolute_position_error),
-      static_cast<unsigned int>(moving_status), (moving_status & 0x02U) != 0U ? "true" : "false",
+      return_motion_started_ ? "return" : "forward", static_cast<unsigned int>(motor_id_),
+      static_cast<long>(elapsed_ms), test_goal_position_, position_trajectory, present_position,
+      static_cast<long>(absolute_position_error), static_cast<unsigned int>(moving_status),
+      (moving_status & 0x02U) != 0U ? "true" : "false",
       (moving_status & 0x01U) != 0U ? "true" : "false", static_cast<int>(present_pwm),
       present_pwm_percent, static_cast<int>(present_current), present_velocity_rpm);
 
@@ -658,18 +661,80 @@ private:
 
     if (absolute_position_error <= POSITION_TOLERANCE) {
       RCLCPP_INFO(
-        this->get_logger(), "Motion target reached: goal=%d, position=%d, error=%ld pulse",
-        test_goal_position_, present_position, static_cast<long>(absolute_position_error));
+        this->get_logger(), "%s motion target reached: goal=%d, position=%d, error=%ld pulse",
+        return_motion_started_ ? "Return" : "Forward", test_goal_position_, present_position,
+        static_cast<long>(absolute_position_error));
+
+      if (!return_motion_started_) {
+        if (!start_return_motion()) {
+          stop_motion_test();
+        }
+        return;
+      }
+
       stop_motion_test();
       return;
     }
 
     if (elapsed >= MOTION_TIMEOUT) {
+      if (!return_motion_started_) {
+        RCLCPP_WARN(
+          this->get_logger(),
+          "Forward motion settled with residual error: goal=%d, position=%d, error=%ld pulse; "
+          "starting return motion",
+          test_goal_position_, present_position, static_cast<long>(absolute_position_error));
+
+        if (!start_return_motion()) {
+          stop_motion_test();
+        }
+        return;
+      }
+
       RCLCPP_WARN(
-        this->get_logger(), "Motion test timed out: goal=%d, position=%d, error=%ld pulse",
+        this->get_logger(), "Return motion test timed out: goal=%d, position=%d, error=%ld pulse",
         test_goal_position_, present_position, static_cast<long>(absolute_position_error));
       stop_motion_test();
     }
+  }
+
+  bool start_return_motion()
+  {
+    const auto write_result = bus_->write_four_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS,
+      static_cast<uint32_t>(start_position_));
+
+    if (!write_result.success) {
+      RCLCPP_ERROR(
+        this->get_logger(), "Failed to write return Goal Position: %s",
+        write_result.error_message.c_str());
+      return false;
+    }
+
+    uint32_t readback_goal_position = 0;
+    const auto readback_result = bus_->read_four_bytes(
+      motor_id_, thing_hardware::xl330::GOAL_POSITION_ADDRESS, readback_goal_position);
+
+    if (
+      !readback_result.success ||
+      readback_goal_position != static_cast<uint32_t>(start_position_)) {
+      RCLCPP_ERROR(
+        this->get_logger(),
+        "Failed to verify return Goal Position: received=%u, expected=%d, error=%s",
+        static_cast<unsigned int>(readback_goal_position), start_position_,
+        readback_result.success ? "none" : readback_result.error_message.c_str());
+      return false;
+    }
+
+    return_motion_started_ = true;
+    test_goal_position_ = start_position_;
+    motion_start_time_ = std::chrono::steady_clock::now();
+
+    RCLCPP_WARN(
+      this->get_logger(),
+      "Return motion test started: ID=%u, goal=%d pulse; monitoring with a %ld second timeout",
+      static_cast<unsigned int>(motor_id_), test_goal_position_,
+      static_cast<long>(MOTION_TIMEOUT.count()));
+    return true;
   }
 
   void stop_motion_test()
@@ -748,7 +813,9 @@ private:
   std::unique_ptr<thing_hardware::DynamixelBus> bus_;
   rclcpp::TimerBase::SharedPtr motion_timer_;
   std::chrono::steady_clock::time_point motion_start_time_;
+  int32_t start_position_{0};
   int32_t test_goal_position_{0};
+  bool return_motion_started_{false};
   bool torque_enabled_{false};
 };
 
