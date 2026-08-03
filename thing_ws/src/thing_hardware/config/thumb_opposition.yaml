@@ -17,7 +17,7 @@
     profile_acceleration: 20
     profile_velocity: 50
 
-    position_tolerance: 5
+    position_tolerance: 30
     settled_velocity_raw: 1
     required_settled_samples: 3
     motion_timeout_seconds: 6
