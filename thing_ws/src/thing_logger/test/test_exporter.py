@@ -109,6 +109,7 @@ def make_motor_state(motor_id, **overrides):
         'current_ampere': 0.3,
         'voltage_volt': 12.0,
         'temperature_celsius': 35.0,
+        'torque_enabled': True,
         'hardware_error': 0,
         'communication_result': 0,
         'communication_ok': True,
@@ -477,6 +478,7 @@ def test_motor_status_csv_flattens_seven_motors(tmp_path):
     assert rows[1][:7] == [
         '123', '10', '500000000', '500', 'motor_bus', '1', 'axis_1',
     ]
+    assert rows[1][MOTOR_STATUS_HEADER.index('torque_enabled')] == 'true'
     assert rows[1][-4:] == ['0', 'true', 'true', '0']
 
 
@@ -535,6 +537,16 @@ def test_motor_status_csv_rejects_duplicate_ids_and_nonfinite_values(
             123,
             10_000_000_000,
             [make_motor_status(motors=invalid_motors)],
+        )
+
+    invalid_torque = [make_motor_state(index) for index in range(1, 8)]
+    invalid_torque[0].torque_enabled = 1
+    with pytest.raises(ExportValidationError, match='must be boolean'):
+        write_motor_status_csv(
+            output_path,
+            123,
+            10_000_000_000,
+            [make_motor_status(motors=invalid_torque)],
         )
 
 
@@ -825,6 +837,7 @@ def test_session_exporter_reads_actual_rosbag2_fixture(tmp_path):
         motor.current_ampere = 0.3
         motor.voltage_volt = 12.0
         motor.temperature_celsius = 35.0
+        motor.torque_enabled = True
         motor.communication_ok = True
         motor_status.motors.append(motor)
     recorder.write(

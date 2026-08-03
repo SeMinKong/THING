@@ -17,7 +17,7 @@ def test_fixed_versions_and_file_names():
     assert SCHEMA_VERSION == 1
     assert DATA_VERSION == 1
     assert INTERFACE_COMMIT == (
-        '70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec'
+        '626c59e09f108e6e5eb6d2313efe28bf0e51ed03'
     )
     assert FILE_KINDS == (
         'metadata',
@@ -50,7 +50,8 @@ def test_motor_status_csv_header_matches_v7():
         'frame_id', 'motor_id', 'actuator_name', 'goal_position_raw',
         'present_position_raw', 'goal_position_rad',
         'present_position_rad', 'velocity_rad_s', 'current_ampere',
-        'voltage_volt', 'temperature_celsius', 'hardware_error',
+        'voltage_volt', 'temperature_celsius', 'torque_enabled',
+        'hardware_error',
         'communication_result', 'communication_ok',
         'bus_communication_ok', 'failed_read_count',
     )

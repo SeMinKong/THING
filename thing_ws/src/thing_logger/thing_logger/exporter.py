@@ -1026,6 +1026,10 @@ def _motor_status_rows(
                 motor.temperature_celsius,
                 'MotorState temperature_celsius',
             ),
+            _canonical_bool(
+                motor.torque_enabled,
+                'MotorState torque_enabled',
+            ),
             _require_uint32(
                 motor.hardware_error,
                 'MotorState hardware_error',

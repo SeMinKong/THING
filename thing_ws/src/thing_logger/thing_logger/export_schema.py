@@ -2,7 +2,7 @@
 
 SCHEMA_VERSION = 1
 DATA_VERSION = 1
-INTERFACE_COMMIT = '70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec'
+INTERFACE_COMMIT = '626c59e09f108e6e5eb6d2313efe28bf0e51ed03'
 
 FILE_KINDS = (
     'metadata',
@@ -45,6 +45,7 @@ MOTOR_STATUS_HEADER = (
     'current_ampere',
     'voltage_volt',
     'temperature_celsius',
+    'torque_enabled',
     'hardware_error',
     'communication_result',
     'communication_ok',
