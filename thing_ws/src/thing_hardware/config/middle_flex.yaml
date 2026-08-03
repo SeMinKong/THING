@@ -1,0 +1,5 @@
+motor_validator:
+  ros__parameters:
+    motor_id: 3
+    home_position: 750
+    closed_position: 3050

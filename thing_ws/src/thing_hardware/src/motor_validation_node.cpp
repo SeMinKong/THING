@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "rclcpp/rclcpp.hpp"
@@ -12,6 +13,9 @@ class MotorValidatorNode : public rclcpp::Node
 public:
   MotorValidatorNode() : Node("motor_validator")
   {
+    declare_parameters();
+    load_and_validate_parameters();
+
     RCLCPP_INFO(
       this->get_logger(), "Device: %s, baud rate: %d, protocol: %.1f, motor ID: %u",
       device_name_.c_str(), baud_rate_, protocol_version_, static_cast<unsigned int>(motor_id_));
@@ -340,8 +344,6 @@ public:
     static constexpr uint16_t TEST_POSITION_I_GAIN = 30;
     static constexpr uint32_t TEST_PROFILE_ACCELERATION = 50;
     static constexpr uint32_t TEST_PROFILE_VELOCITY = 200;  // 약 45.80 rpm
-    static constexpr int32_t TEST_HOME_POSITION = 750;
-    static constexpr int32_t TEST_POSITION_DELTA = 2300;
 
     if (TEST_GOAL_CURRENT > raw_current_limit) {
       RCLCPP_ERROR(this->get_logger(), "Test Goal Current exceeds Current Limit");
@@ -353,7 +355,7 @@ public:
       return;
     }
 
-    const int32_t test_goal_position = TEST_HOME_POSITION + TEST_POSITION_DELTA;
+    const int32_t test_goal_position = static_cast<int32_t>(closed_position_);
 
     if (
       test_goal_position < static_cast<int32_t>(raw_min_position_limit) ||
@@ -559,7 +561,7 @@ public:
       return;
     }
 
-    start_position_ = TEST_HOME_POSITION;
+    start_position_ = static_cast<int32_t>(home_position_);
     test_goal_position_ = test_goal_position;
 
     RCLCPP_WARN(
@@ -578,6 +580,39 @@ public:
   ~MotorValidatorNode() override { disable_torque(); }
 
 private:
+  void declare_parameters()
+  {
+    this->declare_parameter<int64_t>("motor_id", 3);
+    this->declare_parameter<int64_t>("home_position", 750);
+    this->declare_parameter<int64_t>("closed_position", 1000);
+  }
+
+  void load_and_validate_parameters()
+  {
+    const int64_t motor_id = this->get_parameter("motor_id").as_int();
+
+    home_position_ = this->get_parameter("home_position").as_int();
+    closed_position_ = this->get_parameter("closed_position").as_int();
+
+    if (motor_id < 0 || motor_id > 252) {
+      throw std::runtime_error("motor_id must be between 0 and 252");
+    }
+
+    if (home_position_ < 0 || home_position_ > 4095) {
+      throw std::runtime_error("home_position must be between 0 and 4095");
+    }
+
+    if (closed_position_ < 0 || closed_position_ > 4095) {
+      throw std::runtime_error("closed_position must be between 0 and 4095");
+    }
+
+    if (closed_position_ == home_position_) {
+      throw std::runtime_error("closed_position must differ from home_position");
+    }
+
+    motor_id_ = static_cast<uint8_t>(motor_id);
+  }
+
   static constexpr int64_t POSITION_TOLERANCE = 5;
   static constexpr int64_t SETTLED_VELOCITY_RAW = 1;
   static constexpr uint8_t REQUIRED_SETTLED_SAMPLES = 3;
@@ -854,6 +889,8 @@ private:
   int baud_rate_{57600};
   float protocol_version_{2.0F};
   uint8_t motor_id_{3};
+  int64_t home_position_{750};
+  int64_t closed_position_{1000};
 
   std::unique_ptr<thing_hardware::DynamixelBus> bus_;
   rclcpp::TimerBase::SharedPtr motion_timer_;
