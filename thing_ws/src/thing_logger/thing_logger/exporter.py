@@ -409,6 +409,10 @@ class SessionExporter:
         landmark_path = directory / (filenames['landmark'] + '.part')
         lifecycle = _SessionLifecycle(session_id)
         counts = {'hand_command': 0, 'motor_status': 0, 'landmark': 0}
+        last_csv_timestamps = {
+            'hand_command': None,
+            'motor_status': None,
+        }
 
         with ExitStack() as stack:
             hand_output = stack.enter_context(
@@ -435,17 +439,34 @@ class SessionExporter:
                         'data appeared before RecordingState.RECORDING'
                     )
                 if record.topic_name == '/thing/command':
-                    hand_writer.writerow(_hand_command_row(
+                    row = _hand_command_row(
                         session_id,
                         lifecycle.started_at_ns,
                         record.message,
-                    ))
+                    )
+                    last_csv_timestamps['hand_command'] = (
+                        _require_nondecreasing_csv_timestamp(
+                            row[1],
+                            row[2],
+                            last_csv_timestamps['hand_command'],
+                            'HandCommand',
+                        )
+                    )
+                    hand_writer.writerow(row)
                     counts['hand_command'] += 1
                 elif record.topic_name == '/thing/motor_status':
                     rows = _motor_status_rows(
                         session_id,
                         lifecycle.started_at_ns,
                         record.message,
+                    )
+                    last_csv_timestamps['motor_status'] = (
+                        _require_nondecreasing_csv_timestamp(
+                            rows[0][1],
+                            rows[0][2],
+                            last_csv_timestamps['motor_status'],
+                            'MotorStatus',
+                        )
                     )
                     motor_writer.writerows(rows)
                     counts['motor_status'] += len(rows)
@@ -627,18 +648,24 @@ def write_hand_command_csv(
 ) -> int:
     """명령 메시지를 canonical CSV로 쓰고 행 수를 반환한다."""
     row_count = 0
+    last_timestamp_ns = None
     try:
         with path.open('w', encoding='utf-8', newline='') as output:
             writer = csv.writer(output, lineterminator='\n')
             writer.writerow(HAND_COMMAND_HEADER)
             for message in messages:
-                writer.writerow(
-                    _hand_command_row(
-                        session_id,
-                        started_at_ns,
-                        message,
-                    )
+                row = _hand_command_row(
+                    session_id,
+                    started_at_ns,
+                    message,
                 )
+                last_timestamp_ns = _require_nondecreasing_csv_timestamp(
+                    row[1],
+                    row[2],
+                    last_timestamp_ns,
+                    'HandCommand',
+                )
+                writer.writerow(row)
                 row_count += 1
     except ExportValidationError:
         raise
@@ -747,6 +774,7 @@ def write_motor_status_csv(
 ) -> int:
     """모터 상태를 모터별 canonical CSV 행으로 쓰고 행 수를 반환한다."""
     row_count = 0
+    last_timestamp_ns = None
     try:
         with path.open('w', encoding='utf-8', newline='') as output:
             writer = csv.writer(output, lineterminator='\n')
@@ -756,6 +784,12 @@ def write_motor_status_csv(
                     session_id,
                     started_at_ns,
                     message,
+                )
+                last_timestamp_ns = _require_nondecreasing_csv_timestamp(
+                    rows[0][1],
+                    rows[0][2],
+                    last_timestamp_ns,
+                    'MotorStatus',
                 )
                 writer.writerows(rows)
                 row_count += len(rows)
@@ -1010,6 +1044,24 @@ def _timestamp_parts(
             f'{message_name} timestamp precedes session start'
         )
     return stamp_sec, stamp_nanosec, elapsed_ns // 1_000_000
+
+
+def _require_nondecreasing_csv_timestamp(
+    stamp_sec: int,
+    stamp_nanosec: int,
+    previous_timestamp_ns,
+    message_name: str,
+) -> int:
+    """CSV 메시지 시각이 이전 시각보다 빠르지 않은지 검사한다."""
+    timestamp_ns = stamp_sec * 1_000_000_000 + stamp_nanosec
+    if (
+        previous_timestamp_ns is not None
+        and timestamp_ns < previous_timestamp_ns
+    ):
+        raise ExportValidationError(
+            f'{message_name} timestamp must be nondecreasing'
+        )
+    return timestamp_ns
 
 
 def _format_timestamp_utc(stamp_sec: int, stamp_nanosec: int) -> str:

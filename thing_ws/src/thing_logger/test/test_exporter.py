@@ -435,6 +435,27 @@ def test_hand_command_csv_rejects_invalid_values(
         )
 
 
+def test_hand_command_csv_rejects_decreasing_timestamps(tmp_path):
+    """CSV에서 HandCommand 시각이 이전 행보다 빠르면 거부한다."""
+    output_path = tmp_path / 'hand_command.csv.part'
+    messages = [
+        make_hand_command(
+            stamp=SimpleNamespace(sec=11, nanosec=0),
+        ),
+        make_hand_command(
+            stamp=SimpleNamespace(sec=10, nanosec=500_000_000),
+        ),
+    ]
+
+    with pytest.raises(ExportValidationError, match='nondecreasing'):
+        write_hand_command_csv(
+            output_path,
+            session_id=123,
+            started_at_ns=10_000_000_000,
+            messages=messages,
+        )
+
+
 def test_motor_status_csv_flattens_seven_motors(tmp_path):
     """모터 상태 하나를 고정 헤더의 모터별 일곱 행으로 기록한다."""
     output_path = tmp_path / 'motor_status.csv.part'
@@ -513,6 +534,29 @@ def test_motor_status_csv_rejects_duplicate_ids_and_nonfinite_values(
             123,
             10_000_000_000,
             [make_motor_status(motors=invalid_motors)],
+        )
+
+
+def test_motor_status_csv_rejects_decreasing_timestamps(tmp_path):
+    """CSV에서 MotorStatus 시각이 이전 묶음보다 빠르면 거부한다."""
+    output_path = tmp_path / 'motor_status.csv.part'
+    messages = [
+        make_motor_status(header=SimpleNamespace(
+            stamp=SimpleNamespace(sec=11, nanosec=0),
+            frame_id='motor_bus',
+        )),
+        make_motor_status(header=SimpleNamespace(
+            stamp=SimpleNamespace(sec=10, nanosec=500_000_000),
+            frame_id='motor_bus',
+        )),
+    ]
+
+    with pytest.raises(ExportValidationError, match='nondecreasing'):
+        write_motor_status_csv(
+            output_path,
+            session_id=123,
+            started_at_ns=10_000_000_000,
+            messages=messages,
         )
 
 
@@ -869,6 +913,45 @@ def test_session_exporter_cleans_staging_after_invalid_landmarks(tmp_path):
     )
 
     with pytest.raises(ExportValidationError, match='exactly 21'):
+        exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    assert not (export_root / '.123.part').exists()
+    assert not (export_root / '123').exists()
+
+
+@pytest.mark.parametrize('topic_name', ['/thing/command', '/thing/motor_status'])
+def test_session_exporter_hides_decreasing_csv_timestamps(
+    tmp_path,
+    topic_name,
+):
+    """CSV 시각 역행 시 staging을 정리하고 최종 파일을 노출하지 않는다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    records = make_complete_bag_records()
+    if topic_name == '/thing/command':
+        later_message = make_hand_command(
+            stamp=SimpleNamespace(sec=11, nanosec=0),
+        )
+        insert_at = 1
+    else:
+        later_message = make_motor_status(header=SimpleNamespace(
+            stamp=SimpleNamespace(sec=11, nanosec=0),
+            frame_id='motor_bus',
+        ))
+        insert_at = 2
+    records.insert(
+        insert_at,
+        BagRecord(topic_name, later_message, 11_000_000_000),
+    )
+    export_root = tmp_path / 'tmp-upload'
+    exporter = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(records),
+        clock_ns=lambda: 21_000_000_000,
+    )
+
+    with pytest.raises(ExportValidationError, match='nondecreasing'):
         exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
 
     assert not (export_root / '.123.part').exists()
