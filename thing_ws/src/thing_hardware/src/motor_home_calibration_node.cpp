@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include "rclcpp/rclcpp.hpp"
@@ -14,6 +15,9 @@ class MotorHomeCalibrationNode : public rclcpp::Node
 public:
   MotorHomeCalibrationNode() : Node("motor_home_calibrator")
   {
+    declare_parameters();
+    load_and_validate_parameters();
+
     RCLCPP_INFO(
       this->get_logger(), "Device: %s, baud rate: %d, protocol: %.1f, motor ID: %u",
       device_name_.c_str(), baud_rate_, protocol_version_, static_cast<unsigned int>(motor_id_));
@@ -74,6 +78,42 @@ public:
 
 private:
   static constexpr std::size_t SAMPLE_COUNT = 50;
+
+  void declare_parameters()
+  {
+    this->declare_parameter<std::string>("device_name", "");
+    this->declare_parameter<int64_t>("baud_rate", 57600);
+    this->declare_parameter<double>("protocol_version", 2.0);
+    this->declare_parameter<int64_t>("motor_id", 3);
+  }
+
+  void load_and_validate_parameters()
+  {
+    device_name_ = this->get_parameter("device_name").as_string();
+    const int64_t baud_rate = this->get_parameter("baud_rate").as_int();
+    const double protocol_version = this->get_parameter("protocol_version").as_double();
+    const int64_t motor_id = this->get_parameter("motor_id").as_int();
+
+    if (device_name_.empty()) {
+      throw std::runtime_error("device_name must not be empty");
+    }
+
+    if (baud_rate <= 0 || baud_rate > std::numeric_limits<int>::max()) {
+      throw std::runtime_error("baud_rate must be between 1 and INT_MAX");
+    }
+
+    if (protocol_version != 2.0) {
+      throw std::runtime_error("protocol_version must be 2.0 for XL330");
+    }
+
+    if (motor_id < 0 || motor_id > 252) {
+      throw std::runtime_error("motor_id must be between 0 and 252");
+    }
+
+    baud_rate_ = static_cast<int>(baud_rate);
+    protocol_version_ = static_cast<float>(protocol_version);
+    motor_id_ = static_cast<uint8_t>(motor_id);
+  }
 
   void sample_home_position()
   {

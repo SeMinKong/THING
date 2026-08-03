@@ -1,4 +1,4 @@
-motor_validator:
+/**:
   ros__parameters:
     # BUS_A / ring finger flexion (ID 1)
     device_name: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"

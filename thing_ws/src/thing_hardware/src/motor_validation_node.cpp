@@ -319,6 +319,15 @@ public:
       static_cast<unsigned int>(present_temperature));
     // ==================================
 
+    if (!motion_test_enabled_) {
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Status-only inspection complete: home_position and closed_position are uncalibrated; "
+        "no control values were written and the existing torque state was not changed");
+      rclcpp::shutdown();
+      return;
+    }
+
     // ==== write test ====
     if (operating_mode != 5U) {
       RCLCPP_ERROR(this->get_logger(), "Expected Current-based Position Control Mode");
@@ -351,13 +360,6 @@ public:
     }
 
     const int32_t test_goal_position = static_cast<int32_t>(closed_position_);
-
-    if (
-      test_goal_position < static_cast<int32_t>(raw_min_position_limit) ||
-      test_goal_position > static_cast<int32_t>(raw_max_position_limit)) {
-      RCLCPP_ERROR(this->get_logger(), "Test goal position is outside configured limits");
-      return;
-    }
 
     const uint32_t raw_test_goal_position = static_cast<uint32_t>(test_goal_position);
 
@@ -625,6 +627,7 @@ private:
   int64_t settled_velocity_raw_{1};
   uint8_t required_settled_samples_{3};
   std::chrono::seconds motion_timeout_seconds_{6};
+  bool motion_test_enabled_{true};
 
   void declare_parameters()
   {
@@ -682,16 +685,31 @@ private:
       throw std::runtime_error("motor_id must be between 0 and 252");
     }
 
-    if (home_position_ < 0 || home_position_ > 4095) {
-      throw std::runtime_error("home_position must be between 0 and 4095");
+    const bool home_position_uncalibrated = home_position_ == -1;
+    const bool closed_position_uncalibrated = closed_position_ == -1;
+
+    if (home_position_uncalibrated != closed_position_uncalibrated) {
+      throw std::runtime_error(
+        "home_position and closed_position must either both be -1 or both be calibrated");
     }
 
-    if (closed_position_ < 0 || closed_position_ > 4095) {
-      throw std::runtime_error("closed_position must be between 0 and 4095");
-    }
+    motion_test_enabled_ = !home_position_uncalibrated;
 
-    if (closed_position_ == home_position_) {
-      throw std::runtime_error("closed_position must differ from home_position");
+    if (motion_test_enabled_) {
+      constexpr int64_t MIN_EXTENDED_POSITION = -1048575;
+      constexpr int64_t MAX_EXTENDED_POSITION = 1048575;
+
+      if (home_position_ < MIN_EXTENDED_POSITION || home_position_ > MAX_EXTENDED_POSITION) {
+        throw std::runtime_error("home_position must be between -1048575 and 1048575 in mode 5");
+      }
+
+      if (closed_position_ < MIN_EXTENDED_POSITION || closed_position_ > MAX_EXTENDED_POSITION) {
+        throw std::runtime_error("closed_position must be between -1048575 and 1048575 in mode 5");
+      }
+
+      if (closed_position_ == home_position_) {
+        throw std::runtime_error("closed_position must differ from home_position");
+      }
     }
 
     if (position_p_gain < 0 || position_p_gain > 16383) {
