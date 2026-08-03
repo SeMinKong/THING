@@ -6,6 +6,7 @@ import pytest
 
 from thing_interfaces.msg import ControlState
 from thing_interfaces.msg import RecordingState
+from thing_interfaces.msg import SafetyState
 from thing_logger.session import SessionManager
 
 
@@ -30,11 +31,41 @@ def test_initial_state_and_start_admission(tmp_path):
     assert manager.active_session is None
     assert manager.last_session is None
     assert manager.result_pending is False
-    assert manager.can_start(ControlState.MODE_DISABLED) == (
+    assert manager.can_start(
+        ControlState.MODE_DISABLED,
+        SafetyState.READY,
+    ) == (
         False,
         'not_mimic_mode',
     )
-    assert manager.can_start(ControlState.MODE_MIMIC) == (True, '')
+    assert manager.can_start(
+        ControlState.MODE_MIMIC,
+        SafetyState.READY,
+    ) == (True, '')
+    assert manager.can_start(
+        ControlState.MODE_MIMIC,
+        SafetyState.RUN,
+    ) == (True, '')
+
+
+@pytest.mark.parametrize(
+    'safety_state',
+    [
+        SafetyState.INIT,
+        SafetyState.HOLD,
+        SafetyState.SAFE,
+        SafetyState.FAULT,
+        SafetyState.ESTOP,
+    ],
+)
+def test_start_rejects_unsafe_state(tmp_path, safety_state):
+    """READY와 RUN이 아닌 안전 상태에서는 새 녹화를 거부한다."""
+    manager = make_manager(tmp_path, [123])
+
+    assert manager.can_start(
+        ControlState.MODE_MIMIC,
+        safety_state,
+    ) == (False, 'start_failed')
 
 
 def test_session_id_is_nonzero_63_bit_and_path_is_unique(tmp_path):
@@ -55,7 +86,10 @@ def test_duplicate_start_is_rejected(tmp_path):
     manager = make_manager(tmp_path, [123])
     start_recording(manager)
 
-    assert manager.can_start(ControlState.MODE_MIMIC) == (
+    assert manager.can_start(
+        ControlState.MODE_MIMIC,
+        SafetyState.RUN,
+    ) == (
         False,
         'already_recording',
     )
@@ -101,7 +135,10 @@ def test_complete_waits_for_result_and_blocks_start(tmp_path):
     assert manager.last_session is session
     assert manager.state == RecordingState.COMPLETED
     assert manager.result_pending is True
-    assert manager.can_start(ControlState.MODE_MIMIC) == (
+    assert manager.can_start(
+        ControlState.MODE_MIMIC,
+        SafetyState.RUN,
+    ) == (
         False,
         'result_pending',
     )
@@ -160,6 +197,17 @@ def test_interrupt_does_not_wait_for_result(tmp_path):
     assert manager.state == RecordingState.INTERRUPTED
     assert manager.active_session is None
     assert manager.last_session is session
+    assert manager.result_pending is False
+
+    # INIT 재검사 중에는 INTERRUPTED를 유지한다.
+    assert manager.can_start(
+        ControlState.MODE_MIMIC,
+        SafetyState.INIT,
+    ) == (False, 'start_failed')
+
+    # 실제 READY 수신 뒤 Logger가 호출하는 복구 동작이다.
+    manager.reset_to_idle()
+    assert manager.state == RecordingState.IDLE
     assert manager.result_pending is False
 
 

@@ -7,6 +7,7 @@ from typing import Callable, Optional, Tuple
 
 from thing_interfaces.msg import ControlState
 from thing_interfaces.msg import RecordingState
+from thing_interfaces.msg import SafetyState
 
 
 def generate_session_id() -> int:
@@ -66,11 +67,23 @@ class SessionManager:
         # RecordingState 등에 전달할 상태 설명
         self.message: str = 'idle'
 
-    def can_start(self, active_mode: int) -> Tuple[bool, str]:
+    def can_start(
+        self,
+        active_mode: int,
+        safety_state: int,
+    ) -> Tuple[bool, str]:
         """현재 상태와 제어 모드에서 새 녹화를 시작할 수 있는지 확인한다."""
         # V7.0 명세: 기록은 MIMIC 모드에서만 허용
         if active_mode != ControlState.MODE_MIMIC:
             return False, 'not_mimic_mode'
+
+        # 안전 복구가 끝나지 않은 상태에서는 새 녹화를 시작하지 않는다.
+        # MIMIC 활성화 뒤 첫 명령으로 RUN이 될 수 있으므로 READY와 RUN을 허용한다.
+        if safety_state not in (
+            SafetyState.READY,
+            SafetyState.RUN,
+        ):
+            return False, 'start_failed'
 
         # V7.0 명세: 이전 정상 세션의 결과 판정 전에는
         # 다음 정상 기록을 시작할 수 없음
