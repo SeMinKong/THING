@@ -1,0 +1,194 @@
+// ============================================================================
+// 영상 — MJPEG + 손 검출
+// ----------------------------------------------------------------------------
+// FR-20: 저장하지 않는 MJPEG 영상, 손 검출 여부, hand-loss·재개 필요 상태 표시.
+//
+// 검출 상태를 영상 밖 배지가 아니라 영상 안에 겹쳐 둔다. 운용자는 자기 손을
+// 보고 있으므로, 검출이 끊긴 사실을 알려면 시선을 옮겨야 하는 위치에 두면
+// 늦는다.
+//
+// 영상은 WebSocket 과 별개 경로(HTTP)다. 상태 데이터가 멀쩡해도 영상만 죽을 수
+// 있고 그 반대도 가능하다. 빈 화면마다 원인과 조치를 적는다.
+// ============================================================================
+import { useEffect, useState } from "react";
+import { useHandSocket } from "../context/HandSocketContext";
+import { HAND_DETECTION, TIMING, isDeviceUsable } from "../config/messageProtocol";
+import { THRESHOLD } from "../config/pending";
+import { diag, OWNER } from "../config/diagnostics";
+import { motion, AnimatePresence } from "motion/react";
+import { Panel, Head, Body, Tag } from "../ui/Sheet";
+
+// thing_vision 이 원본/overlay 를 별도 MJPEG 엔드포인트로 제공한다고 본다.
+// 하나만 운용하면 RAW 쪽을 비워 두면 되고, 그러면 전환 버튼이 사라진다.
+const OVERLAY_STREAM_URL = import.meta.env.VITE_MJPEG_STREAM_URL || "";
+const RAW_STREAM_URL = import.meta.env.VITE_MJPEG_RAW_STREAM_URL || "";
+
+export default function CameraStream() {
+  const {
+    connectionStatus, landmarks, landmarksUpdatedAt, handDetection,
+  } = useHandSocket();
+
+  const [streamMode, setStreamMode] = useState("overlay");
+
+  // 어느 URL 에서 실패했는지 함께 들고 있으면 소스 전환 때 state 를 되돌릴
+  // 필요가 없다. 렌더 중 비교만 하면 된다.
+  const [failedUrl, setFailedUrl] = useState(null);
+
+  // landmarksUpdatedAt 은 새 메시지가 안 오면 안 바뀐다. 얼마나 지났는지는
+  // 시간이 흘러야 알 수 있으므로 주기적으로 계산해 state 에 넣는다.
+  // 렌더 중에 Date.now() 를 읽으면 순수하지 않다.
+  const [staleSince, setStaleSince] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStaleSince(landmarksUpdatedAt === null ? 0 : Date.now() - landmarksUpdatedAt);
+    }, THRESHOLD.RECHECK_PERIOD_MS);
+    return () => clearInterval(id);
+  }, [landmarksUpdatedAt]);
+
+  const activeUrl = streamMode === "raw" ? RAW_STREAM_URL : OVERLAY_STREAM_URL;
+  const hasRaw = Boolean(RAW_STREAM_URL);
+  const streamError = failedUrl !== null && failedUrl === activeUrl;
+  const isCameraConnected = isDeviceUsable(connectionStatus.camera);
+
+  // landmark 발행은 hand-loss latch 로도 멈추므로(FR-35) 영상 정지의 확정
+  // 신호가 아니다. "갱신 멈춤" 이라고만 적고 영상을 가리지는 않는다.
+  const isFrameStale = isCameraConnected
+    && landmarksUpdatedAt !== null
+    && staleSince > THRESHOLD.CAMERA_STATE_STALE_MS;
+
+  const confidencePct = Math.round((landmarks?.confidence ?? 0) * 100);
+  const detectTone = handDetection === HAND_DETECTION.DETECTED ? "ok"
+    : handDetection === HAND_DETECTION.LOW_CONFIDENCE ? "weak"
+      : handDetection === HAND_DETECTION.NOT_DETECTED ? "none" : "idle";
+  const detectText = handDetection === HAND_DETECTION.DETECTED
+    ? `손 검출됨 (신뢰도 ${confidencePct}%)`
+    : handDetection === HAND_DETECTION.LOW_CONFIDENCE
+      ? `신뢰도 부족 (${confidencePct}% < ${Math.round(TIMING.HAND_CONFIDENCE_MIN * 100)}%)`
+        + " — 미검출로 처리됩니다"
+      : handDetection === HAND_DETECTION.NOT_DETECTED
+        ? "손이 검출되지 않았습니다"
+        : "손 검출 정보 수신 대기";
+
+  const dot = { ok: "bg-st-ready", weak: "bg-st-hold", none: "bg-st-fault",
+    idle: "bg-ink-400" }[detectTone];
+
+  return (
+    <Panel>
+      <Head title="영상">
+        <AnimatePresence>
+          {isFrameStale && (
+            <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+                         exit={{ opacity: 0 }}>
+              <Tag tone="warn">갱신 멈춤</Tag>
+            </motion.span>
+          )}
+        </AnimatePresence>
+        {hasRaw && (
+          <div className="relative flex rounded-full bg-ink-200/60 p-0.5"
+               role="group" aria-label="영상 소스">
+            {[["overlay", "합성"], ["raw", "원본"]].map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={streamMode === key}
+                onClick={() => setStreamMode(key)}
+                className="relative px-3 py-0.5 text-xs font-medium"
+              >
+                {streamMode === key && (
+                  <motion.span
+                    layoutId="stream-toggle"
+                    transition={{ type: "spring", stiffness: 480, damping: 38 }}
+                    className="absolute inset-0 rounded-full bg-ink-900"
+                  />
+                )}
+                <span className={`relative ${
+                  streamMode === key ? "text-white" : "text-ink-600"}`}>
+                  {label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Head>
+
+      <Body>
+        <motion.div
+          layoutId="viewport"
+          transition={{ type: "spring", stiffness: 300, damping: 34 }}
+          className="relative grid aspect-4/3 place-items-center overflow-hidden
+                     rounded-card bg-ink-900"
+        >
+          {!activeUrl ? (
+            <div className="p-6 text-center">
+              <p className="font-mono text-[11px] tracking-[0.14em] text-ink-400">
+                스트림 주소가 설정되지 않았습니다
+              </p>
+              <p className="mt-2 text-[13px] text-ink-300">
+                <code>.env.local</code> 에 <code>VITE_MJPEG_STREAM_URL</code> 을 넣으세요.
+              </p>
+            </div>
+          ) : streamError ? (
+            <div className="p-6 text-center">
+              <p className="font-mono text-[11px] tracking-[0.14em] text-st-fault">
+                영상을 불러오지 못했습니다
+              </p>
+              <p className="mt-2 text-[13px] text-ink-300">
+                주소가 열리는지, <code>mjpeg_streamer</code> 가 떠 있는지 확인하세요.
+              </p>
+              <p className="mt-1 font-mono text-[11px] text-ink-500">{activeUrl}</p>
+            </div>
+          ) : !isCameraConnected ? (
+            <div className="p-6 text-center">
+              <p className="font-mono text-[11px] tracking-[0.14em] text-ink-400">
+                카메라 연결이 끊어졌습니다
+              </p>
+              <p className="mt-2 text-[13px] text-ink-300">
+                연결이 돌아오면 영상이 다시 나옵니다.
+              </p>
+            </div>
+          ) : (
+            <img
+              key={activeUrl}
+              src={activeUrl}
+              alt="로봇 손 제어용 실시간 영상"
+              className="size-full object-contain"
+              onError={() => {
+                setFailedUrl(activeUrl);
+                diag.error({
+                  code: `MJPEG_LOAD_FAILED_${streamMode}`,
+                  owner: OWNER.CONFIG,
+                  what: "MJPEG 스트림을 불러오지 못했습니다",
+                  why: "브라우저가 <img> 로드에 실패했습니다. WebSocket 과 별개 경로라 "
+                    + "상태 데이터는 정상이어도 영상만 안 나올 수 있습니다.",
+                  fix: "① 주소를 브라우저 주소창에 직접 넣어 열리는지 ② Jetson 의 "
+                    + "mjpeg_streamer 가 떠 있는지 ③ 페이지가 https 인데 스트림이 http "
+                    + "여서 혼합 콘텐츠로 막힌 것은 아닌지 확인하세요.",
+                  ref: "FR-20 / FR-28",
+                  detail: { 주소: activeUrl, 모드: streamMode },
+                });
+              }}
+              onLoad={() => setFailedUrl(null)}
+            />
+          )}
+
+          {/* 검출 상태는 영상 안에 겹친다. 밖에 두면 시선을 옮겨야 알 수 있다 */}
+          {activeUrl && !streamError && isCameraConnected && (
+            <div className="absolute bottom-3 left-3">
+              <motion.span
+                  key={detectTone}
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.16 }}
+                  className="flex items-center gap-2 rounded-full bg-ink-900/85 px-3 py-1
+                             backdrop-blur"
+                >
+                  <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />
+                  <span className="font-mono text-[11px] text-white">{detectText}</span>
+                </motion.span>
+            </div>
+          )}
+        </motion.div>
+      </Body>
+    </Panel>
+  );
+}

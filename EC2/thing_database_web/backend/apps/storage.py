@@ -33,14 +33,18 @@ from pathlib import Path
 
 from django.conf import settings
 
+from . import landmark_contract
+
 #: 다운로드 가능한 파일 종류. 경로 입력을 받지 않는 enum이다 (FR-49)
-FILE_KINDS = ("metadata", "hand_command", "motor_status")
+#: landmark 는 형식이 미정이라 계약을 apps/landmark_contract.py 한 곳에 모아 두었다.
+FILE_KINDS = ("metadata", "hand_command", "motor_status", landmark_contract.KIND)
 
 #: 종류별 확장자
 _EXTENSIONS = {
     "metadata": "json",
     "hand_command": "csv",
     "motor_status": "csv",
+    landmark_contract.KIND: landmark_contract.EXTENSION,
 }
 
 #: 경로 구성 요소 허용 문자. 상위 디렉터리 탈출과 구분자 주입을 원천 차단한다.
@@ -145,6 +149,9 @@ def commit_staging(robot_id, session_id):
         name = canonical_filename(session_id, file_kind)
         source = src / name
         if not source.exists():
+            # landmark 는 형식 미정이라 선택 part 다. 없으면 건너뛴다.
+            if file_kind == landmark_contract.KIND and not landmark_contract.REQUIRED:
+                continue
             raise FileNotFoundError(file_kind)
         os.replace(source, dst / name)
         moved.append(file_kind)
