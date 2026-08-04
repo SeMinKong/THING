@@ -131,7 +131,7 @@ const SPEC_MIRRORED = {
   /** FR-11 / FR-35. 마지막 hardware-forwarded 명령 뒤 SAFE 상승까지. */
   SAFE_DEADLINE_MS: 1000,
 
-  /** FR-35. RESET 에서 현재 setpoint 안정화 시간. */
+  /** FR-35. RESET 에서 초기 자세(home_position) 도달 후 안정화 시간. */
   STOP_SETTLE_MS: 500,
 
   /** FR-35. STOP 의 Guard ACK 기본 / 최대 대기. */

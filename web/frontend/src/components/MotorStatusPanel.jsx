@@ -54,7 +54,13 @@ function useElapsed(since) {
   return Math.max(0, tick - since);
 }
 
-export default function MotorStatusPanel({ motorStatus, motorUpdatedAt, receivedAt }) {
+/**
+ * @param fill 남는 높이를 채울 것인가. 조작 화면처럼 이 표가 열 전체를 차지할 때
+ *             켜면 7행이 높이를 나눠 갖고 아래가 비지 않는다.
+ */
+export default function MotorStatusPanel({
+  motorStatus, motorUpdatedAt, receivedAt, fill = false,
+}) {
   const sinceMs = useElapsed(receivedAt);
   const staleMs = useElapsed(motorUpdatedAt);
 
@@ -82,7 +88,7 @@ export default function MotorStatusPanel({ motorStatus, motorUpdatedAt, received
   const LEFT = new Set([0, 1, 7]);
 
   return (
-    <Panel>
+    <Panel className={fill ? "flex min-h-0 flex-1 flex-col" : ""}>
       <div aria-label="모터 상태">
         <Head title="모터 7채널">
           <AnimatePresence mode="wait" initial={false}>
@@ -112,12 +118,12 @@ export default function MotorStatusPanel({ motorStatus, motorUpdatedAt, received
           </AnimatePresence>
         </Head>
 
-        <Body>
+        <Body className={fill ? "flex min-h-0 flex-1 flex-col" : ""}>
           {!hasData ? (
             <p className="text-xs text-ink-500">모터 상태를 아직 받지 못했습니다.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+            <div className={`overflow-x-auto ${fill ? "min-h-0 flex-1" : ""}`}>
+              <table className={`w-full text-xs ${fill ? "h-full" : ""}`}>
                 <thead>
                   <tr className="border-b border-ink-200">
                     {COLS.map((h, i) => (

@@ -4,7 +4,7 @@
 
 운용자는 폐쇄 내부망 랩의 노트북에서 자기 손을 비추는 MJPEG 영상을 보며, 1초마다 갱신되는 제어권으로 7개 DYNAMIXEL 을 움직입니다. 이 화면의 단 하나의 일은 **"지금 조작해도 되는가" 를 시선을 옮기지 않고 알게 하는 것**입니다.
 
-기준: 요구사항 명세서 V7.0
+기준: 요구사항 명세서 V7.1
 
 ---
 
@@ -24,7 +24,7 @@ Jetson Orin Nano
       │  ROS 2 DDS
       ▼
 Raspberry Pi 5
-├─ thing-control        manager · guard · safety · DYNAMIXEL · Logger
+├─ thing-control        command_manager · command_guard · safety_manager · motor_driver_node · logger
 └─ thing-data-uploader ──── HTTPS ────▶ EC2 데이터 포털
       │  U2D2
       ▼

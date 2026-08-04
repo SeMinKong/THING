@@ -25,7 +25,7 @@ const RAW_STREAM_URL = import.meta.env.VITE_MJPEG_RAW_STREAM_URL || "";
 
 export default function CameraStream() {
   const {
-    connectionStatus, landmarks, landmarksUpdatedAt, handDetection,
+    connectionState, connectionStatus, landmarks, landmarksUpdatedAt, handDetection,
   } = useHandSocket();
 
   const [streamMode, setStreamMode] = useState("overlay");
@@ -50,6 +50,15 @@ export default function CameraStream() {
   const streamError = failedUrl !== null && failedUrl === activeUrl;
   const isCameraConnected = isDeviceUsable(connectionStatus.camera);
 
+  // 영상과 검출 정보는 서로 다른 경로로 온다.
+  //   영상    MJPEG (HTTP)      — WebSocket 이 끊겨도 살아 있을 수 있다
+  //   검출    WebSocket snapshot — 끊기면 마지막 값이 그대로 굳는다
+  // 그래서 WS 가 끊겼을 때 영상은 계속 보여 주되, 검출 표시는 현재 값인 것처럼
+  // 두지 않는다. 굳은 "손 검출됨 93%" 가 떠 있으면 손 추적이 살아 있다고 오해한다.
+  // 표시를 아예 없애지도 않는다. 그러면 카메라 문제인지 상태 채널 문제인지
+  // 구분할 수 없다. MotorStatusPanel 의 "연결 끊김 · 마지막 값" 과 같은 방식이다.
+  const detectionLive = connectionState === "open";
+
   // landmark 발행은 hand-loss latch 로도 멈추므로(FR-35) 영상 정지의 확정
   // 신호가 아니다. "갱신 멈춤" 이라고만 적고 영상을 가리지는 않는다.
   const isFrameStale = isCameraConnected
@@ -73,7 +82,10 @@ export default function CameraStream() {
     idle: "bg-ink-400" }[detectTone];
 
   return (
-    <Panel>
+    // 영상은 남는 높이를 채우고, 그 높이에 맞춰 4:3 을 유지한다.
+    // 이전에는 aspect-4/3 만 있어서 높이가 열 너비에서 결정됐다. 셸이
+    // overflow-hidden 이므로 열보다 커지면 아래쪽이 그냥 잘렸다.
+    <Panel className="flex min-h-0 flex-1 flex-col">
       <Head title="영상">
         <AnimatePresence>
           {isFrameStale && (
@@ -111,12 +123,12 @@ export default function CameraStream() {
         )}
       </Head>
 
-      <Body>
+      <Body className="flex min-h-0 flex-1">
         <motion.div
           layoutId="viewport"
           transition={{ type: "spring", stiffness: 300, damping: 34 }}
-          className="relative grid aspect-4/3 place-items-center overflow-hidden
-                     rounded-card bg-ink-900"
+          className="relative mx-auto grid aspect-4/3 max-h-full max-w-full
+                     place-items-center overflow-hidden rounded-card bg-ink-900"
         >
           {!activeUrl ? (
             <div className="p-6 text-center">
@@ -175,16 +187,22 @@ export default function CameraStream() {
           {activeUrl && !streamError && isCameraConnected && (
             <div className="absolute bottom-3 left-3">
               <motion.span
-                  key={detectTone}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.16 }}
-                  className="flex items-center gap-2 rounded-full bg-ink-900/85 px-3 py-1
-                             backdrop-blur"
-                >
-                  <span className={`size-1.5 rounded-full ${dot}`} aria-hidden="true" />
-                  <span className="font-mono text-[11px] text-white">{detectText}</span>
-                </motion.span>
+                key={detectionLive ? detectTone : "stale"}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.16 }}
+                className="flex items-center gap-2 rounded-full bg-ink-900/85 px-3 py-1
+                           backdrop-blur"
+              >
+                <span
+                  className={`size-1.5 rounded-full ${detectionLive ? dot : "bg-ink-400"}`}
+                  aria-hidden="true"
+                />
+                <span className={`font-mono text-[11px] ${
+                  detectionLive ? "text-white" : "text-ink-200"}`}>
+                  {detectionLive ? detectText : "손 검출 정보 끊김 · 마지막 값"}
+                </span>
+              </motion.span>
             </div>
           )}
         </motion.div>

@@ -163,7 +163,7 @@ export const STOP_OWNER = CONTROL_OWNER.NONE;
 // SafetyState.msg — FR-35
 // ---------------------------------------------------------------------------
 // V7: "SafetyState.msg: 기존 상수 뒤 uint8 RESET=7 추가" (FR-30 승인된 변경 사항).
-// RESET 은 명시적 정상 STOP 의 Guard ACK·settle·torque-off 확인 상태이며
+// RESET 은 명시적 정상 STOP 뒤 home_position 으로 복귀한 후 settle·torque-off 를 확인하는 상태이며
 // /thing/reset_safety 와는 다른 정상 제어 상태다.
 // 배열 순서가 곧 uint8 상수값이다.
 export const SAFETY_STATES = [

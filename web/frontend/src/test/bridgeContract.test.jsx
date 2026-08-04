@@ -45,6 +45,13 @@ function setup(ui = null) {
   return { ...view, socket: MockWebSocket.latest() };
 }
 
+function setupHook() {
+  const view = renderHook(() => useHandSocket(), {
+    wrapper: ({ children }) => <HandSocketProvider>{children}</HandSocketProvider>,
+  });
+  return { ...view, socket: MockWebSocket.latest() };
+}
+
 function emit(socket, payload) {
   act(() => {
     socket.open();
@@ -432,13 +439,20 @@ describe("FR-22 조작 버튼이 실제로 전송한다", () => {
     }
   });
 
-  it("STOP 은 잠금과 무관하게 항상 전송한다", () => {
-    const { socket } = setup(<OrderMode />);
+  it("STOP 은 명령이 대기 중이어도 전송된다", () => {
+    // 조작 화면의 「기능 중지」 버튼은 삭제했다. sendStop() 은
+    // SetControlMode(DISABLED, NONE) 이라 동작 중단이 아니라 제어권 해제이고,
+    // 그 흐름은 화면 이동 게이트가 맡는다 (components/ModeGate.jsx).
+    // 계약상 확인할 것은 "대기 중인 요청이 있어도 STOP 이 나간다" 이므로
+    // context 의 sendStop 을 직접 검사한다.
+    const { result, socket } = setupHook();
     emit(socket, MANUAL_READY);
 
-    act(() => { screen.getByTitle("손 펴기").click(); });   // 잠금 상태로 만든다
+    act(() => { result.current.sendGesture("open", 1.0); });   // 잠금 상태로 만든다
+    expect(result.current.commandInFlight).toBe(true);
     socket.sent.length = 0;
-    act(() => { screen.getByText("기능 중지").click(); });
+    act(() => { result.current.sendStop(); });
     expect(socket.sentOf(CLIENT_MESSAGE.STOP)).toHaveLength(1);
+    expect(result.current.commandInFlight).toBe(false);
   });
 });
