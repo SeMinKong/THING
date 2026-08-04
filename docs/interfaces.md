@@ -39,6 +39,14 @@
 정확한 QoS와 주기는 하드웨어 측정 후 YAML로 조정하되 명령 stale 판정에 필요한
 timestamp를 변경해서는 안 됩니다.
 
+### MotorStatus 필드 계약
+
+`/thing/motor_status`의 `MotorStatus.motors`에는 모터 ID 1–7의 `MotorState`를
+ID 오름차순으로 정확히 7개 포함합니다. `MotorState.torque_enabled`는 실제 모터의
+토크 활성 상태를 나타내는 `bool` 필드이며 `true`는 토크 ON, `false`는 토크 OFF를
+뜻합니다. `communication_ok`이 `false`이면 `torque_enabled` 값을 유효한 상태로
+판단하지 않고 통신 실패를 우선 처리합니다.
+
 ## 제어 mode·owner와 STOP 계약
 
 활성 제어권은 아래 세 조합만 허용합니다.
