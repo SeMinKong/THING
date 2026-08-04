@@ -789,6 +789,40 @@ def test_session_exporter_atomically_exposes_four_valid_files(tmp_path):
     assert metadata['files']['hand_command']['row_count'] == 1
     assert metadata['files']['motor_status']['row_count'] == 7
     assert metadata['files']['landmark']['row_count'] == 1
+    assert metadata['content_digest'] == calculate_content_digest(metadata)
+
+    with Path(result.files['hand_command'].path).open(
+        encoding='utf-8', newline=''
+    ) as source:
+        hand_rows = list(csv.reader(source))
+    assert hand_rows[0] == list(HAND_COMMAND_HEADER)
+    assert hand_rows[1][:6] == ['123', '10', '250000000', '250', '7', '1']
+
+    with Path(result.files['motor_status'].path).open(
+        encoding='utf-8', newline=''
+    ) as source:
+        motor_rows = list(csv.reader(source))
+    assert motor_rows[0] == list(MOTOR_STATUS_HEADER)
+    assert [row[5] for row in motor_rows[1:]] == [
+        str(motor_id) for motor_id in range(1, 8)
+    ]
+    assert all(row[15] == 'true' for row in motor_rows[1:])
+
+    landmark_records = json.loads(
+        Path(result.files['landmark'].path).read_text(encoding='utf-8')
+    )
+    assert len(landmark_records) == 1
+    landmark = landmark_records[0]
+    assert tuple(landmark) == LANDMARK_RECORD_FIELDS
+    assert landmark['session_id'] == '123'
+    assert landmark['timestamp'] == '1970-01-01T00:00:10.750Z'
+    assert landmark['elapsed_ms'] == 750
+    assert len(landmark['landmarks']) == 21
+    assert landmark['landmarks'][20] == {
+        'x': pytest.approx(0.2),
+        'y': pytest.approx(0.2),
+        'z': pytest.approx(-0.01),
+    }
 
 
 def test_session_exporter_reads_actual_rosbag2_fixture(tmp_path):
@@ -906,6 +940,57 @@ def test_session_exporter_produces_same_digest_for_same_content(tmp_path):
     ).export(ExportJob(str(bag_path), 'SUCCESS'))
 
     assert first.content_digest == second.content_digest
+
+
+def test_session_exporter_reexports_same_bag_after_cleanup(tmp_path):
+    """정리 후 같은 임시 경로로 재생성해도 canonical 데이터는 같다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    export_root = tmp_path / 'tmp-upload'
+    records = make_complete_bag_records()
+
+    first = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(records),
+        clock_ns=lambda: 21_000_000_000,
+    )
+    first_result = first.export(ExportJob(str(bag_path), 'SUCCESS'))
+    first_data_files = {
+        file_kind: Path(info.path).read_bytes()
+        for file_kind, info in first_result.files.items()
+        if file_kind != 'metadata'
+    }
+    first_metadata = json.loads(
+        Path(first_result.files['metadata'].path).read_text(encoding='utf-8')
+    )
+
+    first.cleanup(first_result)
+    assert not Path(first_result.directory).exists()
+
+    second_result = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(records),
+        clock_ns=lambda: 30_000_000_000,
+    ).export(ExportJob(str(bag_path), 'SUCCESS'))
+    second_metadata = json.loads(
+        Path(second_result.files['metadata'].path).read_text(encoding='utf-8')
+    )
+
+    assert first_result.content_digest == second_result.content_digest
+    assert {
+        file_kind: Path(info.path).read_bytes()
+        for file_kind, info in second_result.files.items()
+        if file_kind != 'metadata'
+    } == first_data_files
+    assert {
+        key: value for key, value in second_metadata.items()
+        if key != 'exported_at'
+    } == {
+        key: value for key, value in first_metadata.items()
+        if key != 'exported_at'
+    }
 
 
 def test_session_exporter_cleans_staging_after_invalid_landmarks(tmp_path):
