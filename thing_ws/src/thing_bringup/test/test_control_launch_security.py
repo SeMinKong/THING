@@ -49,7 +49,7 @@ def test_control_launch_requires_every_enclave(monkeypatch, tmp_path):
 
 
 def test_control_launch_accepts_complete_enclave_set(monkeypatch, tmp_path):
-    """A complete enforced keystore produces all three control actions."""
+    """A complete enforced keystore produces all four control actions."""
     module = load_launch_module()
     monkeypatch.setenv('ROS_SECURITY_ENABLE', 'true')
     monkeypatch.setenv('ROS_SECURITY_STRATEGY', 'Enforce')
@@ -62,7 +62,7 @@ def test_control_launch_accepts_complete_enclave_set(monkeypatch, tmp_path):
 
     description = module.generate_launch_description()
 
-    assert len(description.entities) == 3
+    assert len(description.entities) == 4
 
 
 def test_control_launch_rejects_empty_enclave_directories(

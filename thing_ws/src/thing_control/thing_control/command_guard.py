@@ -46,7 +46,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import Bool, Empty
+from std_msgs.msg import Bool, UInt64
 
 from thing_control.command_guard_core import (
     AXIS_NAMES,
@@ -124,7 +124,7 @@ class CommandGuardNode(Node):
             _INTERNAL_QOS,
         )
         self._stop_ack_publisher = self.create_publisher(
-            Empty,
+            UInt64,
             '/thing/control/stop_barrier_ack',
             _INTERNAL_QOS,
         )
@@ -134,6 +134,7 @@ class CommandGuardNode(Node):
             _DIAGNOSTIC_QOS,
         )
         self._last_diagnostic_reason = 'startup'
+        self._last_stop_generation = 0
         self._last_diagnostic_accepted = False
         self._last_diagnostic_source = -1
         self._last_diagnostic_sequence = -1
@@ -164,7 +165,7 @@ class CommandGuardNode(Node):
             _STATE_QOS,
         )
         self._stop_subscription = self.create_subscription(
-            Empty,
+            UInt64,
             '/thing/control/stop_requested',
             self._on_stop_requested,
             _INTERNAL_QOS,
@@ -273,13 +274,20 @@ class CommandGuardNode(Node):
                 monotonic_ns(),
             )
 
-    def _on_stop_requested(self, _: Empty) -> None:
+    def _on_stop_requested(self, message: UInt64) -> None:
         """core의 STOP latch를 먼저 닫고 같은 transaction 안에서 ACK를 발행한다."""
         with self._transaction_lock:
+            generation = int(message.data)
+            if generation <= 0 or generation < self._last_stop_generation:
+                return
             # ACK는 단순 수신 확인이 아니다. on_stop_requested가 latch와 activation trust를
             # 먼저 닫은 뒤에만 발행하므로 Manager가 service 완료 경계로 사용할 수 있다.
-            self._core.on_stop_requested()
-            self._stop_ack_publisher.publish(Empty())
+            if generation > self._last_stop_generation:
+                self._core.on_stop_requested()
+                self._last_stop_generation = generation
+            acknowledgement = UInt64()
+            acknowledgement.data = generation
+            self._stop_ack_publisher.publish(acknowledgement)
 
     def _on_selected_command(self, message: HandCommand) -> None:
         """

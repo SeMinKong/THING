@@ -10,7 +10,7 @@ from rclpy.clock import ClockType
 from rclpy.duration import Duration
 from rclpy.parameter import Parameter
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, ReliabilityPolicy
-from std_msgs.msg import Bool, Empty
+from std_msgs.msg import Bool, UInt64
 from std_srvs.srv import Trigger
 
 from thing_control.safety_manager import SafetyManager
@@ -21,6 +21,12 @@ from thing_interfaces.msg import (
     MotorStatus,
     SafetyState,
 )
+
+
+def make_stop_event(_node, generation=1):
+    message = UInt64()
+    message.data = generation
+    return message
 
 
 @contextmanager
@@ -296,7 +302,7 @@ def test_stop_from_ready_or_run_enters_reset_then_fresh_torque_off_ready():
             else:
                 make_ready(node)
 
-            node.handle_stop_requested(Empty())
+            node.handle_stop_requested(make_stop_event(node))
             assert node.current_state == SafetyState.RESET
 
             maintain_heartbeats(
@@ -315,14 +321,14 @@ def test_stop_during_hold_enters_reset():
         node._on_tick()
         assert node.current_state == SafetyState.HOLD
 
-        node.handle_stop_requested(Empty())
+        node.handle_stop_requested(make_stop_event(node))
         assert node.current_state == SafetyState.RESET
 
 
 def test_estop_and_motor_fault_preempt_reset():
     with safety_node() as node:
         make_ready(node)
-        node.handle_stop_requested(Empty())
+        node.handle_stop_requested(make_stop_event(node))
         active = Bool()
         active.data = True
         node._on_estop(active)
@@ -330,7 +336,7 @@ def test_estop_and_motor_fault_preempt_reset():
 
     with safety_node() as node:
         make_ready(node)
-        node.handle_stop_requested(Empty())
+        node.handle_stop_requested(make_stop_event(node))
         for _ in range(3):
             node._on_motor_status(motor_status(node, communication_ok=False))
         assert node.current_state == SafetyState.FAULT
@@ -339,7 +345,7 @@ def test_estop_and_motor_fault_preempt_reset():
 def test_reset_safety_is_rejected_during_reset():
     with safety_node() as node:
         make_ready(node)
-        node.handle_stop_requested(Empty())
+        node.handle_stop_requested(make_stop_event(node))
         response = node.handle_reset_safety(
             Trigger.Request(),
             Trigger.Response(),

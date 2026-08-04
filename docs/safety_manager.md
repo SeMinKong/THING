@@ -84,8 +84,8 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 - Guard의 HOLD activity(`true`)와 검증 실패(`false`)는 단일 ordered `/thing/command/validation_result`로 전달되어 서로 다른 DDS topic 재정렬 없이 recovery stable window를 갱신하거나 초기화한다.
 - SafetyState stamp는 같은 transition의 periodic heartbeat 동안 고정하고 상태 전이 때만 증가한다. Guard는 stamp가 역행한 지연 상태를 거부하고 `command_stream_recovered` 전이를 관측해 HOLD 표본을 놓친 경우에도 local forwarding 기준을 안전하게 다시 연다.
 - MotorStatus 유발 FAULT publication은 최대 한 20ms steady tick 동안 coalesce한다. 같은 ready set의 active E-Stop은 ESTOP으로 우선 publish하며, E-Stop이 없으면 deadline 직후 FAULT를 publish한다.
-- `builtin_interfaces/Time.nanosec`가 `[0, 1000000000)` 밖이면 MotorStatus와 HandCommand를, SafetyState source stamp가 0 이하이거나 역행·동일 stamp로 enum이 바뀌면 Guard와 Manager가 해당 상태를 malformed/replayed로 거부한다. Manager는 자신의 STOP system timestamp보다 새로 생성된 RESET/INIT→READY만 재획득 근거로 인정한다.
-- `control.launch.py`는 SROS2 `Enforce`와 세 고정 enclave의 cert/key/governance/permissions artifact가 모두 존재하고 non-empty인지 검사한다. version-controlled policy에서 `/thing/command`, validation result, STOP barrier ACK의 publish 권한은 Command Guard enclave에만 있다.
+- `builtin_interfaces/Time.nanosec`가 `[0, 1000000000)` 밖이면 MotorStatus와 HandCommand를, SafetyState source stamp가 0 이하이거나 역행·동일 stamp로 enum이 바뀌면 Guard와 Manager가 해당 상태를 malformed/replayed로 거부한다. Manual Executor는 표준 `UInt64.data` generation으로 raw STOP과 Guard ACK을 상관시키고, 동일 ACK 이후 로컬 callback 관측 순서가 `DISABLED`, `RESET/INIT→READY`, 새 `MANUAL`까지 완성된 경우에만 admission latch를 연다.
+- `control.launch.py`는 SROS2 `Enforce`와 네 고정 enclave의 cert/key/governance/permissions artifact가 모두 존재하고 non-empty인지 검사한다. version-controlled policy에서 `/thing/command`, validation result, STOP barrier ACK의 publish 권한은 Command Guard enclave에만 있다.
 - 모든 timing parameter는 strict integer이며 V6.4 fail-closed envelope의 유한 상한을 초과할 수 없다.
 
 ## ROS 인터페이스
@@ -94,7 +94,7 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 
 - `/thing/command` (`thing_interfaces/msg/HandCommand`)
 - `/thing/command/validation_result` (`std_msgs/msg/Bool`), reliable depth 10 단일 ordered 결과 채널
-- `/thing/control/stop_barrier_ack` (`std_msgs/msg/Empty`, Guard latch causal ACK)
+- `/thing/control/stop_barrier_ack` (`std_msgs/msg/UInt64`, `data`에 raw STOP과 동일한 generation을 담고 Guard latch 이후 발행하는 causal ACK)
 - `/thing/motor_status` (`thing_interfaces/msg/MotorStatus`), reliable + volatile, depth 5 heartbeat
 - `/thing/estop` (`std_msgs/msg/Bool`), reliable + volatile heartbeat
 

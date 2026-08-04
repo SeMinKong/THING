@@ -27,7 +27,7 @@ Safety Manager의 8상태 전이, RESET 완료 조건과 실행법은
 | `/thing/landmarks` | `HandLandmarks` | MediaPipe | target, web, logger | 센서 데이터, best effort |
 | `/thing/command/mimic` | `HandCommand` | vision | manager, logger | 20Hz 이상 |
 | `/thing/command/teleop` | `HandCommand` | teleop | manager | 사용자 입력 시 |
-| `/thing/command/manual` | `HandCommand` | gesture/sequence | manager | 동작 실행 시 |
+| `/thing/command/manual` | `HandCommand` | manual_executor | manager | 20Hz, Gesture·Sequence 단일 publisher |
 | `/thing/command/selected` | `HandCommand` | manager | guard | 20Hz 이상 |
 | `/thing/command` | `HandCommand` | guard | hardware, logger | reliable, depth 1 |
 | `/thing/command/validation_result` | `std_msgs/msg/Bool` | guard | safety | 단일 ordered 채널. `true`=HOLD 복구 activity, `false`=window 초기화; motor 전달 금지 |
@@ -36,8 +36,8 @@ Safety Manager의 8상태 전이, RESET 완료 조건과 실행법은
 | `/thing/control_state` | `ControlState` | manager | web, logger | 상태 변화+주기 |
 | `/thing/safety_state` | `SafetyState` | safety | manager, guard, web, logger | reliable, transient local |
 | `/thing/recording_state` | `RecordingState` | logger | web | reliable, transient local |
-| `/thing/control/stop_requested` | `std_msgs/msg/Empty` | manager | guard, gesture/sequence, logger | reliable, depth 10, 명시적 STOP마다 1건 |
-| `/thing/control/stop_barrier_ack` | `std_msgs/msg/Empty` | guard | safety | reliable+volatile, Guard latch 닫힌 뒤 1건 |
+| `/thing/control/stop_requested` | `std_msgs/msg/UInt64` | manager | guard, manual executor, logger | reliable, depth 10, `data`는 명시적 STOP마다 증가하는 generation |
+| `/thing/control/stop_barrier_ack` | `std_msgs/msg/UInt64` | guard | manager, safety, manual executor | reliable+volatile, `data`는 Guard latch 이후 되돌려 보내는 동일 generation |
 | `/thing/control/motion_active` | `std_msgs/msg/Bool` | gesture/sequence | manager | reliable, depth 10, 실행 시작·종료 시 |
 | `/thing/diagnostics` | `diagnostic_msgs/DiagnosticArray` | 각 장치 | web/운영자 | 1Hz 이상 |
 
@@ -55,7 +55,7 @@ ID 오름차순으로 정확히 7개 포함합니다. `MotorState.torque_enabled
 ## 제어 Bringup
 
 장치에서는 SROS2 deny-by-default 정책을 적용한 뒤 안전 상태, 명령 중재, 최종 검증 체인을
-아래 launch로 함께 시작합니다. `control.launch.py`는 security가 꺼져 있거나 세 control
+아래 launch로 함께 시작합니다. `control.launch.py`는 security가 꺼져 있거나 네 control
 enclave artifact 중 하나라도 없으면 node를 하나도 시작하지 않습니다.
 
 ```bash
@@ -76,17 +76,22 @@ ros2 launch thing_bringup control.launch.py
 ```
 
 생성된 keystore의 private key와 certificate는 deployment artifact이며 Git에 넣지 않습니다.
-현재 policy는 구현된 세 control node만 허용합니다. hardware와 command producer node가 구현되면
+현재 policy는 구현된 네 control node만 허용합니다. hardware와 외부 command client/producer node가 구현되면
 각 node의 고정 enclave와 필요한 topic만 별도 review로 추가한 뒤 artifact를 재생성해야 하며,
 wildcard publish 권한이나 다른 enclave의 `/thing/command`,
 `/thing/command/validation_result`,
 `/thing/control/stop_barrier_ack` publish 권한은 금지합니다.
 
 이 launch는 같은 version-controlled `control.yaml`을 사용해 `safety_manager`,
-`command_manager`, `command_guard`를 시작합니다. 시작 시 safety manager는 INIT을
+`command_manager`, `manual_executor`, `command_guard`를 시작합니다. 시작 시 safety manager는 INIT을
 발행하고, guard는 `DISABLED/NONE → active` 획득 경계를 새로 관측하기 전까지
 `/thing/command`를 발행하지 않습니다. 따라서 재시작으로 이전 명령을 자동 재생하지
 않습니다.
+
+현재 control policy는 Gesture Service와 Sequence Action의 서버인 `manual_executor`만
+허용합니다. 실제 외부 client node와 고정 enclave가 확정되기 전까지 보안 Enforce
+배포에서 이 API를 호출할 수 있다고 가정하지 않으며, client 권한은 해당 통합 변경에서
+최소 권한으로 추가하고 재검증합니다.
 
 ## SafetyState 8상태
 
@@ -191,6 +196,52 @@ Gesture 또는 Sequence 실행기는 `/thing/control/motion_active`에 실행 �
 | `/thing/stop_recording` | `StopRecording` | RECORDING일 때만 허용 |
 | `/thing/set_mimic_result` | `SetMimicResult` | 최근 완료 세션에 1회 판정 |
 | `/thing/execute_sequence` | `ExecuteSequence` | MANUAL, 취소 가능, STOP이 선점 |
+
+### Manual Executor 단일 실행 계약
+
+`manual_executor` 하나가 `/thing/execute_gesture` Service와
+`/thing/execute_sequence` Action을 함께 소유하고 `/thing/command/manual`의 유일한
+publisher가 됩니다. 두 요청 형식은 다르지만 실행 슬롯은 하나이므로 Gesture 실행 중
+Sequence Goal, Sequence 실행 중 Gesture 요청, 두 Sequence Goal의 동시 실행은
+`motion_active`로 거부하며 큐에 쌓지 않습니다.
+
+- 수락 조건은 fresh `ControlState=MANUAL/WEB/owner_alive`, fresh
+  `SafetyState=READY|RUN`, 유한한 `0.0 < speed_limit <= 1.0`, idle 실행 슬롯입니다.
+- Gesture canonical 이름은 `open`, `fist`, `pinch`, `cylindrical_grasp`이고
+  `home|paper→open`, `rock→fist` alias를 지원합니다. 서비스 성공은 완료가 아니라 실행
+  수락을 뜻합니다.
+- Gesture는 YAML 유지시간 동안, Sequence는 YAML step별 유지시간 동안 최대 50ms
+  주기로 fresh system stamp와 증가 uint32 sequence를 가진 `HandCommand`를 발행합니다.
+  유지시간 종료 뒤 마지막 자세를 무기한 재발행하지 않습니다. Executor timer가 지연돼도
+  Sequence의 중간 자세를 건너뛰지 않고, 다음 자세를 처음 발행한 시각부터 해당 유지시간을
+  새로 계산합니다.
+- 시작·종료 때 `/thing/control/motion_active`를 각각 `true`·`false`로 발행합니다.
+  `is_sequence_running`은 node 내부 단일 실행 슬롯의 Sequence 점유 상태입니다.
+- Action은 `current_step`, `total_steps`, `active_gesture` feedback을 보내고 완료 시
+  `success=true, reason=completed`를 반환합니다. Action cancel은 `cancel_requested`로
+  종료합니다.
+- `/thing/control/stop_requested`, owner/mode 상실, HOLD·SAFE·FAULT·ESTOP,
+  ControlState·SafetyState heartbeat timeout은 실행을 즉시 취소하며 이후 명령을
+  발행하지 않습니다. 기본 freshness는 ControlState 1500ms, SafetyState 300ms이고
+  YAML에서 더 느슨하게 확장할 수 없습니다. ControlState와 SafetyState는 positive source
+  stamp와 단조 순서를 검증하므로 zero, 수신 system time보다 100ms 넘게 미래인
+  stamp, older/conflicting replay는 freshness를 갱신하거나 admission을 다시 열 수
+  없습니다. 100ms 이내 clock skew는 허용합니다.
+- STOP 수신 즉시 local admission latch를 닫습니다. 기존 표준 `UInt64.data` generation으로
+  raw STOP과 Guard ACK를 상관시키고, 동일 ACK 이후 로컬 callback 관측 순서가
+  `DISABLED/NONE`,
+  `RESET|INIT → READY`, 새 `MANUAL/WEB/owner_alive` 획득까지 완성된 경우에만
+  latch를 엽니다. ACK·RESET·상태가 raw STOP보다 먼저 전달되는 cross-topic reorder도
+  동일 transaction으로 귀속하며, generation별 최초 ACK observation만 복구 경계로
+  고정해 중복 ACK replay가 이미 관측한 복구 상태를 무효화하지 못하게 합니다. 완료
+  generation의 늦은 재전달은 무시합니다.
+- 거부 reason은 `invalid_gesture`, `invalid_sequence`, `invalid_speed_limit`,
+  `motion_active`, `not_manual_mode`, `control_state_unavailable|stale`,
+  `safety_state_unavailable|stale`, `safety_not_ready`, `stop_latched`입니다.
+
+정규화 7축 preset과 유지시간·Sequence step은 `thing_bringup/config/control.yaml`에서
+관리합니다. preset은 실제 모터 raw 위치가 아니며, 물리 endpoint calibration과
+Command Guard·hardware limit을 대체하지 않습니다.
 
 ## 명령 검증
 

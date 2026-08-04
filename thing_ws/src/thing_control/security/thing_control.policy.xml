@@ -44,6 +44,41 @@
       </profiles>
     </enclave>
 
+    <enclave path="/thing/control/manual_executor">
+      <profiles>
+        <profile node="manual_executor" ns="/">
+          <services reply="ALLOW">
+            <service>/thing/execute_gesture</service>
+            <service>/thing/execute_sequence/_action/send_goal</service>
+            <service>/thing/execute_sequence/_action/get_result</service>
+            <service>/thing/execute_sequence/_action/cancel_goal</service>
+            <service>~/describe_parameters</service>
+            <service>~/get_parameter_types</service>
+            <service>~/get_parameters</service>
+            <service>~/list_parameters</service>
+            <service>~/set_parameters</service>
+            <service>~/set_parameters_atomically</service>
+          </services>
+          <topics subscribe="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/control/stop_barrier_ack</topic>
+            <topic>/thing/control/stop_requested</topic>
+            <topic>/thing/control_state</topic>
+            <topic>/thing/safety_state</topic>
+          </topics>
+          <topics publish="ALLOW">
+            <topic>ros_discovery_info</topic>
+            <topic>/thing/command/manual</topic>
+            <topic>/thing/control/motion_active</topic>
+            <topic>/thing/execute_sequence/_action/feedback</topic>
+            <topic>/thing/execute_sequence/_action/status</topic>
+            <topic>parameter_events</topic>
+            <topic>rosout</topic>
+          </topics>
+        </profile>
+      </profiles>
+    </enclave>
+
     <enclave path="/thing/control/command_guard">
       <profiles>
         <profile node="command_guard" ns="/">

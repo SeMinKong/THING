@@ -5,6 +5,38 @@ command_manager:
     lease_check_period_ms: 100
     state_publish_period_ms: 1000
 
+manual_executor:
+  ros__parameters:
+    # At most 50 ms preserves the V7.0 requirement of fresh commands at >=20 Hz.
+    publish_period_ms: 50
+    control_state_timeout_ms: 1500
+    safety_state_timeout_ms: 300
+
+    # Normalized HandCommand order:
+    # thumb_flex, thumb_opp, thumb_abd, index, middle, ring, little.
+    # Tune these software presets after physical endpoint calibration; hardware
+    # limits and Command Guard remain the final safety boundary.
+    gestures.open.axes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    gestures.open.duration_ms: 1000
+    gestures.fist.axes: [1.0, 1.0, 0.5, 1.0, 1.0, 1.0, 1.0]
+    gestures.fist.duration_ms: 1000
+    gestures.pinch.axes: [1.0, 1.0, 0.5, 1.0, 0.0, 0.0, 0.0]
+    gestures.pinch.duration_ms: 3000
+    gestures.cylindrical_grasp.axes: [0.8, 0.8, 0.3, 0.85, 0.85, 0.85, 0.85]
+    gestures.cylindrical_grasp.duration_ms: 3000
+
+    # Sequence-only presets. ExecuteGesture still accepts only the four
+    # canonical gestures plus home|paper|rock aliases.
+    gestures.count_4.axes: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    gestures.count_3.axes: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    gestures.scissors.axes: [1.0, 0.3, 0.2, 0.0, 0.0, 1.0, 1.0]
+    gestures.count_1.axes: [1.0, 0.3, 0.2, 0.0, 1.0, 1.0, 1.0]
+
+    sequences.countdown.steps: [open, count_4, count_3, scissors, count_1]
+    sequences.countdown.step_durations_ms: [800, 800, 800, 800, 800]
+    sequences.scissors_rock_paper.steps: [scissors, fist, open]
+    sequences.scissors_rock_paper.step_durations_ms: [1000, 1000, 1000]
+
 command_guard:
   ros__parameters:
     command_timeout_ms: 300
