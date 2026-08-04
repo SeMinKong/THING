@@ -41,8 +41,8 @@
   "axes": [
     {
       "id": 1,
-      "role": "thumb_flex",
-      "label": "엄지 굽힘",
+      "role": "ring_flex",
+      "label": "약지 굽힘",
       "min_raw": 100,
       "max_raw": 3995,
       "goal_current_raw": 100,
@@ -52,8 +52,8 @@
     },
     {
       "id": 2,
-      "role": "index_flex",
-      "label": "검지 굽힘",
+      "role": "thumb_flex",
+      "label": "엄지 굽힘",
       "min_raw": 100,
       "max_raw": 3995,
       "goal_current_raw": 100,
@@ -74,8 +74,8 @@
     },
     {
       "id": 4,
-      "role": "ring_flex",
-      "label": "약지 굽힘",
+      "role": "index_flex",
+      "label": "검지 굽힘",
       "min_raw": 100,
       "max_raw": 3995,
       "goal_current_raw": 100,
@@ -85,8 +85,8 @@
     },
     {
       "id": 5,
-      "role": "little_flex",
-      "label": "소지 굽힘",
+      "role": "thumb_abduction",
+      "label": "엄지 벌림",
       "min_raw": 100,
       "max_raw": 3995,
       "goal_current_raw": 100,
@@ -107,8 +107,8 @@
     },
     {
       "id": 7,
-      "role": "thumb_abduction",
-      "label": "엄지 벌림",
+      "role": "little_flex",
+      "label": "소지 굽힘",
       "min_raw": 100,
       "max_raw": 3995,
       "goal_current_raw": 90,
