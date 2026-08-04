@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
 from threading import Lock
-from typing import Any, Dict, Mapping
+import time
+from typing import Any, Dict, Mapping, Optional
 
 
 SNAPSHOT_FIELDS = (
@@ -48,6 +49,20 @@ HAND_SOURCES = (
     'SEQUENCE',
     'SAFETY',
 )
+
+# 내부 제어 웹의 CONNECTION_STATE·CONNECTION_KEYS와 같은 값·같은 순서다
+# (web/frontend/src/config/messageProtocol.js). bool 두 값으로는 "아직 못 받음"과
+# "끊김"을 구분할 수 없어 세 번째 값을 둔다 (FR-24).
+CONNECTION_UNKNOWN = 'unknown'
+CONNECTION_UP = 'up'
+CONNECTION_DOWN = 'down'
+CONNECTION_KEYS = ('jetson', 'rpi', 'ros2', 'camera', 'motor')
+
+# FR-01 / FR-11의 MIMIC 유효 기준. Web Bridge는 표시 상태만 파생하며 제어
+# 판정은 Raspberry Pi가 한다. 값이 YAML과 갈리지 않게 노드 파라미터로 주입한다.
+HAND_CONFIDENCE_MIN = 0.70
+HAND_LOSS_DEBOUNCE_MS = 150
+HAND_REACQUIRE_STABLE_MS = 300
 
 GESTURES = ('open', 'fist', 'pinch', 'cylindrical_grasp')
 SEQUENCES = ('countdown', 'scissors_rock_paper')
@@ -104,9 +119,9 @@ def _plain(value: Any) -> Any:
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ProtocolError('non_finite_state_value')
-        return value
+        # 읽기 실패 숫자는 JSON null로 보낸다. 모터 통신 실패 시 NaN이 정상적으로
+        # 도착하므로 여기서 예외를 던지면 ROS 구독 콜백에서 노드가 죽는다.
+        return value if math.isfinite(value) else None
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
@@ -181,11 +196,18 @@ def motor_state_payload(message: Any) -> Dict[str, Any]:
 
 
 def safety_state_payload(message: Any) -> Dict[str, Any]:
-    """Serialize ``SafetyState`` and derive whether reset may be requested."""
+    """Serialize ``SafetyState`` and derive the FR-35 recovery path."""
     payload = _plain(message)
-    payload['state'] = _symbol(
-        payload.get('state'), SAFETY_STATES, 'safety_state')
-    payload['reset_allowed'] = payload['state'] in ('SAFE', 'FAULT', 'ESTOP')
+    state = _symbol(payload.get('state'), SAFETY_STATES, 'safety_state')
+    payload['state'] = state
+
+    # FR-35: /thing/reset_safety는 SAFE·FAULT·ESTOP에서만 복구 요청으로 쓰고
+    # HOLD·READY·RUN·RESET에서는 거부한다.
+    #
+    # 복구 경로 안내와 거부 사유는 여기서 만들지 않는다. 내부 제어 웹이 이미
+    # RESET_ALLOWED_STATES로 state에서 직접 파생하고 있어(FR-27은 "웹이 표시"를
+    # 요구한다) 브리지가 같은 판단을 중복 발행하면 읽는 곳 없는 필드가 된다.
+    payload['reset_allowed'] = state in ('SAFE', 'FAULT', 'ESTOP')
     return payload
 
 
@@ -200,9 +222,34 @@ def hand_command_payload(message: Any) -> Dict[str, Any]:
 class SnapshotStore:
     """Keep the latest ROS state and build replacement-only snapshots."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        hand_confidence_min: float = HAND_CONFIDENCE_MIN,
+        hand_loss_debounce_ms: int = HAND_LOSS_DEBOUNCE_MS,
+        hand_reacquire_stable_ms: int = HAND_REACQUIRE_STABLE_MS,
+        data_stale_after_ms: int = 1000,
+        state_stale_after_ms: int = 5000,
+        clock: Any = None,
+    ) -> None:
         """Initialize required fields with fail-closed empty values."""
+        if hand_confidence_min <= 0.0 or hand_confidence_min > 1.0:
+            raise ValueError('hand_confidence_min must be in (0.0, 1.0]')
+        for name, value in (
+            ('hand_loss_debounce_ms', hand_loss_debounce_ms),
+            ('hand_reacquire_stable_ms', hand_reacquire_stable_ms),
+            ('data_stale_after_ms', data_stale_after_ms),
+            ('state_stale_after_ms', state_stale_after_ms),
+        ):
+            if int(value) <= 0:
+                raise ValueError(f'{name} must be positive')
         self._lock = Lock()
+        self._clock = clock if clock is not None else time.monotonic
+        self._hand_confidence_min = float(hand_confidence_min)
+        self._hand_loss_debounce = int(hand_loss_debounce_ms) / 1000.0
+        self._hand_reacquire_stable = int(hand_reacquire_stable_ms) / 1000.0
+        self._data_stale_after = int(data_stale_after_ms) / 1000.0
+        self._state_stale_after = int(state_stale_after_ms) / 1000.0
+
         self._mode = 'DISABLED'
         self._recording_state = 'IDLE'
         self._landmarks: Dict[str, Any] = {}
@@ -212,12 +259,43 @@ class SnapshotStore:
         self._recording: Dict[str, Any] = {}
         self._last_hand_command: Dict[str, Any] = {}
 
+        # 토픽별 마지막 수신 monotonic 시각. None은 "아직 받지 못함"이다.
+        self._received_at: Dict[str, Optional[float]] = {
+            'landmarks': None,
+            'motor_state': None,
+            'safety_state': None,
+            'control_state': None,
+            'recording': None,
+            'last_hand_command': None,
+        }
+
+        # FR-27: hand-loss latch는 ROS 메시지에 필드를 추가하지 않고
+        # HandLandmarks·SafetyState를 바탕으로 Web Bridge가 파생한다.
+        self._hand_valid_since: Optional[float] = None
+        self._hand_invalid_since: Optional[float] = None
+        self._hand_loss_latched = False
+        self._hand_reacquired = False
+
+    def _mark(self, key: str) -> None:
+        self._received_at[key] = self._clock()
+
+    def _age(self, key: str) -> Optional[float]:
+        received_at = self._received_at.get(key)
+        if received_at is None:
+            return None
+        return max(0.0, self._clock() - received_at)
+
+    def _fresh(self, key: str, limit: float) -> bool:
+        age = self._age(key)
+        return age is not None and age <= limit
+
     def update_control_state(self, message: Any) -> None:
         """Store the latest ControlState and top-level mode."""
         payload = control_state_payload(message)
         with self._lock:
             self._control_state = payload
             self._mode = payload['active_mode']
+            self._mark('control_state')
 
     def update_recording_state(self, message: Any) -> None:
         """Store the latest RecordingState and symbolic top-level state."""
@@ -225,44 +303,164 @@ class SnapshotStore:
         with self._lock:
             self._recording = payload
             self._recording_state = payload['state']
+            self._mark('recording')
 
     def update_landmarks(self, message: Any) -> None:
-        """Store the latest landmark display object."""
+        """Store the latest landmarks and advance the hand-loss latch."""
         payload = landmarks_payload(message)
         with self._lock:
             self._landmarks = payload
+            self._mark('landmarks')
+            self._advance_hand_latch_locked(payload)
 
     def update_motor_state(self, message: Any) -> None:
         """Store the latest seven-motor status object."""
         payload = motor_state_payload(message)
         with self._lock:
             self._motor_state = payload
+            self._mark('motor_state')
 
     def update_safety_state(self, message: Any) -> None:
         """Store the latest safety display object."""
         payload = safety_state_payload(message)
         with self._lock:
             self._safety_state = payload
+            self._mark('safety_state')
+            # FR-01: 재검출만으로는 latch를 해제하지 않는다. 제어가 실제로
+            # 재개된 RUN을 관측했을 때만 표시 latch를 닫는다.
+            if payload['state'] == 'RUN':
+                self._hand_loss_latched = False
 
     def update_hand_command(self, message: Any) -> None:
         """Store the latest validated command for seven-axis display."""
         payload = hand_command_payload(message)
         with self._lock:
             self._last_hand_command = payload
+            self._mark('last_hand_command')
+
+    def _advance_hand_latch_locked(self, payload: Mapping[str, Any]) -> None:
+        """Track FR-01 debounce and reacquire windows from HandLandmarks."""
+        now = self._clock()
+        confidence = payload.get('confidence')
+        valid = bool(
+            payload.get('detected')
+            and payload.get('handedness') == 'RIGHT'
+            and isinstance(confidence, (int, float))
+            and not isinstance(confidence, bool)
+            and float(confidence) >= self._hand_confidence_min
+        )
+        if valid:
+            self._hand_invalid_since = None
+            if self._hand_valid_since is None:
+                self._hand_valid_since = now
+            self._hand_reacquired = (
+                now - self._hand_valid_since >= self._hand_reacquire_stable
+            )
+            return
+        self._hand_valid_since = None
+        self._hand_reacquired = False
+        if self._hand_invalid_since is None:
+            self._hand_invalid_since = now
+        if now - self._hand_invalid_since >= self._hand_loss_debounce:
+            self._hand_loss_latched = True
+
+    def _hand_display_locked(self) -> Dict[str, Any]:
+        """Build the hand-loss display fields the internal web reads.
+
+        이름과 타입은 내부 제어 웹이 이미 기대하는 것에 맞춘다
+        (``landmarks.hand_loss_latched`` / ``reacquire_elapsed_ms`` /
+        ``reacquire_stable_ms``). 웹은 "재검출 진행률은 브릿지가 줄 때만
+        표시하고 근사로 만들어 내지 않는다"고 되어 있어 경과 ms를 실제 값으로
+        보내야 진행 안내가 가능하다 (FR-27).
+        """
+        if self._hand_valid_since is None:
+            elapsed_ms = 0
+        else:
+            elapsed = self._clock() - self._hand_valid_since
+            elapsed_ms = int(max(0.0, elapsed) * 1000.0)
+        return {
+            'detect_valid': self._hand_valid_since is not None,
+            'hand_loss_latched': self._hand_loss_latched,
+            'reacquire_elapsed_ms': elapsed_ms,
+            'reacquire_stable_ms': int(self._hand_reacquire_stable * 1000.0),
+            'confidence_min': self._hand_confidence_min,
+        }
+
+    def _connection_status_locked(self) -> Dict[str, str]:
+        """Derive the five device groups the internal web shows (FR-24)."""
+        landmarks_fresh = self._fresh('landmarks', self._data_stale_after)
+        motor_fresh = self._fresh('motor_state', self._data_stale_after)
+        rpi_keys = ('control_state', 'safety_state', 'motor_state')
+        rpi_seen = any(
+            self._received_at[key] is not None for key in rpi_keys)
+        rpi_fresh = (
+            self._fresh('control_state', self._state_stale_after)
+            or self._fresh('safety_state', self._state_stale_after)
+            or motor_fresh
+        )
+        ros_seen = any(
+            value is not None for value in self._received_at.values())
+        ros_fresh = landmarks_fresh or rpi_fresh
+
+        def state(seen: bool, fresh: bool) -> str:
+            if not seen:
+                return CONNECTION_UNKNOWN
+            return CONNECTION_UP if fresh else CONNECTION_DOWN
+
+        return {
+            # snapshot 자체가 Jetson의 Web Bridge에서 생성되므로 도달했다는
+            # 사실이 Jetson 생존의 증거다.
+            'jetson': CONNECTION_UP,
+            'rpi': state(rpi_seen, rpi_fresh),
+            'ros2': state(ros_seen, ros_fresh),
+            # camera는 image_raw를 구독하지 않고 vision chain의 산출물인
+            # landmarks 신선도로 대리 판정한다. 상세 원인은 diagnostics 소관
+            # (NFR-09).
+            'camera': state(
+                self._received_at['landmarks'] is not None, landmarks_fresh),
+            'motor': state(
+                self._received_at['motor_state'] is not None, motor_fresh),
+        }
+
+    def _with_freshness_locked(
+        self,
+        key: str,
+        limit: float,
+    ) -> Dict[str, Any]:
+        """Copy one section and attach stale/age so the web can tell them
+        apart from a dropped connection (FR-25)."""
+        source = getattr(self, f'_{key}')
+        if not source:
+            return {}
+        payload = deepcopy(source)
+        age = self._age(key)
+        payload['age_ms'] = None if age is None else int(age * 1000.0)
+        payload['stale'] = not self._fresh(key, limit)
+        return payload
 
     def snapshot(self) -> Dict[str, Any]:
         """Return one independent snapshot matching the browser contract."""
         with self._lock:
+            landmarks = self._with_freshness_locked(
+                'landmarks', self._data_stale_after)
+            if landmarks:
+                landmarks.update(self._hand_display_locked())
             return {
                 'timestamp': utc_now_z(),
                 'mode': self._mode,
                 'recording_state': self._recording_state,
-                'landmarks': deepcopy(self._landmarks),
-                'motor_state': deepcopy(self._motor_state),
-                'safety_state': deepcopy(self._safety_state),
-                'control_state': deepcopy(self._control_state),
-                'recording': deepcopy(self._recording),
-                'last_hand_command': deepcopy(self._last_hand_command),
+                'landmarks': landmarks,
+                'motor_state': self._with_freshness_locked(
+                    'motor_state', self._data_stale_after),
+                'safety_state': self._with_freshness_locked(
+                    'safety_state', self._state_stale_after),
+                'control_state': self._with_freshness_locked(
+                    'control_state', self._state_stale_after),
+                'recording': self._with_freshness_locked(
+                    'recording', self._state_stale_after),
+                'last_hand_command': self._with_freshness_locked(
+                    'last_hand_command', self._data_stale_after),
+                'connection_status': self._connection_status_locked(),
             }
 
 
