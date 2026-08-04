@@ -16,8 +16,8 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from rclpy.serialization import serialize_message
-from std_msgs.msg import Bool, Empty
+from rclpy.serialization import deserialize_message, serialize_message
+from std_msgs.msg import Bool, UInt64
 
 import thing_control.command_manager as command_manager_module
 from thing_control.command_manager import CommandManagerNode
@@ -137,18 +137,20 @@ def test_stop_service_response_waits_until_guard_barrier_ack():
         stop_observed = Event()
         allow_ack = Event()
         ack_publisher = probe.create_publisher(
-            Empty,
+            UInt64,
             '/thing/control/stop_barrier_ack',
             10,
         )
 
-        def acknowledge_after_test_allows(_message):
+        def acknowledge_after_test_allows(message):
             stop_observed.set()
             assert allow_ack.wait(timeout=1.0)
-            ack_publisher.publish(Empty())
+            acknowledgement = UInt64()
+            acknowledgement.data = message.data
+            ack_publisher.publish(acknowledgement)
 
         stop_subscription = probe.create_subscription(
-            Empty,
+            UInt64,
             '/thing/control/stop_requested',
             acknowledge_after_test_allows,
             10,
@@ -292,7 +294,9 @@ def test_stop_timeout_stays_disabled_and_blocks_reacquisition_until_late_ack():
 
         # A genuinely late Guard ACK closes only the Guard barrier. Cached READY and a
         # fixed delay are not proof that Safety observed RESET and completed a new cycle.
-        manager._on_stop_barrier_ack(Empty())
+        late_ack = UInt64()
+        late_ack.data = manager._pending_stop_generation
+        manager._on_stop_barrier_ack(late_ack)
         sleep(0.51)
         stale_ready_reacquire = call_mode(
             client,
@@ -369,14 +373,16 @@ def test_node_routes_only_active_source_and_stop_preempts_commands():
         stop_events = []
         control_states = []
         ack_publisher = probe.create_publisher(
-            Empty,
+            UInt64,
             '/thing/control/stop_barrier_ack',
             10,
         )
 
         def record_stop_and_ack(message):
             stop_events.append(message)
-            ack_publisher.publish(Empty())
+            acknowledgement = UInt64()
+            acknowledgement.data = message.data
+            ack_publisher.publish(acknowledgement)
 
         selected_sub = probe.create_subscription(
             HandCommand,
@@ -385,7 +391,7 @@ def test_node_routes_only_active_source_and_stop_preempts_commands():
             COMMAND_QOS,
         )
         stop_sub = probe.create_subscription(
-            Empty,
+            UInt64,
             '/thing/control/stop_requested',
             record_stop_and_ack,
             10,
@@ -464,11 +470,17 @@ def test_node_routes_only_active_source_and_stop_preempts_commands():
         valid.middle_flex = 0.55
         valid.ring_flex = 0.66
         valid.little_flex = 0.77
-        valid.speed_limit = 0.88
+        valid.speed_limit = 0.73
         valid.confidence = 0.99
+        expected = deserialize_message(
+            serialize_message(valid),
+            HandCommand,
+        )
         mimic_pub.publish(valid)
         assert wait_until(lambda: len(selected) == 1)
-        assert serialize_message(selected[0]) == serialize_message(valid)
+        # Compare normalized fields, not CDR padding bytes or Python float64
+        # literals against the DDS float32 round trip.
+        assert selected[0] == expected
 
         stop = call_mode(
             client,
@@ -642,7 +654,9 @@ def test_stop_service_accepts_hold_after_guard_barrier_ack():
         class AckingPublisher:
             def publish(self, message):
                 stop_events.append(message)
-                manager._on_stop_barrier_ack(Empty())
+                acknowledgement = UInt64()
+                acknowledgement.data = message.data
+                manager._on_stop_barrier_ack(acknowledgement)
 
         manager._stop_event_publisher = AckingPublisher()
         request = SetControlMode.Request()
@@ -706,7 +720,9 @@ def test_stop_cannot_complete_between_authorization_and_publish():
         allow_publish.set()
         command_thread.join(timeout=1.0)
         assert wait_until(lambda: manager._stop_barrier_pending)
-        manager._on_stop_barrier_ack(Empty())
+        acknowledgement = UInt64()
+        acknowledgement.data = manager._pending_stop_generation
+        manager._on_stop_barrier_ack(acknowledgement)
         stop_thread.join(timeout=1.0)
 
         assert completed_before_publish is False

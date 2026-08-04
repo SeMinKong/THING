@@ -102,11 +102,16 @@ def test_bringup_installs_control_launch(monkeypatch):
     )
 
 
-def test_control_launch_starts_manager_guard_and_safety_with_shared_config():
+def test_control_launch_starts_all_control_nodes_with_shared_config():
     launch_source = CONTROL_LAUNCH.read_text()
     assert "FindPackageShare('thing_bringup')" in launch_source
-    assert launch_source.count('parameters=[control_config]') == 3
-    for executable in ('safety_manager', 'command_manager', 'command_guard'):
+    assert launch_source.count('parameters=[control_config]') == 4
+    for executable in (
+        'safety_manager',
+        'command_manager',
+        'manual_executor',
+        'command_guard',
+    ):
         assert "package='thing_control'" in launch_source
         assert f"executable='{executable}'" in launch_source
 

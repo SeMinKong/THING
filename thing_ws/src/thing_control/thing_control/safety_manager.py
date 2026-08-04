@@ -56,7 +56,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import Bool, Empty
+from std_msgs.msg import Bool, UInt64
 from std_srvs.srv import Trigger
 
 from thing_control.safety_manager_core import (
@@ -66,7 +66,12 @@ from thing_control.safety_manager_core import (
     SafetyLimits,
     SafetyManagerCore,
 )
-from thing_interfaces.msg import ControlState, HandCommand, MotorStatus, SafetyState
+from thing_interfaces.msg import (
+    ControlState,
+    HandCommand,
+    MotorStatus,
+    SafetyState,
+)
 
 
 _STATE_QOS = QoSProfile(
@@ -177,6 +182,7 @@ class SafetyManager(Node):
             started_ns=self._now_ns(),
             configuration_valid=self._trip_limits_validated,
         )
+        self._last_stop_generation = 0
         self._last_published_epoch = -1
         self._wire_state_epoch = -1
         self._wire_state_stamp_ns = -1
@@ -201,7 +207,7 @@ class SafetyManager(Node):
         # raw STOP 요청이 아니라 Guard의 barrier ACK를 받는다. 이 ACK는 Guard가 먼저
         # command 통과 latch를 닫았다는 인과적 증거이므로, 이후에만 RESET에 들어간다.
         self.stop_subscription = self.create_subscription(
-            Empty,
+            UInt64,
             '/thing/control/stop_barrier_ack',
             self.handle_stop_requested,
             _INTERNAL_QOS,
@@ -435,7 +441,7 @@ class SafetyManager(Node):
         ):
             self._publish_if_changed()
 
-    def handle_stop_requested(self, message: Empty) -> None:
+    def handle_stop_requested(self, message: UInt64) -> None:
         """
         Guard의 STOP barrier ACK를 받아 정상 제어용 RESET 진입을 요청한다.
 
@@ -443,7 +449,10 @@ class SafetyManager(Node):
         먼저 보이는 분산 순서 문제를 막기 위해서다. Guard가 latch를 닫은 뒤 보낸 ACK가
         있어야 READY/RUN/HOLD에서 RESET으로 갈 수 있으며, ACK가 없으면 전이하지 않는다.
         """
-        del message
+        generation = int(message.data)
+        if generation <= self._last_stop_generation:
+            return
+        self._last_stop_generation = generation
         now_ns = self._now_ns()
         state_stamp_ns = self._system_clock.now().nanoseconds
         if self._core.on_control_stop_requested(
