@@ -12,6 +12,8 @@ mediapipe_node:
     model_complexity: 0
     min_detection_confidence: 0.6
     min_tracking_confidence: 0.6
+    inference_width: 320
+    inference_height: 240
     input_is_mirrored: false
     input_timeout_ms: 1000
     diagnostics_rate_hz: 1.0
@@ -26,4 +28,14 @@ hand_target_node:
     hand_loss_debounce_ms: 150
     hand_reacquire_stable_ms: 300
     speed_limit: 0.25
+    diagnostics_rate_hz: 1.0
+
+mjpeg_streamer:
+  ros__parameters:
+    http_host: 0.0.0.0
+    http_port: 8080
+    stream_path: /stream.mjpg
+    target_fps: 15.0
+    jpeg_quality: 60
+    sync_cache_size: 10
     diagnostics_rate_hz: 1.0

@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'mjpeg_streamer = thing_web_bridge.mjpeg_streamer:main',
         ],
     },
 )

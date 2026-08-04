@@ -112,6 +112,9 @@ class MediaPipeNode(Node):
         self.declare_parameter('min_detection_confidence', 0.6)
         self.declare_parameter('min_tracking_confidence', 0.6)
         self.declare_parameter('input_is_mirrored', False)
+        # MediaPipe 추론에만 사용할 축소 영상 크기
+        self.declare_parameter('inference_width', 320)
+        self.declare_parameter('inference_height', 240)
         self.declare_parameter('input_timeout_ms', 1000)
         self.declare_parameter('diagnostics_rate_hz', 1.0)
 
@@ -130,6 +133,14 @@ class MediaPipeNode(Node):
         self._input_is_mirrored = bool(
             self.get_parameter('input_is_mirrored').value,
         )
+
+        self._inference_width = int(
+            self.get_parameter('inference_width').value,
+        )
+        self._inference_height = int(
+            self.get_parameter('inference_height').value,
+        )
+
         self._input_timeout_ms = int(
             self.get_parameter('input_timeout_ms').value,
         )
@@ -228,6 +239,14 @@ class MediaPipeNode(Node):
             raise ValueError(
                 'diagnostics_rate_hz must be greater than zero',
             )
+        if (
+            self._inference_width <= 0
+            or self._inference_height <= 0
+        ):
+            raise ValueError(
+                'inference_width and inference_height '
+                'must be greater than zero',
+            )
 
     def _process_image(self, image_message: Image) -> None:
         now_ns = time.monotonic_ns()
@@ -250,8 +269,29 @@ class MediaPipeNode(Node):
 
             output.image_height = int(bgr_image.shape[0])
             output.image_width = int(bgr_image.shape[1])
-            rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
+            if (
+                bgr_image.shape[1] != self._inference_width
+                or bgr_image.shape[0] != self._inference_height
+            ):
+                inference_image = cv2.resize(
+                    bgr_image,
+                    (
+                        self._inference_width,
+                        self._inference_height,
+                    ),
+                    interpolation=cv2.INTER_AREA,
+                )
+            else:
+                inference_image = bgr_image
+
+            # MediaPipe는 RGB 영상을 입력으로 사용한다.
+            rgb_image = cv2.cvtColor(
+                inference_image,
+                cv2.COLOR_BGR2RGB,
+            )
             rgb_image.flags.writeable = False
+            # rgb_image = cv2.cvtColor(bgr_image, cv2.COLOR_BGR2RGB)
+            # rgb_image.flags.writeable = False
 
             inference_start_ns = time.monotonic_ns()
             result = self._hands.process(rgb_image)
