@@ -61,8 +61,8 @@ def test_control_yaml_defines_v6_3_guard_and_state_freshness_limits():
 
     safety = config['safety_manager']['ros__parameters']
     assert safety == {
-        'command_hold_ms': 300,
-        'command_safe_ms': 1000,
+        'command_hold_ms': 5000,
+        'command_safe_ms': 10000,
         'safe_action_timeout_ms': 3000,
         'recovery_stable_ms': 300,
         'recovery_max_gap_ms': 100,

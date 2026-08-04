@@ -138,6 +138,12 @@ def test_node_wires_safe_action_timeout_parameter_into_core():
         assert node._limits.safe_action_timeout_ms == 2500
 
 
+def test_node_uses_five_and_ten_second_command_watchdog_defaults():
+    with safety_node() as node:
+        assert node._limits.command_hold_ms == 5000
+        assert node._limits.command_safe_ms == 10000
+
+
 def test_adapter_passes_system_stamp_to_safe_entry_paths():
     with safety_node() as node:
         captured = {}
@@ -315,7 +321,10 @@ def test_stop_from_ready_or_run_enters_reset_then_fresh_torque_off_ready():
 
 
 def test_stop_during_hold_enters_reset():
-    with safety_node() as node:
+    with safety_node(
+        Parameter('command_hold_ms', value=300),
+        Parameter('command_safe_ms', value=1000),
+    ) as node:
         make_run(node)
         maintain_heartbeats(node, 0.31)
         node._on_tick()
