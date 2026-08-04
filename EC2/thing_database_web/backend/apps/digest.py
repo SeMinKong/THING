@@ -25,6 +25,8 @@ import hashlib
 import json
 
 #: content_digest 계산에서 제외하는 최상위 키
+from . import landmark_contract
+
 EXCLUDED_KEYS = ("exported_at", "content_digest")
 
 #: digest 문자열 접두사
@@ -38,6 +40,16 @@ def canonical_json(metadata):
     입력 dict는 변경하지 않는다.
     """
     payload = {k: v for k, v in metadata.items() if k not in EXCLUDED_KEYS}
+
+    # 6.5절은 "두 CSV 의 filename·size_bytes·row_count·sha256 은 계산 대상에
+    # 포함한다" 고만 적고 landmark 를 언급하지 않는다. 포함 여부를 바꾸면 이미
+    # 업로드된 세션의 digest 가 달라져 멱등성(NFR-26)이 깨지므로 기본은 제외다.
+    # landmark_contract.INCLUDE_IN_DIGEST 한 곳으로 전환한다.
+    # docs/pending-decisions.md P-3 참조.
+    if not landmark_contract.INCLUDE_IN_DIGEST and isinstance(payload.get("files"), dict):
+        payload["files"] = {
+            k: v for k, v in payload["files"].items() if k != landmark_contract.KIND
+        }
     return json.dumps(
         payload,
         sort_keys=True,

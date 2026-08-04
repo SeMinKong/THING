@@ -17,7 +17,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 
-from apps import storage
+from apps import landmark_contract, storage
 from apps.digest import (
     TEST_VECTOR,
     canonical_json,
@@ -183,6 +183,7 @@ class AtomicCommitTests(TestCase):
             "metadata": b'{"schema_version":1}',
             "hand_command": b"session_id,stamp_sec\n1,2\n",
             "motor_status": b"session_id,motor_id\n1,11\n",
+            landmark_contract.KIND: b'{"frames":[]}',
         }
         for kind, body in payloads.items():
             upload = SimpleUploadedFile("client-name-ignored.bin", body)
@@ -196,15 +197,25 @@ class AtomicCommitTests(TestCase):
         self.assertEqual(target.name, f"session_{SID}_metadata.json")
         self.assertEqual(written, 1)
 
-    def test_commit_moves_exactly_three_files(self):
+    def test_commit_moves_every_staged_file(self):
         payloads = self._stage_all()
         moved = storage.commit_staging(ROBOT, SID)
         self.assertEqual(sorted(moved), sorted(storage.FILE_KINDS))
 
         final = storage.final_dir(ROBOT, SID)
-        self.assertEqual(len(list(final.iterdir())), 3)
+        self.assertEqual(len(list(final.iterdir())), len(storage.FILE_KINDS))
         for kind, body in payloads.items():
             self.assertEqual(storage.final_path(ROBOT, SID, kind).read_bytes(), body)
+
+    def test_commit_skips_absent_optional_landmark(self):
+        """landmark 는 형식 미정이라 선택 part 다. 없어도 commit 이 성공해야 한다."""
+        for kind in ("metadata", "hand_command", "motor_status"):
+            storage.stream_to_staging(
+                SimpleUploadedFile("x.bin", b"x"), ROBOT, SID, kind
+            )
+        moved = storage.commit_staging(ROBOT, SID)
+        self.assertNotIn(landmark_contract.KIND, moved)
+        self.assertEqual(len(moved), 3)
 
     def test_staging_removed_after_commit(self):
         self._stage_all()
