@@ -61,7 +61,7 @@ def test_json_field_contracts_are_fixed():
     """metadata와 landmark JSON 필드 및 21개 점 구조를 고정한다."""
     assert METADATA_FIELDS == (
         'schema_version', 'data_version', 'robot_id', 'session_id',
-        'started_at', 'ended_at', 'exported_at', 'result',
+        'started_at', 'ended_at', 'result',
         'interface_commit', 'time_sync', 'content_digest', 'files',
     )
     assert LANDMARK_RECORD_FIELDS == (

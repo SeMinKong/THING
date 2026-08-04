@@ -10,7 +10,6 @@ import math
 import os
 from pathlib import Path
 import shutil
-import time
 from typing import Any, Iterable, Iterator, Mapping
 
 import rosbag2_py
@@ -308,7 +307,6 @@ class SessionExporter:
         *,
         time_sync: bool = True,
         reader: Any = None,
-        clock_ns=None,
     ) -> None:
         """로봇 정보, 임시 export 경로와 테스트 대역을 설정한다."""
         if not robot_id:
@@ -320,7 +318,6 @@ class SessionExporter:
             raise ExportValidationError('export root must be absolute')
         self.time_sync = time_sync
         self.reader = reader or RosbagSessionReader()
-        self.clock_ns = clock_ns or time.time_ns
         self.cleanup_stale_exports()
 
     def export(self, job: ExportJob) -> ExportResult:
@@ -350,13 +347,11 @@ class SessionExporter:
                 session_id,
                 row_counts,
             )
-            exported_at_ns = self.clock_ns()
             metadata = build_metadata(
                 robot_id=self.robot_id,
                 session_id=session_id,
                 started_at_ns=lifecycle.started_at_ns,
                 ended_at_ns=lifecycle.ended_at_ns,
-                exported_at_ns=exported_at_ns,
                 result=job.result,
                 time_sync=self.time_sync,
                 files=file_infos,
@@ -1279,7 +1274,6 @@ def build_metadata(
     session_id: int,
     started_at_ns: int,
     ended_at_ns: int,
-    exported_at_ns: int,
     result: str,
     time_sync: bool,
     files: Mapping[str, ExportFileInfo],
@@ -1291,10 +1285,6 @@ def build_metadata(
         raise ExportValidationError('session ID is invalid')
     if ended_at_ns <= started_at_ns:
         raise ExportValidationError('session end must follow session start')
-    if exported_at_ns < ended_at_ns:
-        raise ExportValidationError(
-            'export timestamp must not precede session end'
-        )
     if result not in ALLOWED_RESULTS:
         raise ExportValidationError(
             'result must be SUCCESS or FAILURE'
@@ -1318,7 +1308,6 @@ def build_metadata(
         'session_id': str(session_id),
         'started_at': _format_ns_utc(started_at_ns),
         'ended_at': _format_ns_utc(ended_at_ns),
-        'exported_at': _format_ns_utc(exported_at_ns),
         'result': result,
         'interface_commit': INTERFACE_COMMIT,
         'time_sync': time_sync,
@@ -1335,11 +1324,11 @@ def build_metadata(
 
 
 def calculate_content_digest(metadata: Mapping[str, Any]) -> str:
-    """변하는 export 시각과 digest 자신을 제외해 canonical digest를 만든다."""
+    """Digest 자신을 제외한 canonical metadata의 SHA-256을 만든다."""
     digest_payload = {
         key: value
         for key, value in metadata.items()
-        if key not in {'exported_at', 'content_digest'}
+        if key != 'content_digest'
     }
     canonical_bytes = json.dumps(
         digest_payload,

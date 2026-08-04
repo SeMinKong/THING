@@ -77,7 +77,6 @@ METADATA_FIELDS = (
     'session_id',
     'started_at',
     'ended_at',
-    'exported_at',
     'result',
     'interface_commit',
     'time_sync',

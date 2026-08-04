@@ -673,7 +673,6 @@ def test_build_metadata_uses_three_data_files_and_canonical_digest(tmp_path):
         session_id=123,
         started_at_ns=10_000_000_000,
         ended_at_ns=20_000_000_000,
-        exported_at_ns=21_000_000_000,
         result='SUCCESS',
         time_sync=True,
         files=files,
@@ -690,27 +689,14 @@ def test_build_metadata_uses_three_data_files_and_canonical_digest(tmp_path):
     assert metadata['content_digest'] == calculate_content_digest(metadata)
 
 
-def test_content_digest_ignores_export_time_but_detects_content_change(
-    tmp_path,
-):
-    """변환 시각은 무시하고 데이터 hash 또는 판정 변경은 감지한다."""
+def test_content_digest_detects_content_change(tmp_path):
+    """데이터 hash 또는 세션 판정 변경을 digest로 감지한다."""
     files = make_file_infos(tmp_path)
     base = build_metadata(
         robot_id='THING-001',
         session_id=123,
         started_at_ns=10_000_000_000,
         ended_at_ns=20_000_000_000,
-        exported_at_ns=21_000_000_000,
-        result='SUCCESS',
-        time_sync=True,
-        files=files,
-    )
-    later = build_metadata(
-        robot_id='THING-001',
-        session_id=123,
-        started_at_ns=10_000_000_000,
-        ended_at_ns=20_000_000_000,
-        exported_at_ns=30_000_000_000,
         result='SUCCESS',
         time_sync=True,
         files=files,
@@ -720,13 +706,11 @@ def test_content_digest_ignores_export_time_but_detects_content_change(
         session_id=123,
         started_at_ns=10_000_000_000,
         ended_at_ns=20_000_000_000,
-        exported_at_ns=30_000_000_000,
         result='FAILURE',
         time_sync=True,
         files=files,
     )
 
-    assert base['content_digest'] == later['content_digest']
     assert base['content_digest'] != failure['content_digest']
 
 
@@ -737,7 +721,6 @@ def test_write_metadata_json_preserves_schema_order(tmp_path):
         session_id=123,
         started_at_ns=10_000_000_000,
         ended_at_ns=20_000_000_000,
-        exported_at_ns=21_000_000_000,
         result='SUCCESS',
         time_sync=True,
         files=make_file_infos(tmp_path),
@@ -760,7 +743,6 @@ def test_session_exporter_atomically_exposes_four_valid_files(tmp_path):
         'THING-001',
         str(export_root),
         reader=FakeSessionReader(make_complete_bag_records()),
-        clock_ns=lambda: 21_000_000_000,
     )
 
     result = exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
@@ -789,6 +771,7 @@ def test_session_exporter_atomically_exposes_four_valid_files(tmp_path):
     assert metadata['files']['hand_command']['row_count'] == 1
     assert metadata['files']['motor_status']['row_count'] == 7
     assert metadata['files']['landmark']['row_count'] == 1
+
     assert metadata['content_digest'] == calculate_content_digest(metadata)
 
     with Path(result.files['hand_command'].path).open(
@@ -908,7 +891,6 @@ def test_session_exporter_reads_actual_rosbag2_fixture(tmp_path):
     result = SessionExporter(
         'THING-001',
         str(tmp_path / 'tmp-upload'),
-        clock_ns=lambda: 21_000_000_000,
     ).export(ExportJob(str(bag_path), 'SUCCESS'))
 
     metadata = json.loads(
@@ -921,22 +903,49 @@ def test_session_exporter_reads_actual_rosbag2_fixture(tmp_path):
     assert metadata['files']['motor_status']['row_count'] == 7
     assert metadata['files']['landmark']['row_count'] == 1
 
+    exported_landmarks = json.loads(
+        Path(result.files['landmark'].path).read_text(encoding='utf-8')
+    )
+    assert len(exported_landmarks) == 1
+    exported = exported_landmarks[0]
+    assert tuple(exported) == LANDMARK_RECORD_FIELDS
+    assert exported['session_id'] == '123'
+    assert exported['timestamp'] == '1970-01-01T00:00:10.750Z'
+    assert exported['stamp_sec'] == landmarks.header.stamp.sec
+    assert exported['stamp_nanosec'] == landmarks.header.stamp.nanosec
+    assert exported['elapsed_ms'] == 750
+    assert exported['detected'] is landmarks.detected
+    assert exported['confidence'] == pytest.approx(landmarks.confidence)
+    assert exported['handedness'] == landmarks.handedness
+    assert exported['handedness_confidence'] == pytest.approx(
+        landmarks.handedness_confidence
+    )
+    assert exported['image_width'] == landmarks.image_width
+    assert exported['image_height'] == landmarks.image_height
+    assert len(exported['landmarks']) == len(landmarks.landmarks) == 21
+    for exported_point, bag_point in zip(
+        exported['landmarks'],
+        landmarks.landmarks,
+    ):
+        assert tuple(exported_point) == ('x', 'y', 'z')
+        assert exported_point['x'] == pytest.approx(bag_point.x)
+        assert exported_point['y'] == pytest.approx(bag_point.y)
+        assert exported_point['z'] == pytest.approx(bag_point.z)
+
 
 def test_session_exporter_produces_same_digest_for_same_content(tmp_path):
-    """같은 완료 bag과 판정은 변환 시각이 달라도 같은 digest를 만든다."""
+    """같은 완료 bag과 판정은 같은 digest를 만든다."""
     bag_path = tmp_path / 'bags' / '123'
     bag_path.mkdir(parents=True)
     first = SessionExporter(
         'THING-001',
         str(tmp_path / 'first'),
         reader=FakeSessionReader(make_complete_bag_records()),
-        clock_ns=lambda: 21_000_000_000,
     ).export(ExportJob(str(bag_path), 'SUCCESS'))
     second = SessionExporter(
         'THING-001',
         str(tmp_path / 'second'),
         reader=FakeSessionReader(make_complete_bag_records()),
-        clock_ns=lambda: 30_000_000_000,
     ).export(ExportJob(str(bag_path), 'SUCCESS'))
 
     assert first.content_digest == second.content_digest
@@ -953,17 +962,12 @@ def test_session_exporter_reexports_same_bag_after_cleanup(tmp_path):
         'THING-001',
         str(export_root),
         reader=FakeSessionReader(records),
-        clock_ns=lambda: 21_000_000_000,
     )
     first_result = first.export(ExportJob(str(bag_path), 'SUCCESS'))
-    first_data_files = {
+    first_files = {
         file_kind: Path(info.path).read_bytes()
         for file_kind, info in first_result.files.items()
-        if file_kind != 'metadata'
     }
-    first_metadata = json.loads(
-        Path(first_result.files['metadata'].path).read_text(encoding='utf-8')
-    )
 
     first.cleanup(first_result)
     assert not Path(first_result.directory).exists()
@@ -972,25 +976,13 @@ def test_session_exporter_reexports_same_bag_after_cleanup(tmp_path):
         'THING-001',
         str(export_root),
         reader=FakeSessionReader(records),
-        clock_ns=lambda: 30_000_000_000,
     ).export(ExportJob(str(bag_path), 'SUCCESS'))
-    second_metadata = json.loads(
-        Path(second_result.files['metadata'].path).read_text(encoding='utf-8')
-    )
 
     assert first_result.content_digest == second_result.content_digest
     assert {
         file_kind: Path(info.path).read_bytes()
         for file_kind, info in second_result.files.items()
-        if file_kind != 'metadata'
-    } == first_data_files
-    assert {
-        key: value for key, value in second_metadata.items()
-        if key != 'exported_at'
-    } == {
-        key: value for key, value in first_metadata.items()
-        if key != 'exported_at'
-    }
+    } == first_files
 
 
 def test_session_exporter_cleans_staging_after_invalid_landmarks(tmp_path):
@@ -1008,10 +1000,50 @@ def test_session_exporter_cleans_staging_after_invalid_landmarks(tmp_path):
         'THING-001',
         str(export_root),
         reader=FakeSessionReader(records),
-        clock_ns=lambda: 21_000_000_000,
     )
 
     with pytest.raises(ExportValidationError, match='exactly 21'):
+        exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    assert not (export_root / '.123.part').exists()
+    assert not (export_root / '123').exists()
+
+
+@pytest.mark.parametrize(
+    ('file_kind', 'error_pattern'),
+    [
+        ('hand_command', 'CSV header or row count mismatch'),
+        ('motor_status', 'CSV header or row count mismatch'),
+        ('landmark', 'LandMark JSON row count mismatch'),
+    ],
+)
+def test_session_exporter_hides_row_count_mismatch(
+    tmp_path,
+    file_kind,
+    error_pattern,
+):
+    """계산 행 수와 실제 파일 행 수가 다르면 결과를 노출하지 않는다."""
+
+    class IncorrectRowCountExporter(SessionExporter):
+        def _write_data_files(self, bag_path, directory, session_id):
+            row_counts, lifecycle = super()._write_data_files(
+                bag_path,
+                directory,
+                session_id,
+            )
+            row_counts[file_kind] += 1
+            return row_counts, lifecycle
+
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    export_root = tmp_path / 'tmp-upload'
+    exporter = IncorrectRowCountExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(make_complete_bag_records()),
+    )
+
+    with pytest.raises(ExportValidationError, match=error_pattern):
         exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
 
     assert not (export_root / '.123.part').exists()
@@ -1047,7 +1079,6 @@ def test_session_exporter_hides_decreasing_csv_timestamps(
         'THING-001',
         str(export_root),
         reader=FakeSessionReader(records),
-        clock_ns=lambda: 21_000_000_000,
     )
 
     with pytest.raises(ExportValidationError, match='nondecreasing'):
@@ -1067,7 +1098,6 @@ def test_session_exporter_rejects_incomplete_recording_lifecycle(tmp_path):
         'THING-001',
         str(export_root),
         reader=FakeSessionReader(records),
-        clock_ns=lambda: 21_000_000_000,
     )
 
     with pytest.raises(ExportValidationError, match='lifecycle is missing'):
@@ -1111,7 +1141,6 @@ def test_session_exporter_cleanup_removes_files_but_preserves_bag(tmp_path):
         'THING-001',
         str(export_root),
         reader=FakeSessionReader(make_complete_bag_records()),
-        clock_ns=lambda: 21_000_000_000,
     )
     result = exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
 
@@ -1129,7 +1158,6 @@ def test_session_exporter_cleanup_rejects_unexpected_file(tmp_path):
         'THING-001',
         str(tmp_path / 'tmp-upload'),
         reader=FakeSessionReader(make_complete_bag_records()),
-        clock_ns=lambda: 21_000_000_000,
     )
     result = exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
     unexpected = Path(result.directory) / 'unexpected.txt'
