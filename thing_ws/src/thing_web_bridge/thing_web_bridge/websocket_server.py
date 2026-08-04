@@ -1,10 +1,12 @@
 """Async WebSocket transport isolated from the ROS 2 executor thread."""
 
 import asyncio
+from collections import deque
 import json
 from threading import Event, Lock, Thread
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Deque, Dict, Optional, Tuple
 
+from thing_web_bridge.protocol import BridgeRequest
 from thing_web_bridge.protocol import make_ack
 from thing_web_bridge.protocol import parse_request
 from thing_web_bridge.protocol import ProtocolError
@@ -12,6 +14,175 @@ from thing_web_bridge.protocol import SnapshotStore
 
 
 RequestHandler = Callable[[Any], Dict[str, Any]]
+
+# FR-19·FR-31: STOP과 안전 전이는 일반 동작을 항상 선점한다. 일반 요청 하나를
+# 처리하는 동안 다음 메시지를 읽지 않으면 STOP이 긴급 요청인지 확인조차 못 하고
+# 대기열 맨 뒤에서 기다린다. 그래서 수신과 실행을 나누고 이 두 type만 대기열을
+# 건너뛴다.
+URGENT_REQUEST_TYPES = frozenset({'stop', 'reset_safety'})
+
+# STOP이 아직 실행하지 않은 일반 요청을 폐기할 때 돌려줄 사유. 조용히 버리면
+# 내부 제어 웹이 ack를 기다리며 버튼을 잠근 채로 남는다.
+REASON_PREEMPTED_BY_STOP = 'web_preempted_by_stop'
+# 같은 mode·owner lease 갱신이 더 새 요청으로 교체됐을 때의 사유.
+REASON_SUPERSEDED = 'web_superseded'
+# 대기열 상한 초과.
+REASON_QUEUE_OVERFLOW = 'web_queue_overflow'
+# 두 번째 브라우저 연결을 거절할 때 쓰는 close reason.
+REASON_SINGLE_CONNECTION = 'single connection only'
+
+
+def _dumps(payload: Dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+
+
+class ClientSession:
+    """Serve one browser: read fast, run general requests in order, preempt.
+
+    수신(reader)·일반 실행(worker)·snapshot 발행(producer)을 각각 독립 task로
+    두고, 모든 outbound 전송은 하나의 lock으로 직렬화한다.
+    """
+
+    def __init__(
+        self,
+        websocket: Any,
+        snapshot_store: SnapshotStore,
+        request_handler: RequestHandler,
+        snapshot_period: float,
+        max_pending: int = 32,
+    ) -> None:
+        """Bind one connection to the shared store and ROS request handler."""
+        self._websocket = websocket
+        self._snapshot_store = snapshot_store
+        self._request_handler = request_handler
+        self._snapshot_period = snapshot_period
+        self._max_pending = int(max_pending)
+        self._send_lock = asyncio.Lock()
+        self._pending: Deque[BridgeRequest] = deque()
+        self._pending_event = asyncio.Event()
+        self._urgent_tasks: set = set()
+
+    async def _send(self, payload: Dict[str, Any]) -> None:
+        """Send one JSON object, serialized against every other sender.
+
+        websockets는 여러 coroutine이 동시에 send()를 호출하는 것을 지원하지
+        않는다. snapshot producer와 ACK 경로가 이제 진짜로 겹치므로 lock이
+        필요하다.
+        """
+        async with self._send_lock:
+            await self._websocket.send(_dumps(payload))
+
+    async def _ack(self, request_id: str, reason: str) -> None:
+        await self._send(make_ack(request_id, False, reason))
+
+    async def _run_handler(self, request: BridgeRequest) -> None:
+        """Call the blocking ROS handler off the event loop and reply once."""
+        try:
+            response = await asyncio.to_thread(self._request_handler, request)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            response = make_ack(
+                request.request_id, False, 'web_bridge_error')
+        await self._send(response)
+
+    def _drain_pending(self) -> list:
+        """Take every not-yet-started general request out of the queue."""
+        dropped = list(self._pending)
+        self._pending.clear()
+        return dropped
+
+    async def _enqueue(self, request: BridgeRequest) -> None:
+        """Queue one general request, collapsing duplicate lease renewals.
+
+        내부 제어 웹은 1000ms마다 같은 mode·owner로 set_control_mode를 보낸다
+        (FR-34 갱신). 처리 중 대기열에 같은 갱신이 쌓이면 뒤로 갈수록 밀리므로
+        대기 중 갱신은 최신 하나만 남긴다. 전부 버리지는 않는다. 처리 중인
+        요청이 timeout되면 실제 갱신이 끊겨 3000ms 뒤 lease가 만료된다.
+        """
+        if request.type == 'set_control_mode':
+            for index, queued in enumerate(self._pending):
+                if (
+                    queued.type == 'set_control_mode'
+                    and queued.payload == request.payload
+                ):
+                    self._pending[index] = request
+                    self._pending_event.set()
+                    await self._ack(queued.request_id, REASON_SUPERSEDED)
+                    return
+        if len(self._pending) >= self._max_pending:
+            await self._ack(request.request_id, REASON_QUEUE_OVERFLOW)
+            return
+        self._pending.append(request)
+        self._pending_event.set()
+
+    def _spawn_urgent(self, request: BridgeRequest) -> None:
+        task = asyncio.ensure_future(self._run_handler(request))
+        self._urgent_tasks.add(task)
+        task.add_done_callback(self._urgent_tasks.discard)
+
+    async def handle_message(self, raw_message: Any) -> None:
+        """Classify one inbound message without waiting for ROS."""
+        request_id = ''
+        try:
+            message = json.loads(raw_message)
+            if isinstance(message, dict):
+                raw_request_id = message.get('request_id')
+                if isinstance(raw_request_id, str):
+                    request_id = raw_request_id
+            request = parse_request(message)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            await self._ack(request_id, 'web_malformed_request')
+            return
+        except ProtocolError as error:
+            await self._ack(request_id, error.reason)
+            return
+
+        if request.type not in URGENT_REQUEST_TYPES:
+            await self._enqueue(request)
+            return
+
+        if request.type == 'stop':
+            # FR-31: STOP은 선택·최종 큐를 함께 폐기한다. 이미 ROS로 나간
+            # in-flight 요청은 취소할 수 없으므로 아직 시작하지 않은 것만
+            # 버리고, 버린 각 요청에도 같은 request_id로 ACK를 돌려준다.
+            for dropped in self._drain_pending():
+                await self._ack(dropped.request_id, REASON_PREEMPTED_BY_STOP)
+        self._spawn_urgent(request)
+
+    async def _read_loop(self) -> None:
+        async for raw_message in self._websocket:
+            await self.handle_message(raw_message)
+
+    async def _worker_loop(self) -> None:
+        while True:
+            if not self._pending:
+                self._pending_event.clear()
+                await self._pending_event.wait()
+                continue
+            await self._run_handler(self._pending.popleft())
+
+    async def _publish_snapshots(self) -> None:
+        while True:
+            await self._send(self._snapshot_store.snapshot())
+            await asyncio.sleep(self._snapshot_period)
+
+    async def run(self) -> None:
+        """Run reader, worker, and snapshot producer until the client leaves."""
+        producer = asyncio.ensure_future(self._publish_snapshots())
+        worker = asyncio.ensure_future(self._worker_loop())
+        reader = asyncio.ensure_future(self._read_loop())
+        tasks = (producer, worker, reader)
+        try:
+            done, pending = await asyncio.wait(
+                tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.exception()
+        finally:
+            for task in (*tasks, *tuple(self._urgent_tasks)):
+                task.cancel()
+            await asyncio.gather(
+                *tasks, *tuple(self._urgent_tasks), return_exceptions=True)
 
 
 class WebSocketServer:
@@ -24,7 +195,8 @@ class WebSocketServer:
         host: str = '0.0.0.0',
         port: int = 8000,
         path: str = '/ws/robot-state',
-        snapshot_period: float = 0.2,
+        snapshot_period: float = 0.1,
+        max_pending: int = 32,
     ) -> None:
         """Store server configuration without opening a socket."""
         if not host:
@@ -35,21 +207,27 @@ class WebSocketServer:
             raise ValueError('path must start with /')
         if snapshot_period <= 0.0:
             raise ValueError('snapshot_period must be positive')
+        if int(max_pending) <= 0:
+            raise ValueError('max_pending must be positive')
         self._snapshot_store = snapshot_store
         self._request_handler = request_handler
         self._host = host
         self._port = int(port)
         self._path = path
         self._snapshot_period = float(snapshot_period)
+        self._max_pending = int(max_pending)
         self._thread: Optional[Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._stop_event: Optional[asyncio.Event] = None
         self._ready = Event()
         self._exception: Optional[BaseException] = None
         self._lifecycle_lock = Lock()
+        # 탭을 두 개 열면 한쪽 STOP이 다른 쪽 제어권까지 해제한다. 내부 제어
+        # 웹에서는 해결할 수 없어 브리지가 연결 하나만 허용한다.
+        self._client_active = False
 
     @property
-    def address(self) -> tuple[str, int]:
+    def address(self) -> Tuple[str, int]:
         """Return the configured bind address."""
         return self._host, self._port
 
@@ -124,6 +302,16 @@ class WebSocketServer:
             path = getattr(websocket, 'path', '')
         return str(path).split('?', maxsplit=1)[0]
 
+    def new_session(self, websocket: Any) -> ClientSession:
+        """Build one session; kept separate so tests can drive it directly."""
+        return ClientSession(
+            websocket=websocket,
+            snapshot_store=self._snapshot_store,
+            request_handler=self._request_handler,
+            snapshot_period=self._snapshot_period,
+            max_pending=self._max_pending,
+        )
+
     async def _client_connected(
         self,
         websocket: Any,
@@ -133,51 +321,11 @@ class WebSocketServer:
         if path != self._path:
             await websocket.close(code=1008, reason='endpoint not allowed')
             return
-
-        producer = asyncio.create_task(self._publish_snapshots(websocket))
-        consumer = asyncio.create_task(self._consume_requests(websocket))
-        done, pending = await asyncio.wait(
-            (producer, consumer),
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-        for task in done:
-            task.exception()
-
-    async def _publish_snapshots(self, websocket: Any) -> None:
-        while True:
-            snapshot = self._snapshot_store.snapshot()
-            await websocket.send(
-                json.dumps(snapshot, ensure_ascii=False, separators=(',', ':')),
-            )
-            await asyncio.sleep(self._snapshot_period)
-
-    async def _consume_requests(self, websocket: Any) -> None:
-        async for raw_message in websocket:
-            request_id = ''
-            try:
-                message = json.loads(raw_message)
-                if isinstance(message, dict):
-                    raw_request_id = message.get('request_id')
-                    if isinstance(raw_request_id, str):
-                        request_id = raw_request_id
-                request = parse_request(message)
-                response = await asyncio.to_thread(
-                    self._request_handler,
-                    request,
-                )
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                response = make_ack(
-                    request_id,
-                    False,
-                    'web_malformed_request',
-                )
-            except ProtocolError as error:
-                response = make_ack(request_id, False, error.reason)
-            except Exception:
-                response = make_ack(request_id, False, 'web_bridge_error')
-            await websocket.send(
-                json.dumps(response, ensure_ascii=False, separators=(',', ':')),
-            )
+        if self._client_active:
+            await websocket.close(code=1013, reason=REASON_SINGLE_CONNECTION)
+            return
+        self._client_active = True
+        try:
+            await self.new_session(websocket).run()
+        finally:
+            self._client_active = False
