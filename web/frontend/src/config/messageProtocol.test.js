@@ -190,25 +190,45 @@ describe("6.4절 snapshot 판별", () => {
   });
 });
 
-describe("FR-37 거부 사유", () => {
-  it("표준 8종 (V7 stop_barrier 2종 포함)", () => {
-    // V7 FR-37: "accepted, invalid_mode, owner_conflict, safety_not_ready,
-    //  recording_active, motion_active, stop_barrier_pending, stop_barrier_timeout"
-    expect(Object.values(REJECT_REASON)).toEqual([
-      "accepted", "invalid_mode", "owner_conflict",
-      "safety_not_ready", "recording_active", "motion_active",
-      "stop_barrier_pending", "stop_barrier_timeout",
-    ]);
+describe("거부 사유 (interfaces.md / safety_manager.md / FR-18)", () => {
+  it("stop_barrier_* 는 더 이상 쓰지 않는다", () => {
+    expect(Object.values(REJECT_REASON)).not.toContain("stop_barrier_pending");
+    expect(Object.values(REJECT_REASON)).not.toContain("stop_barrier_timeout");
   });
 
-  it("새 거부 사유도 사용자 문구가 있다", () => {
-    expect(describeReason("stop_barrier_pending")).not.toContain("(");
-    expect(describeReason("stop_barrier_timeout")).toContain("정지");
+  it("interfaces.md 모드 서비스 사유를 포함한다", () => {
+    const values = Object.values(REJECT_REASON);
+    for (const r of ["invalid_mode", "motion_active", "stop_in_progress",
+      "owner_lease_expired", "safety_not_ready"]) {
+      expect(values).toContain(r);
+    }
   });
 
-  it("stop_in_progress 는 쓰지 않는다", () => {
-    // FR-37 표준에 없다. safety_not_ready 가 그 상황을 덮는다.
-    expect(Object.values(REJECT_REASON)).not.toContain("stop_in_progress");
+  it("기록 서비스 사유(FR-18)를 포함한다", () => {
+    const values = Object.values(REJECT_REASON);
+    for (const r of ["not_mimic_mode", "start_failed", "already_recording",
+      "result_pending", "not_recording", "session_mismatch", "stop_failed"]) {
+      expect(values).toContain(r);
+    }
+  });
+
+  it("Manual Executor 사유를 포함한다", () => {
+    const values = Object.values(REJECT_REASON);
+    for (const r of ["invalid_gesture", "invalid_sequence", "invalid_speed_limit",
+      "not_manual_mode", "control_state_stale", "safety_state_stale", "stop_latched"]) {
+      expect(values).toContain(r);
+    }
+  });
+
+  it("로봇 session_mismatch 는 웹 web_session_mismatch 와 다른 값이다", () => {
+    expect(REJECT_REASON.SESSION_MISMATCH).toBe("session_mismatch");
+    expect(REJECT_REASON.SESSION_MISMATCH).not.toBe("web_session_mismatch");
+  });
+
+  it("새 표준 사유도 사용자 문구가 있다 (fallback 아님)", () => {
+    expect(describeReason("stop_in_progress")).not.toContain("(");
+    expect(describeReason("owner_lease_expired")).not.toContain("(");
+    expect(describeReason("result_pending")).not.toContain("(");
   });
 
   it("accepted 는 안내 문구가 없다", () => {
@@ -218,20 +238,12 @@ describe("FR-37 거부 사유", () => {
   });
 
   it("FR-27: 각 사유가 다음에 할 일을 안내한다", () => {
-    const invalid = describeReason(REJECT_REASON.INVALID_MODE);
-    expect(invalid).toContain("정지");
-
-    const notReady = describeReason(REJECT_REASON.SAFETY_NOT_READY);
-    expect(notReady).toContain("안전 초기화");
-
-    const recording = describeReason(REJECT_REASON.RECORDING_ACTIVE);
-    expect(recording).toContain("판정");
-
-    const motion = describeReason(REJECT_REASON.MOTION_ACTIVE);
-    expect(motion).toContain("대기열");
-
-    const owner = describeReason(REJECT_REASON.OWNER_CONFLICT);
-    expect(owner).toContain("제어권");
+    expect(describeReason(REJECT_REASON.INVALID_MODE)).toContain("정지");
+    expect(describeReason(REJECT_REASON.SAFETY_NOT_READY)).toContain("안전 초기화");
+    expect(describeReason(REJECT_REASON.RECORDING_ACTIVE)).toContain("판정");
+    expect(describeReason(REJECT_REASON.MOTION_ACTIVE)).toContain("대기열");
+    expect(describeReason(REJECT_REASON.OWNER_CONFLICT)).toContain("제어권");
+    expect(describeReason(REJECT_REASON.OWNER_LEASE_EXPIRED)).toContain("제어권");
   });
 
   it("모르는 사유도 원문을 보여준다", () => {

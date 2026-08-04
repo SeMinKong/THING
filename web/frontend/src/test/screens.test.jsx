@@ -190,6 +190,33 @@ describe("FR-25 MotorStatusPanel", () => {
   });
 });
 
+it("torque_enabled 를 ON/OFF 로 보여준다", () => {
+    const payload = {
+      ...motorStatePayload,
+      motors: motorStatePayload.motors.map((m, i) => (
+        i === 0 ? { ...m, torque_enabled: false } : { ...m, torque_enabled: true }
+      )),
+    };
+    render(<MotorStatusPanel motorStatus={payload} />);
+    const text = document.body.textContent;
+    expect(text).toContain("토크");
+    expect(text).toContain("ON");
+    expect(text).toContain("OFF");
+  });
+
+  it("통신 실패 모터의 torque 는 유효 상태로 표시하지 않는다", () => {
+    // interfaces.md MotorStatus 계약: communication_ok=false 면 torque_enabled 를
+    // 유효로 보지 않고 통신 실패를 우선한다. torque_enabled=true 여도 ON 을 내지 않는다.
+    const allFail = {
+      ...motorStatePayload,
+      motors: motorStatePayload.motors.map((m) => (
+        { ...m, communication_ok: false, torque_enabled: true }
+      )),
+    };
+    render(<MotorStatusPanel motorStatus={allFail} />);
+    expect(document.body.textContent).not.toContain("ON");
+  });
+
 describe.each(VIEWPORTS)("$name 렌더", ({ width }) => {
   it("StatusBar 가 깨지지 않는다", () => {
     setViewport(width);

@@ -131,7 +131,7 @@ const SPEC_MIRRORED = {
   /** FR-11 / FR-35. 마지막 hardware-forwarded 명령 뒤 SAFE 상승까지. */
   SAFE_DEADLINE_MS: 1000,
 
-  /** FR-35. RESET 에서 초기 자세(home_position) 도달 후 안정화 시간. */
+  /** FR-35. RESET 최소 유지 시간. 모터 이동 없이 torque OFF 재확인(현재 자세 유지). */
   STOP_SETTLE_MS: 500,
 
   /** FR-35. STOP 의 Guard ACK 기본 / 최대 대기. */
@@ -151,34 +151,18 @@ const SPEC_MIRRORED = {
 // 값이 아니라 구조에 대한 가정이다. 코드가 참조하지는 않지만, 무엇을 가정하고
 // 있는지 한 곳에서 보이도록 여기 남긴다. 확인되면 항목을 지운다.
 
+// 2026-08-04 thing_interfaces / safety_manager.md 확정으로 제거:
+//   C-1 SetControlMode 필드명 = requested_mode/requested_owner (SetControlMode.srv)
+//   C-3 uint8 상수값 = .msg 선언 순서 (SafetyState.msg 등 wire값 일치)
+//   C-4 sequence_running = Sequence 단일 슬롯 점유 (interfaces.md is_sequence_running)
+//   C-6 MotorState.torque_enabled = bool 존재·의미 확정 (MotorState.msg)
 export const CONTRACT_ASSUMPTIONS = [
-  {
-    id: "C-1",
-    item: "SetControlMode 요청 필드명",
-    assumed: "requested_mode / requested_owner",
-    basis: ".msg·.srv 초기본. 명세 FR-30 이 기존 필드 변경을 금지하므로 유효할 것",
-    affects: "selectMode, sendStop, lease 갱신 — 틀리면 모드 전환 전건 실패",
-  },
   {
     id: "C-2",
     item: "enum 을 웹이 symbolic string 으로 보내고 브릿지가 uint8 로 매핑",
     assumed: "mode / owner / result 전부 문자열 전송",
-    basis: "합의. .srv 는 uint8 이므로 변환 주체가 필요하고 브릿지로 정했다",
+    basis: "합의. .srv 는 uint8(requested_mode 등)이라 변환 주체가 필요하고 브릿지로 정했다. 브릿지 실동작은 통합 시 확인",
     affects: "set_control_mode, stop, set_mimic_result",
-  },
-  {
-    id: "C-3",
-    item: "uint8 상수값이 .msg 선언 순서와 같음",
-    assumed: "MODE 0~3, OWNER 0~2, SafetyState 0~7, RecordingState 0~6, RESULT 0~2, SOURCE 0~5",
-    basis: ".msg 초기본에서 확인. V7 이 SafetyState.RESET=7 을 추가 승인",
-    affects: "정수로 오는 모든 enum 표시",
-  },
-  {
-    id: "C-4",
-    item: "ControlState.sequence_running 의 범위",
-    assumed: "ExecuteSequence 전용일 수 있음 — 웹은 이 필드에 의존하지 않는다",
-    basis: "없음. .msg 로 판별 불가",
-    affects: "표시 문구뿐. 버튼 잠금은 ack 기반이라 무관",
   },
   {
     id: "C-5",
@@ -186,13 +170,6 @@ export const CONTRACT_ASSUMPTIONS = [
     assumed: "미구현. 브릿지 diagnostics 없이는 파생 불가",
     basis: "FR-24 Must 문장은 Jetson·RPi·ROS2·카메라·모터 5종이며 이는 충족",
     affects: "FR-24 구현 힌트 줄 미충족",
-  },
-  {
-    id: "C-6",
-    item: "MotorState.torque_enabled",
-    assumed: "아직 .msg 에 없음. 오면 표시한다",
-    basis: "V7 이 additive delta 로 승인",
-    affects: "FR-35 의 READY / RESET 전이 근거 표시",
   },
   {
     id: "C-7",
@@ -204,12 +181,11 @@ export const CONTRACT_ASSUMPTIONS = [
   {
     id: "C-8",
     item: "동시 접속 클라이언트 식별",
-    assumed: "owner 가 WEB 하나뿐이라 탭 2개면 둘 다 제어권 보유로 인식",
-    basis: "FR-34 에 클라이언트 식별자 없음. 웹에서 해결 불가",
+    assumed: "owner 가 WEB 하나뿐이라 탭 2개면 둘 다 제어권 보유로 인식 (ControlState.msg 에 식별자 없음 확인)",
+    basis: "FR-34 에 클라이언트 식별자 없음. 웹에서 해결 불가 (D-1 결정 대기)",
     affects: "시연 중 탭 중복 시 STOP 이 다른 탭에도 적용",
   },
 ];
-
 // ---------------------------------------------------------------------------
 // 내보내기
 // ---------------------------------------------------------------------------

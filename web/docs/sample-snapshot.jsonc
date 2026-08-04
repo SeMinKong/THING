@@ -134,7 +134,7 @@
     //   4 SAFE   안전 자세로 물러남
     //   5 FAULT  고장
     //   6 ESTOP  비상 정지
-    //   7 RESET  명시적 정상 STOP 뒤 home_position 으로 복귀한 후 settle·torque-off 를 확인하는 상태
+    //   7 RESET  명시적 정상 STOP 뒤 모터 이동 없이 torque OFF 를 재확인하는 상태(최소 500ms·7모터 torque_enabled=false)
     // 웹은 이 값으로 머리 색과 판정 문구를 바꾸고, READY·RUN 에서만 조작을 엽니다.
     "state": 2,
 

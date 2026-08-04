@@ -122,8 +122,8 @@ envelope:
 
 | `type` | ROS 2 대상 | payload |
 |---|---|---|
-| `set_control_mode` | `/thing/set_control_mode` | `{ mode, owner }` |
-| `stop` | `/thing/set_control_mode` | `{ mode: "DISABLED", owner: "NONE" }` |
+| `set_control_mode` | `/thing/set_control_mode` | `{ requested_mode, requested_owner }` |
+| `stop` | `/thing/set_control_mode` | `{ requested_mode: "DISABLED", requested_owner: "NONE" }` |
 | `execute_gesture` | `/thing/execute_gesture` | `{ gesture_name, speed_limit }` |
 | `execute_sequence` | `/thing/execute_sequence` | `{ sequence_name, speed_limit }` |
 | `start_recording` | `/thing/start_recording` | `{ label }` |
@@ -136,8 +136,8 @@ envelope:
 - `sequence_name`: `countdown` `scissors_rock_paper`
 - `result`: `SUCCESS` \| `FAILURE`
 - `session_id`: 10진 문자열
-- **enum 값을 웹은 symbolic string 으로 보냅니다.** `.srv` 는 uint8 이므로 브릿지가 매핑합니다 (`mode` `owner` `result`).
-- `set_control_mode` 의 payload 키는 `.srv` 요청 필드명과 같아야 합니다. 현재 웹은 `{ mode, owner }` 로 보냅니다. `.srv` 가 `requested_mode`/`requested_owner` 라면 브릿지가 매핑하거나 알려 주십시오.
+- **enum 값을 웹은 symbolic string 으로 보냅니다.** `.srv` 는 uint8 이므로 브릿지가 매핑합니다 (`requested_mode` `requested_owner` `result`).
+- `set_control_mode` 의 payload 키는 `.srv` 요청 필드명과 같습니다. 웹은 `{ requested_mode, requested_owner }` 로 보내며, 이는 `thing_interfaces/srv/SetControlMode.srv`(`requested_mode`/`requested_owner`)와 일치합니다. 브릿지 재매핑은 불필요합니다.
 
 ## 1.8 서버 → 클라이언트 ack
 
@@ -179,7 +179,7 @@ envelope:
 | `StopRecording.srv` | `session_id` |
 | `SetMimicResult.srv` | `session_id`, `result` |
 | `StartRecording.srv` | `label` |
-| `SafetyState.RESET=7` | 명시적 정상 STOP 뒤 home_position 으로 복귀한 후 settle·torque-off 를 확인하는 상태 |
+| `SafetyState.RESET=7` | 명시적 정상 STOP 뒤 모터 이동 없이 torque OFF 를 재확인하는 상태(최소 500ms·7모터 torque_enabled=false) |
 
 ---
 

@@ -151,17 +151,16 @@ function buildMessages({
       level: "warning",
       text: `마지막 명령으로부터 ${t.SAFE_DEADLINE_MS}ms(설정값) 안에 재개되지 않으면 `
         + "안전 자세(SAFE)로 전환되며, 그 뒤에는 원인 해소와 Safety Reset 절차가 필요합니다. "
-        + "지금 정지(STOP)를 요청하면 제어기 확인 뒤 RESET 절차로 들어가,로봇 손이 초기 자세로 복귀한 다음 준비 상태로 돌아갑니다.",
+        + "지금 정지(STOP)를 요청하면 제어기 확인 뒤 RESET 절차(모터 이동 없이 토크 해제 확인)를 거쳐 준비 상태로 돌아갑니다.",
       actionNeeded: "STOP",
     });
   }
 
-  // V7.1. 명시적 STOP 뒤 home_position 으로 복귀하고 settle·torque-off 를 확인하는 정상 절차다.
+  // V7.1/safety_manager. 명시적 STOP 뒤 모터 이동 없이 torque OFF 를 재확인하는 정상 절차다(home_position 복귀 아님).
   if (safetyState.state === "RESET") {
     messages.push({
       level: "warning",
-      text: `정지 절차를 진행 중입니다. 로봇 손이 초기 자세로 복귀하고 있습니다. 설정된 안정 시간(${SPEC.STOP_SETTLE_MS}ms)과 `
-        + "모터 토크 해제를 확인하면 준비(READY) 상태가 됩니다. 그 뒤 모드를 다시 획득하십시오.",
+      text: `정지 절차를 진행 중입니다. 모터를 움직이지 않고 토크를 해제하는 중이며, 설정된 유지 시간(${SPEC.STOP_SETTLE_MS}ms)과 7개 모터의 토크 해제가 확인되면 준비(READY) 상태가 됩니다. 그 뒤 모드를 다시 획득하십시오.`,
     });
   }
 

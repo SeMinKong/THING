@@ -84,8 +84,8 @@ export default function MotorStatusPanel({
   const sinceSec = sinceMs !== null ? Math.round(sinceMs / 100) / 10 : null;
   const dim = isStale || isPast;
 
-  const COLS = ["ID", "액추에이터", "목표 rad", "현재 rad", "rad/s", "A", "°C", "통신"];
-  const LEFT = new Set([0, 1, 7]);
+  const COLS = ["ID", "액추에이터", "목표 rad", "현재 rad", "rad/s", "A", "°C", "토크", "통신"];
+  const LEFT = new Set([0, 1, 7, 8]);
 
   return (
     <Panel className={fill ? "flex min-h-0 flex-1 flex-col" : ""}>
@@ -166,8 +166,20 @@ export default function MotorStatusPanel({
                         <td className={`px-2 py-1.5 text-right font-mono ${alert}`}>
                           <Num value={motor.current_ampere} />
                         </td>
-                        <td className={`px-2 py-1.5 text-right font-mono ${alert}`}>
+<td className={`px-2 py-1.5 text-right font-mono ${alert}`}>
                           <Num value={motor.temperature_celsius} digits={1} />
+                        </td>
+                        {/* interfaces.md MotorStatus 계약: communication_ok=false 면
+                            torque_enabled 를 유효 상태로 보지 않는다. 값이 없거나 통신
+                            실패면 "-"(FR-24 가짜 값 금지). ON/OFF 는 판정이 아니라 표시다. */}
+                        <td className="px-2 py-1.5 text-left">
+                          {commOk && typeof motor.torque_enabled === "boolean" ? (
+                            <Tag tone={motor.torque_enabled ? "live" : "idle"}>
+                              {motor.torque_enabled ? "ON" : "OFF"}
+                            </Tag>
+                          ) : (
+                            <span className={`font-mono ${muted || "text-ink-400"}`}>-</span>
+                          )}
                         </td>
                         <td className="px-2 py-1.5 text-left">
                           <Tag tone={!commOk ? "bad"
