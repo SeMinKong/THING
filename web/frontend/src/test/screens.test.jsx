@@ -17,12 +17,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { HandSocketProvider } from "../context/HandSocketContext";
 import StatusBar from "../components/StatusBar";
 import Header from "../components/Header";
+import { ModeGateProvider, useModeGate } from "../components/ModeGate";
+
 import SafetyBanner from "../components/SafetyBanner";
 import MotorStatusPanel from "../components/MotorStatusPanel";
-import ModeAcquirePanel from "../components/ModeAcquirePanel";
 import OrderMode from "../pages/OrderMode";
 import VisionMode from "../pages/VisionMode";
-import { CONTROL_MODE, HAND_AXES } from "../config/messageProtocol";
+import { HAND_AXES } from "../config/messageProtocol";
 import { SPEC } from "../config/pending";
 import {
   controlState,
@@ -35,10 +36,18 @@ import {
   snapshot,
 } from "./fixtures";
 
+/** 게이트 모달을 여는 최소 트리거. 제어권 UI 는 모달로 옮겨졌다 */
+function GateTrigger({ to }) {
+  const { go } = useModeGate();
+  return <button type="button" onClick={() => go(to)}>이동</button>;
+}
+
 function renderWithSocket(ui, snap = snapshot()) {
   const view = render(
     <MemoryRouter>
-      <HandSocketProvider>{ui}</HandSocketProvider>
+      <HandSocketProvider>
+        <ModeGateProvider>{ui}</ModeGateProvider>
+      </HandSocketProvider>
     </MemoryRouter>,
   );
   const socket = MockWebSocket.latest();
@@ -181,6 +190,33 @@ describe("FR-25 MotorStatusPanel", () => {
   });
 });
 
+it("torque_enabled 를 ON/OFF 로 보여준다", () => {
+    const payload = {
+      ...motorStatePayload,
+      motors: motorStatePayload.motors.map((m, i) => (
+        i === 0 ? { ...m, torque_enabled: false } : { ...m, torque_enabled: true }
+      )),
+    };
+    render(<MotorStatusPanel motorStatus={payload} />);
+    const text = document.body.textContent;
+    expect(text).toContain("토크");
+    expect(text).toContain("ON");
+    expect(text).toContain("OFF");
+  });
+
+  it("통신 실패 모터의 torque 는 유효 상태로 표시하지 않는다", () => {
+    // interfaces.md MotorStatus 계약: communication_ok=false 면 torque_enabled 를
+    // 유효로 보지 않고 통신 실패를 우선한다. torque_enabled=true 여도 ON 을 내지 않는다.
+    const allFail = {
+      ...motorStatePayload,
+      motors: motorStatePayload.motors.map((m) => (
+        { ...m, communication_ok: false, torque_enabled: true }
+      )),
+    };
+    render(<MotorStatusPanel motorStatus={allFail} />);
+    expect(document.body.textContent).not.toContain("ON");
+  });
+
 describe.each(VIEWPORTS)("$name 렌더", ({ width }) => {
   it("StatusBar 가 깨지지 않는다", () => {
     setViewport(width);
@@ -266,36 +302,40 @@ describe("FR-19 제어권 자동 획득 금지", () => {
   });
 });
 
-describe("FR-19 ModeAcquirePanel", () => {
-  it("제어권이 없으면 두 단계를 안내한다", () => {
-    const { getByRole } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, readySnapshot(),
-    );
-    expect(getByRole("button", { name: /정지/ })).toBeTruthy();
-    expect(getByRole("button", { name: /획득/ })).toBeTruthy();
+describe("FR-19 제어권 게이트 모달", () => {
+  const open = (to, snap) => {
+    const view = renderWithSocket(<GateTrigger to={to} />, snap);
+    act(() => { view.getByRole("button", { name: "이동" }).click(); });
+    return view;
+  };
+
+  it("제어권이 없으면 획득만 안내한다", () => {
+    // 이미 DISABLED 면 1단계가 끝난 것이다. 정지할 것이 없으므로 그 버튼은 없다.
+    const { getByRole, queryByRole } = open("/vision", readySnapshot());
+    expect(getByRole("dialog")).toBeTruthy();
+    expect(getByRole("button", { name: /획득/ }).disabled).toBe(false);
+    expect(queryByRole("button", { name: /정지/ })).toBeNull();
   });
 
-  it("이미 해당 모드를 보유하면 패널을 그리지 않는다", () => {
-    const { container } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, mimicSnapshot(),
-    );
-    expect(container.querySelector("[role='region']")).toBeNull();
+  it("다른 모드를 쥐고 있으면 정지가 먼저 나온다", () => {
+    const { getByRole } = open("/order", mimicSnapshot());
+    expect(getByRole("button", { name: /정지/ })).toBeTruthy();
+    expect(getByRole("button", { name: /획득/ }).disabled).toBe(true);
+  });
+
+  it("이미 해당 모드를 보유하면 모달을 띄우지 않는다", () => {
+    const { queryByRole } = open("/vision", mimicSnapshot());
+    expect(queryByRole("dialog")).toBeNull();
   });
 
   it("FR-34: READY 가 아니면 획득 버튼을 비활성화한다", () => {
-    const snap = snapshot({
-      safety_state: safetyState({ state: "HOLD" }),
-    });
-    const { getByRole } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MANUAL} />, snap,
-    );
+    const snap = snapshot({ safety_state: safetyState({ state: "HOLD" }) });
+    const { getByRole } = open("/order", snap);
     expect(getByRole("button", { name: /획득/ }).disabled).toBe(true);
   });
 
   it("획득 버튼을 눌러야 set_control_mode 를 보낸다", () => {
-    const { getByRole, socket } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, readySnapshot(),
-    );
+    const { getByRole, socket } = open("/vision", readySnapshot());
     expect(socket.sent).toHaveLength(0);
     act(() => { getByRole("button", { name: /획득/ }).click(); });
     expect(socket.sent).toHaveLength(1);
@@ -304,6 +344,13 @@ describe("FR-19 ModeAcquirePanel", () => {
     expect(socket.sent[0].payload).toEqual({
       requested_mode: "MIMIC", requested_owner: "WEB",
     });
+  });
+
+  it("제어권을 쥔 채로 다른 모드로 넘어가려면 정지가 먼저다", () => {
+    const { getByRole } = open("/order", mimicSnapshot());
+    expect(getByRole("dialog").textContent).toContain("먼저 정지");
+    expect(getByRole("button", { name: /획득/ }).disabled).toBe(true);
+    expect(getByRole("button", { name: /정지/ }).disabled).toBe(false);
   });
 });
 
@@ -493,18 +540,16 @@ describe("control_state 누락을 화면에 드러낸다", () => {
   it("ControlState 를 못 받으면 획득을 막고 이유를 말한다", () => {
     const snap = readySnapshot();
     delete snap.control_state;
-    const { container, getByRole } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, snap,
-    );
+    const view = renderWithSocket(<GateTrigger to="/vision" />, snap);
+    act(() => { view.getByRole("button", { name: "이동" }).click(); });
     // control_state 를 못 받으면 owner 를 알 수 없으므로 획득을 막는다 (fail-closed).
-    expect(getByRole("button", { name: /획득/ }).disabled).toBe(true);
-    expect(container.textContent.length).toBeGreaterThan(0);
+    expect(view.getByRole("button", { name: /획득/ }).disabled).toBe(true);
   });
 
   it("ControlState 를 받으면 획득 버튼이 열린다", () => {
-    const { getByRole } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, readySnapshot(),
-    );
+    const view = renderWithSocket(<GateTrigger to="/vision" />, readySnapshot());
+    act(() => { view.getByRole("button", { name: "이동" }).click(); });
+    const { getByRole } = view;
     expect(getByRole("button", { name: /획득/ }).disabled).toBe(false);
   });
 });
