@@ -100,6 +100,12 @@
         // 온도 (°C). 과온도 hardware_error 로 표시됩니다.
         "temperature_celsius": 35.0,
 
+        // 토크 활성 여부 (bool). MotorState.msg 에서 temperature_celsius 다음,
+        // hardware_error 앞입니다. true = 토크 ON(RUN 중), false = OFF(READY·RESET 후).
+        // 웹은 "토크" 열에 ON/OFF 로 표시하고, communication_ok 가 false 면 이 값을
+        // 유효로 보지 않고 "-" 로 둡니다.
+        "torque_enabled": true,
+
         // DYNAMIXEL 하드웨어 오류 비트필드. 0 이면 정상.
         // 비트별 의미가 프로젝트 문서에 없어 웹은 "0 이 아니면 오류" 로만 다룹니다.
         // 과전류와 과온을 구분하지 못합니다.
@@ -178,8 +184,8 @@
     // 조작 버튼을 엽니다. FR-34 의 1000ms 갱신이 끊기면 false 가 됩니다.
     "owner_alive": true,
 
-    // 동작이 실행 중인가. ExecuteSequence 전용인지 ExecuteGesture 도 포함인지
-    // 아직 확정되지 않았습니다(interfaces-bridge.md 3.4).
+    // Sequence(ExecuteSequence) 단일 실행 슬롯의 점유 상태입니다. 개별 Gesture 는
+    // 포함하지 않습니다 (gesture·sequence 공통 실행 신호는 /thing/control/motion_active).
     // 웹은 이 값으로 버튼을 잠그지 않습니다. ack 로 판단하므로 표시용입니다.
     "sequence_running": false,
 

@@ -355,7 +355,7 @@ function GateModal({
 
         <div className="mt-4 flex items-center justify-between gap-3 bg-ink-50 px-6 py-3">
           <p className="text-xs leading-relaxed text-ink-400">
-            연결이 복구되거나 손이 다시 인식되어도 제어는 자동으로 재개되지 않습니다.
+            연결 복구되거나 손이 다시 인식되어도 제어는 자동으로 재개되지 않습니다.
           </p>
           <button
             type="button"

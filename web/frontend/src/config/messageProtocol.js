@@ -1,5 +1,5 @@
 // ============================================================================
-// WebSocket <-> ROS 2 프로토콜 정의 — 요구사항 명세서 V7.0 단독 기준
+// WebSocket <-> ROS 2 프로토콜 정의 — 요구사항 명세서 V7.1 + interfaces.md / thing_interfaces 기준
 // ----------------------------------------------------------------------------
 // 계약 출처
 //   6.4절  서버→클라이언트 snapshot v1 (endpoint·top-level 6필드 고정)
@@ -354,12 +354,16 @@ export function isSnapshot(message) {
 }
 
 // ---------------------------------------------------------------------------
-// FR-37 거부 사유 — 프로젝트 표준
+// 거부 사유 — docs/interfaces.md / safety_manager.md / FR-18 기준
 // ---------------------------------------------------------------------------
-// "MVP 구현은 accepted, invalid_mode, owner_conflict, safety_not_ready,
-//  recording_active, motion_active 를 프로젝트 표준으로 문서화한다."
-// V7 FR-37: "accepted, invalid_mode, owner_conflict, safety_not_ready,
-//  recording_active, motion_active, stop_barrier_pending, stop_barrier_timeout"
+// 모든 service·action 응답의 `string reason` 로 온다. command_guard 의 진단
+// (diagnostics) reason 은 ack 가 아니라 /thing/diagnostics 채널이므로 넣지 않는다.
+// describeReason 은 표에 없는 값을 원문과 함께 fallback 하므로, 로봇이 미확정
+// 문자열을 보내도 조용히 깨지지 않는다.
+//
+// 옛 stop_barrier_pending·stop_barrier_timeout 은 제거했다. interfaces.md 에서
+// STOP 배리어는 내부 ROS 토픽(stop_requested/stop_barrier_ack) 메커니즘이고,
+// 재획득 차단의 mode 서비스 거부 사유는 stop_in_progress 다.
 export const REJECT_REASON = {
   ACCEPTED: "accepted",
 
@@ -393,6 +397,8 @@ export const REJECT_REASON = {
   NOT_RECORDING: "not_recording",
   SESSION_MISMATCH: "session_mismatch",   // 로봇 StopRecording 사유 — WEB_REASON.SESSION_MISMATCH 와 별개
   STOP_FAILED: "stop_failed",
+  PREEMPTED_BY_STOP: "preempted_by_stop",  // 정지 명령으로 대기 중이던 요청이 취소됨
+  SUPERSEDED: "superseded",                // 제어권 유지 신호가 새 요청으로 교체됨
 };
 
 // 웹 전송 계층 전용 사유 (web_ 접두사)
@@ -471,6 +477,10 @@ const REASON_MESSAGES = {
     "요청 시각이 서버 시각과 크게 어긋났습니다. 기기 시간을 확인하세요.",
   [WEB_REASON.SESSION_MISMATCH]:
     "화면에 표시된 세션과 로봇의 현재 세션이 다릅니다. 화면을 새로 고쳐 최신 기록 상태를 확인하세요.",
+  [REJECT_REASON.PREEMPTED_BY_STOP]:
+    "정지 명령으로 대기 중이던 요청이 취소되었습니다.",
+  [REJECT_REASON.SUPERSEDED]:
+    "제어권 유지 신호가 새 요청으로 교체되었습니다.",
 };
 
 /** 거부 사유를 사용자 문구로 바꾼다. 알 수 없는 사유는 원문을 함께 보여준다. */

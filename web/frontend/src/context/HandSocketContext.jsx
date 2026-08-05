@@ -1,7 +1,7 @@
 // ============================================================================
 // HandSocketContext — 브라우저 ↔ Jetson Web Bridge WebSocket
 // ----------------------------------------------------------------------------
-// 계약 출처는 요구사항 명세서 V7.0 단독이다.
+// 계약 출처는 요구사항 명세서 V7.1 + interfaces.md·safety_manager.md·thing_interfaces 다.
 //   6.4절  endpoint /ws/robot-state, top-level 6필드 snapshot
 //   FR-11  control_renew_period_ms=1000, owner_lease_timeout_ms=3000
 //   FR-19  현재 mode·owner 는 control_state 로 확인한다

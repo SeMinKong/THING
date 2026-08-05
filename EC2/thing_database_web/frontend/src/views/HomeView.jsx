@@ -73,9 +73,10 @@ export default function HomeView() {
           텐던 구동 로봇 핸드의 계측 기록 아카이브
         </motion.h1>
 
-        <motion.p className="lede" {...rise(0.18)}>
-          멋진 문구 한 마디
-        </motion.p>
+<motion.p className="lede" {...rise(0.18)}>
+  <strong style={{ fontSize: '1.5rem' }}>T</strong>endon-driven robot <strong style={{ fontSize: '1.5rem' }}>H</strong>and with <strong style={{ fontSize: '1.5rem' }}>I</strong>ntelligent <strong style={{ fontSize: '1.5rem' }}>N</strong>eural <strong style={{ fontSize: '1.5rem' }}>G</strong>rasp
+</motion.p>
+
 
         <motion.dl className="hero-facts" {...rise(0.26)}>
           <div className="hero-fact">
@@ -84,7 +85,7 @@ export default function HomeView() {
           </div>
           <div className="hero-fact">
             <dt>세션당 파일</dt>
-            <dd>3<small>개</small></dd>
+            <dd>4<small>개</small></dd>
           </div>
           <div className="hero-fact">
             <dt>시각 기준</dt>

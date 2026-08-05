@@ -162,9 +162,9 @@ YAML 에 있습니까:  [ ] 예  [ ] 아니오
 | `StopRecording` | `not_recording` `session_mismatch` `stop_failed` |
 | `SetControlMode` | `owner_lease_expired` |
 
-**현재 동작** — 웹은 이 사유가 오면 안내 문구를 만들지 못해 원문을 그대로 노출하고, 콘솔에 `ACK_UNKNOWN_REASON_*` 진단을 남깁니다. 동작은 하지만 안내가 불친절합니다.
+**현재 동작** — 8종 반영 완료로 각 사유에 맞는 안내 문구가 표시됩니다. (표에 없는 사유가 오면 여전히 원문 노출 + `ACK_UNKNOWN_REASON_*` 진단.)
 
-**웹이 할 일** — 8종을 `REJECT_REASON` 과 문구표에 추가합니다. 회신 없이 진행할 수 있습니다. 다만 하나만 확인이 필요합니다.
+**웹이 할 일** — **완료.** 8종이 `REJECT_REASON` 과 `describeReason()` 문구표에 반영됨. 남은 것은 아래 확인 하나뿐입니다.
 
 ```
 브릿지가 이 사유들을 ack 의 reason 에 그대로 실어 보냅니까?

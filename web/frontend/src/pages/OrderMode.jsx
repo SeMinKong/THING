@@ -86,6 +86,49 @@ export default function OrderMode() {
 
   return (
     <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
+            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+        <Panel className="flex min-h-0 flex-1 flex-col">
+          <div aria-label="명령" className="flex min-h-0 flex-1 flex-col">
+            <Head title="명령" afterTitle={<GesturePreview />}>
+              <Tag tone={commandsDisabled ? "idle" : "live"}>
+                {commandsDisabled ? "잠김" : "전송 가능"}
+              </Tag>
+            </Head>
+
+            <Body className="flex min-h-0 flex-1 flex-col gap-3">
+              {reason && <p className="text-xl leading-relaxed text-ink-500">{reason}</p>}
+
+              {/* FR-22 기본 명령 (Gesture) 및 추가 명령 (Sequence) — 동일한 2열 그리드에서 6개 버튼이 남는 높이를 나눠 갖는다 */}
+              <div className="grid min-h-0 flex-1 grid-cols-2 gap-2">
+                {[...BASIC_GESTURES, ...SEQUENCE_ACTIONS].map((command) => {
+                  const isSequence = SEQUENCE_ACTIONS.some((action) => action.id === command.id);
+
+                  return (
+                    <motion.button
+                      key={command.id}
+                      type="button"
+                      onClick={() => (isSequence ? runSequence(command) : runGesture(command))}
+                      disabled={commandsDisabled}
+                      aria-label={command.label}
+                      title={command.label}
+                      whileHover={commandsDisabled ? undefined : { y: -2 }}
+                      whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-action-200 bg-action-50 px-2 py-3 text-center transition-colors hover:border-action-700 hover:bg-action-100 disabled:opacity-30"           >
+                      <span className="text-2xl leading-none" aria-hidden="true">
+                        {command.icon}
+                      </span>
+                      <span className="text-3xl font-medium">{command.label}</span>
+                      {!isSequence && <span className="font-mono text-[20px] text-ink-400">{command.id}</span>}
+                    </motion.button>
+                  );
+                })}
+              </div>
+
+            </Body>
+          </div>
+        </Panel>
+      </div>
       {/* FR-25: 조작 모드에서는 영상보다 모터 상태가 중요하다.
           보낸 명령이 실제로 반영됐는지를 여기서 확인한다 */}
       <div className="flex min-h-0 flex-col">
@@ -97,73 +140,7 @@ export default function OrderMode() {
         />
       </div>
 
-      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-        <Panel className="flex min-h-0 flex-1 flex-col">
-          <div aria-label="명령" className="flex min-h-0 flex-1 flex-col">
-            <Head title="명령">
-              <GesturePreview />
-              <Tag tone={commandsDisabled ? "idle" : "live"}>
-                {commandsDisabled ? "잠김" : "전송 가능"}
-              </Tag>
-            </Head>
 
-            <Body className="flex min-h-0 flex-1 flex-col gap-3">
-              {reason && <p className="text-xs leading-relaxed text-ink-500">{reason}</p>}
-
-              {/* FR-22 기본 명령 (Gesture) — 남는 높이를 4칸이 나눠 갖는다 */}
-              <div className="grid min-h-0 flex-1 grid-cols-2 gap-2">
-                {BASIC_GESTURES.map((gesture) => (
-                  <motion.button
-                    key={gesture.id}
-                    type="button"
-                    onClick={() => runGesture(gesture)}
-                    disabled={commandsDisabled}
-                    aria-label={gesture.label}
-                    title={gesture.label}
-                    whileHover={commandsDisabled ? undefined : { y: -2 }}
-                    whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                    className="flex flex-col items-center justify-center gap-1.5 rounded
-                               border border-ink-300 bg-ink-50 px-2 py-3
-                               transition-colors hover:bg-white disabled:opacity-30"
-                  >
-                    <span className="text-2xl leading-none" aria-hidden="true">
-                      {gesture.icon}
-                    </span>
-                    <span className="text-xs font-medium">{gesture.label}</span>
-                    <span className="font-mono text-[10px] text-ink-400">{gesture.id}</span>
-                  </motion.button>
-                ))}
-              </div>
-
-              {/* FR-22 추가 명령 (Sequence) — FR-39 Could.
-                  기본 동작 타일과 결을 맞춰 두 줄로 두되 높이는 절반만 갖는다 */}
-              <div className="grid min-h-0 shrink-0 grid-cols-2 gap-2">
-                {SEQUENCE_ACTIONS.map((action) => (
-                  <motion.button
-                    key={action.id}
-                    type="button"
-                    onClick={() => runSequence(action)}
-                    disabled={commandsDisabled}
-                    title={action.label}
-                    whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
-                    className="flex items-center justify-center gap-1.5 rounded
-                               border border-ink-200 bg-ink-100 px-3 py-3
-                               text-xs font-medium transition-colors
-                               hover:bg-ink-200/70 disabled:opacity-30"
-                  >
-                    <span className="text-base leading-none" aria-hidden="true">
-                      {action.icon}
-                    </span>
-                    {action.label}
-                  </motion.button>
-                ))}
-              </div>
-
-            </Body>
-          </div>
-        </Panel>
-      </div>
     </div>
   );
 }

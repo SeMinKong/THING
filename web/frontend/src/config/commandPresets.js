@@ -40,7 +40,7 @@ export const BASIC_GESTURES = [
   },
   {
     id: "cylindrical_grasp",
-    icon: "🤝",
+    icon: "👍",
     label: "원통 파지",
     source: HAND_SOURCE.GESTURE,
     speed_limit: PENDING.GESTURE_SPEED_LIMIT.cylindrical_grasp,

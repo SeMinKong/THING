@@ -156,6 +156,7 @@ envelope:
 | 수락 | `accepted` |
 | 제어권 | `invalid_mode` `owner_conflict` `owner_lease_expired` `safety_not_ready` |
 | 동작 | `motion_active` `recording_active` |
+| 동작(Gesture·Sequence) | `invalid_gesture` `invalid_sequence` `invalid_speed_limit` `not_manual_mode` `control_state_unavailable\|stale` `safety_state_unavailable\|stale` `stop_latched` |
 | 정지 | `stop_barrier_pending` `stop_barrier_timeout` |
 | 기록 시작 | `not_mimic_mode` `start_failed` `already_recording` `result_pending` |
 | 기록 종료 | `not_recording` `session_mismatch` `stop_failed` |

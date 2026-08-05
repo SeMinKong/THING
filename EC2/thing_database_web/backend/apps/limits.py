@@ -35,8 +35,8 @@ PART_MAX_BYTES = {
 }
 
 #: 네 part 합계.
-#: 6.5절은 "네 part 합계 80.25MiB" 라고 적었으나 그 값은 landmark 를 뺀 합이다
-#: (0.25 + 20 + 60). 숫자를 옮겨 적지 않고 실제 합을 쓴다.
+#: V7.1 §6.5 은 "네 part 합계 200.25MiB" (0.25 + 20 + 60 + 120, landmark 포함)다.
+#: 숫자를 옮겨 적지 않고 실제 합을 쓴다.
 TOTAL_MAX_BYTES = sum(PART_MAX_BYTES.values())
 
 #: multipart 경계·헤더·필드가 차지하는 몫. 본문이 part 합계보다 조금 크다.
