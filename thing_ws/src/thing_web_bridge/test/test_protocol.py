@@ -165,6 +165,31 @@ def test_malformed_or_unsafe_requests_are_rejected(message):
         parse_request(message)
 
 
+@pytest.mark.parametrize(
+    ('session_id', 'expected_reason'),
+    [
+        # 값 사유: 계약이 "0이거나 63-bit 초과"에 전용 reason을 둔다.
+        ('0', 'invalid_session_id'),
+        (str(2 ** 63), 'invalid_session_id'),
+        (str(2 ** 63 + 1), 'invalid_session_id'),
+        # 형식 사유: 표준 10진 문자열이 아님.
+        ('00', 'web_malformed_request'),
+        ('007', 'web_malformed_request'),
+        ('²', 'web_malformed_request'),
+        ('12a', 'web_malformed_request'),
+        (123, 'web_malformed_request'),
+    ],
+)
+def test_session_id_reason_distinguishes_format_from_value(
+    session_id, expected_reason,
+):
+    """완료조건 ②: 거부 이유를 계약 표대로 구분한다."""
+    message = request('stop_recording', {'session_id': session_id})
+    with pytest.raises(ProtocolError) as caught:
+        parse_request(message)
+    assert caught.value.reason == expected_reason
+
+
 def test_ack_matches_frontend_shape():
     ack = make_ack('req-7', False, 'safety_not_ready')
 

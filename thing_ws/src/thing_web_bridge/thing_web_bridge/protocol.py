@@ -483,15 +483,21 @@ def _validate_speed(value: Any) -> None:
 
 
 def _validate_session_id(value: Any) -> None:
+    # 계약(docs/interfaces.md ACK reason 표)은 두 사유를 구분한다.
+    # web_malformed_request: 표준 10진 문자열 형식이 아님.
+    # invalid_session_id: 형식은 맞지만 값이 0이거나 63-bit를 넘음.
+    #
     # str.isdigit()는 '²' 같은 유니코드 숫자도 통과시키는데 그런 값은
-    # int()에서 ProtocolError가 아닌 예외가 나 reader task째 죽는다.
-    # 선행 0도 막아야 '00'이 미지정 센티널 0으로 ROS까지 들어가지 않는다.
-    if not isinstance(value, str) or not value.isascii():
+    # int()에서 미분류 예외가 나 reader task째 죽으므로 ascii로 먼저 막는다.
+    # 선행 0('00','007')은 표준 표기가 아니라 형식 오류로 본다. 단 '0'
+    # 하나는 0의 표준 표기이므로 형식이 아니라 값 사유로 거부한다.
+    if not isinstance(value, str) or not value.isascii() or not value.isdigit():
         raise ProtocolError('web_malformed_request')
-    if not value.isdigit() or value.startswith('0'):
+    if len(value) > 1 and value.startswith('0'):
         raise ProtocolError('web_malformed_request')
-    if int(value) >= 2 ** 63:
-        raise ProtocolError('web_malformed_request')
+    number = int(value)
+    if number == 0 or number >= 2 ** 63:
+        raise ProtocolError('invalid_session_id')
 
 
 def _validate_timestamp(value: Any) -> None:
