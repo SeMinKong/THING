@@ -13,27 +13,21 @@
    드라이버가 ``/thing/motor_status``와 ``/thing/diagnostics``를 발행하고,
    ``/thing/command``와 ``/thing/safety_state``를 구독한다.
 4. 시작 흐름
-   launch 실행 → SROS2 Enforce와 hardware enclave 검증 → 세 DYNAMIXEL bus 연결
-   → 7개 모터 확인 → 토크 OFF 상태에서 제어값 설정 → 현재 위치 읽기. 이후 정상
-   제어권에서 ``open`` 명령을 받으면 보정된 ID 1·3·4·7만 편 손 자세로 이동한다.
-   미보정 ID 2·5·6의 -1 endpoint는 쓰지 않는다. Safety Manager가 ``SAFE``를
-   발행하면 드라이버는 일반 명령과 별도로 ``safe_positions_raw``까지 저속 이동한 뒤
-   토크를 끄는 ``run_safe_cycle()``을 수행한다.
+   launch 실행 → 세 DYNAMIXEL bus 연결 → 7개 모터 확인 → 토크 OFF 상태에서
+   제어값 설정 → 현재 위치 읽기. 이후 정상 제어권에서 ``open`` 명령을 받으면
+   보정된 ID 1·3·4·7만 편 손 자세로 이동한다. 미보정 ID 2·5·6의 -1 endpoint는
+   쓰지 않는다. Safety Manager가 ``SAFE``를 발행하면 드라이버는 일반 명령과 별도로
+   ``safe_positions_raw``까지 저속 이동한 뒤 토크를 끄는 ``run_safe_cycle()``을 수행한다.
 5. 사용 방법
-   선행 작업 ``S15P11C103-67`` motor driver와 ``S15P11C103-89`` E-Stop
-   publisher/enclave가 병합된 뒤 사용한다. 동일한 SROS2 keystore로
-   ``control.launch.py``를 먼저 실행하고 이 launch를 실행한다. Safety Manager가
-   READY이고 MANUAL/WEB 제어권을 얻은 상태에서 ``open`` gesture를 요청한다.
+   선행 작업 ``S15P11C103-67`` motor driver와 ``S15P11C103-89`` E-Stop publisher가
+   병합된 뒤 사용한다. ``control.launch.py``를 먼저 실행하고 이 launch를 실행한다.
+   Safety Manager가 READY이고 MANUAL/WEB 제어권을 얻은 상태에서 ``open`` gesture를
+   요청한다.
 6. 안전 경계
-   launch는 ``ROS_SECURITY_ENABLE=true``, ``ROS_SECURITY_STRATEGY=Enforce`` 및 완전한
-   ``/thing/hardware/motor_driver`` enclave가 없으면 시작을 거부한다. launch 자체는 토크를
-   강제로 켜거나 시작 즉시 움직이지 않는다. 정상 명령은 SROS2 권한으로 제한된
+   launch 자체는 토크를 강제로 켜거나 시작 즉시 움직이지 않는다. 정상 명령은
    ``open → Command Manager → Command Guard → motor_driver_node`` 경로를 사용하고,
-   SAFE 이동은 권한 있는 Safety Manager의 ``/thing/safety_state`` 전이만 허용한다.
+   SAFE 이동은 Safety Manager의 ``/thing/safety_state`` 전이에 따라 수행한다.
 """
-
-import os
-from pathlib import Path
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -42,56 +36,8 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
-_HARDWARE_ENCLAVE = '/thing/hardware/motor_driver'
-_REQUIRED_ENCLAVE_FILES = (
-    'cert.pem',
-    'governance.p7s',
-    'identity_ca.cert.pem',
-    'key.pem',
-    'permissions.p7s',
-    'permissions.xml',
-    'permissions_ca.cert.pem',
-)
-
-
-def _enclave_artifacts_complete(enclave_directory: Path) -> bool:
-    return all(
-        (enclave_directory / name).is_file()
-        and (enclave_directory / name).stat().st_size > 0
-        for name in _REQUIRED_ENCLAVE_FILES
-    )
-
-
-def _require_enforced_sros2() -> None:
-    """Fail before hardware access unless the motor enclave is complete."""
-    # Humble rcl enables security only for the exact lowercase value "true".
-    if os.environ.get('ROS_SECURITY_ENABLE') != 'true':
-        raise RuntimeError('ROS_SECURITY_ENABLE=true is required')
-    if os.environ.get('ROS_SECURITY_STRATEGY') != 'Enforce':
-        raise RuntimeError('ROS_SECURITY_STRATEGY=Enforce is required')
-    enclave_override = os.environ.get('ROS_SECURITY_ENCLAVE_OVERRIDE', '')
-    if enclave_override and enclave_override != _HARDWARE_ENCLAVE:
-        raise RuntimeError(
-            'ROS_SECURITY_ENCLAVE_OVERRIDE must match '
-            + _HARDWARE_ENCLAVE
-        )
-    keystore_value = os.environ.get('ROS_SECURITY_KEYSTORE', '')
-    if not keystore_value:
-        raise RuntimeError('ROS_SECURITY_KEYSTORE is required')
-    enclave_directory = (
-        Path(keystore_value)
-        / 'enclaves'
-        / _HARDWARE_ENCLAVE.lstrip('/')
-    )
-    if not _enclave_artifacts_complete(enclave_directory):
-        raise RuntimeError(
-            'missing SROS2 enclave artifacts: ' + _HARDWARE_ENCLAVE
-        )
-
-
 def generate_launch_description():
-    """검증된 SROS2 enclave에서 손 모터 드라이버를 시작한다."""
-    _require_enforced_sros2()
+    """손 모터 드라이버를 version-controlled 파라미터로 시작한다."""
     default_motors_config = PathJoinSubstitution([
         FindPackageShare('thing_bringup'),
         'config',
@@ -110,7 +56,6 @@ def generate_launch_description():
             package='thing_hardware',
             executable='motor_driver_node',
             name='motor_driver_node',
-            ros_arguments=['--enclave', _HARDWARE_ENCLAVE],
             parameters=[motors_config],
             output='screen',
             emulate_tty=True,

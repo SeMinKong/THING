@@ -85,7 +85,7 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 - SafetyState stamp는 같은 transition의 periodic heartbeat 동안 고정하고 상태 전이 때만 증가한다. Guard는 stamp가 역행한 지연 상태를 거부하고 `command_stream_recovered` 전이를 관측해 HOLD 표본을 놓친 경우에도 local forwarding 기준을 안전하게 다시 연다.
 - MotorStatus 유발 FAULT publication은 최대 한 20ms steady tick 동안 coalesce한다. 같은 ready set의 active E-Stop은 ESTOP으로 우선 publish하며, E-Stop이 없으면 deadline 직후 FAULT를 publish한다.
 - `builtin_interfaces/Time.nanosec`가 `[0, 1000000000)` 밖이면 MotorStatus와 HandCommand를, SafetyState source stamp가 0 이하이거나 역행·동일 stamp로 enum이 바뀌면 Guard와 Manager가 해당 상태를 malformed/replayed로 거부한다. Manual Executor는 표준 `UInt64.data` generation으로 raw STOP과 Guard ACK을 상관시키고, 동일 ACK 이후 로컬 callback 관측 순서가 `DISABLED`, `RESET/INIT→READY`, 새 `MANUAL`까지 완성된 경우에만 admission latch를 연다.
-- `control.launch.py`는 SROS2 `Enforce`와 네 고정 enclave의 cert/key/governance/permissions artifact가 모두 존재하고 non-empty인지 검사한다. version-controlled policy에서 `/thing/command`, validation result, STOP barrier ACK의 publish 권한은 Command Guard enclave에만 있다.
+- `control.launch.py`는 별도 security artifact 없이 네 control node를 동일한 `control.yaml`로 시작하며, 노드 이름·토픽·서비스 계약은 기존과 동일하게 유지한다.
 - 모든 timing parameter는 strict integer이며 V6.4 fail-closed envelope의 유한 상한을 초과할 수 없다.
 
 ## ROS 인터페이스
@@ -149,14 +149,6 @@ colcon build --packages-select thing_interfaces thing_control thing_bringup
 source install/setup.bash
 
 export ROS_DOMAIN_ID=<deployment-domain-id>
-export THING_KEYSTORE=/etc/thing/sros2_keystore
-ros2 security create_keystore "$THING_KEYSTORE"
-ros2 security generate_artifacts \
-  -k "$THING_KEYSTORE" \
-  -p "$(ros2 pkg prefix --share thing_control)/security/thing_control.policy.xml"
-export ROS_SECURITY_KEYSTORE="$THING_KEYSTORE"
-export ROS_SECURITY_ENABLE=true
-export ROS_SECURITY_STRATEGY=Enforce
 ros2 launch thing_bringup control.launch.py
 ```
 

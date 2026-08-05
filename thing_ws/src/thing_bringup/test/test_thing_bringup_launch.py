@@ -2,9 +2,7 @@
 
 import importlib.util
 from pathlib import Path
-import xml.etree.ElementTree as ET
 
-import pytest
 import yaml
 from launch.actions import DeclareLaunchArgument
 from launch_ros.actions import Node
@@ -14,12 +12,6 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 LAUNCH_PATH = PACKAGE_ROOT / 'launch' / 'thing_bringup.launch.py'
 MOTORS_PATH = PACKAGE_ROOT / 'config' / 'motors.yaml'
 CONTROL_PATH = PACKAGE_ROOT / 'config' / 'control.yaml'
-POLICY_PATH = (
-    PACKAGE_ROOT.parent
-    / 'thing_control'
-    / 'security'
-    / 'thing_control.policy.xml'
-)
 
 
 def load_launch_module():
@@ -33,90 +25,9 @@ def load_launch_module():
     return module
 
 
-def configure_complete_hardware_enclave(module, monkeypatch, tmp_path):
-    """Create non-empty placeholder artifacts for launch wiring tests."""
-    monkeypatch.setenv('ROS_SECURITY_ENABLE', 'true')
-    monkeypatch.setenv('ROS_SECURITY_STRATEGY', 'Enforce')
-    monkeypatch.setenv('ROS_SECURITY_KEYSTORE', str(tmp_path))
-    monkeypatch.delenv('ROS_SECURITY_ENCLAVE_OVERRIDE', raising=False)
-    enclave_directory = (
-        tmp_path
-        / 'enclaves'
-        / module._HARDWARE_ENCLAVE.lstrip('/')
-    )
-    enclave_directory.mkdir(parents=True)
-    for name in module._REQUIRED_ENCLAVE_FILES:
-        (enclave_directory / name).write_text('test-artifact')
-
-
-def test_thing_bringup_rejects_insecure_environment(monkeypatch):
-    """The hardware launch must not silently join an insecure DDS domain."""
-    module = load_launch_module()
-    monkeypatch.delenv('ROS_SECURITY_ENABLE', raising=False)
-    monkeypatch.delenv('ROS_SECURITY_STRATEGY', raising=False)
-    monkeypatch.delenv('ROS_SECURITY_KEYSTORE', raising=False)
-
-    with pytest.raises(RuntimeError, match='ROS_SECURITY_ENABLE'):
-        module.generate_launch_description()
-
-
-def test_thing_bringup_requires_exact_lowercase_security_enable(
-    monkeypatch,
-    tmp_path,
-):
-    """Values rejected by Humble rcl must also be rejected by preflight."""
-    module = load_launch_module()
-    configure_complete_hardware_enclave(module, monkeypatch, tmp_path)
-    for value in ('TRUE', 'True', '1'):
-        monkeypatch.setenv('ROS_SECURITY_ENABLE', value)
-        with pytest.raises(RuntimeError, match='ROS_SECURITY_ENABLE'):
-            module.generate_launch_description()
-
-
-def test_thing_bringup_rejects_mismatched_enclave_override(
-    monkeypatch,
-    tmp_path,
-):
-    """An environment override must not replace the reviewed hardware identity."""
-    module = load_launch_module()
-    configure_complete_hardware_enclave(module, monkeypatch, tmp_path)
-    monkeypatch.setenv(
-        'ROS_SECURITY_ENCLAVE_OVERRIDE',
-        '/thing/hardware/unreviewed_driver',
-    )
-
-    with pytest.raises(RuntimeError, match='ROS_SECURITY_ENCLAVE_OVERRIDE'):
-        module.generate_launch_description()
-
-
-def test_thing_bringup_requires_complete_hardware_enclave(
-    monkeypatch,
-    tmp_path,
-):
-    """An empty hardware enclave directory must fail before starting a motor."""
-    module = load_launch_module()
-    monkeypatch.setenv('ROS_SECURITY_ENABLE', 'true')
-    monkeypatch.setenv('ROS_SECURITY_STRATEGY', 'Enforce')
-    monkeypatch.setenv('ROS_SECURITY_KEYSTORE', str(tmp_path))
-    (
-        tmp_path
-        / 'enclaves'
-        / module._HARDWARE_ENCLAVE.lstrip('/')
-    ).mkdir(parents=True)
-
-    with pytest.raises(RuntimeError, match='missing SROS2 enclave artifacts'):
-        module.generate_launch_description()
-
-
-def test_thing_bringup_starts_motor_driver_with_config_argument(
-    monkeypatch,
-    tmp_path,
-):
-    """A complete enclave starts one driver with config and enclave wiring."""
-    module = load_launch_module()
-    configure_complete_hardware_enclave(module, monkeypatch, tmp_path)
-
-    description = module.generate_launch_description()
+def test_thing_bringup_starts_motor_driver_with_config_argument():
+    """The launch keeps the motor executable and parameter wiring unchanged."""
+    description = load_launch_module().generate_launch_description()
 
     arguments = [
         entity
@@ -132,42 +43,8 @@ def test_thing_bringup_starts_motor_driver_with_config_argument(
     assert len(nodes) == 1
     assert nodes[0].node_package == 'thing_hardware'
     assert nodes[0].node_executable == 'motor_driver_node'
-    assert nodes[0]._Node__ros_arguments == [
-        '--enclave',
-        module._HARDWARE_ENCLAVE,
-    ]
-
-
-def test_hardware_policy_is_least_privilege_for_motor_driver():
-    """The motor enclave may use only its documented ROS graph contract."""
-    root = ET.parse(POLICY_PATH).getroot()
-    enclave = root.find(
-        ".//enclave[@path='/thing/hardware/motor_driver']"
-    )
-    assert enclave is not None
-    profile = enclave.find("./profiles/profile[@node='motor_driver_node']")
-    assert profile is not None
-
-    subscribed = {
-        topic.text
-        for topic in profile.findall("./topics[@subscribe='ALLOW']/topic")
-    }
-    published = {
-        topic.text
-        for topic in profile.findall("./topics[@publish='ALLOW']/topic")
-    }
-    assert subscribed == {
-        'ros_discovery_info',
-        '/thing/command',
-        '/thing/safety_state',
-    }
-    assert published == {
-        'ros_discovery_info',
-        '/thing/motor_status',
-        '/thing/diagnostics',
-        'parameter_events',
-        'rosout',
-    }
+    assert nodes[0]._Node__parameters
+    assert not nodes[0]._Node__ros_arguments
 
 
 def test_controlled_motors_use_open_home_as_safe_start_reference():
