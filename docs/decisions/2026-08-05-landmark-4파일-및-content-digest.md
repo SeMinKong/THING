@@ -34,7 +34,7 @@ uploader(125) 구현 직전 점검에서, **landmark 처리와 `content_digest` 
 |---|------|------|
 | **D1** | **LandMark JSON을 필수 4번째 파일로 확정.** uploader는 항상 4 part를 보내고, EC2는 `REQUIRED=True`로 3-part 업로드를 거부한다. | 명세 V7.1 §3.9·§6.5·8.3(검수 6)이 "정확히 네 파일"로 확정. C-1 전환. |
 | **D2** | **landmark를 `content_digest` 계산에 포함.** EC2 `INCLUDE_IN_DIGEST=True`. | exporter가 이미 포함 중 → EC2를 맞춰야 §1 버그 해소. landmark도 멱등성·무결성 보호를 받게 됨. D1로 항상 존재하므로 "3파일↔4파일 → 409" 부작용 없음. |
-| **D3** | **LandMark JSON 스키마를 exporter 출력 형식으로 확정** (아래 §3). EC2 `landmark_contract.SCHEMA_DECIDED=True`. | P-1 "형식 미정"은 사실상 이미 `export_schema.py`에 존재. 생성기(exporter)를 단일 기준으로 삼는다. |
+| **D3** | **LandMark JSON 스키마를 exporter 출력 형식으로 확정** (아래 §3). EC2 `landmark_contract.SCHEMA_DECIDED=True`. | P-1 "형식 미정"은 사실상 이미 `export_schema.py`에 존재. 생성기(exporter)를 단일 기준으로 삼는다. **적용 시점은 D1·D2와 분리 가능**: `SCHEMA_DECIDED=False`여도 업로드 종단은 D1·D2만으로 동작하므로, 스키마 강화는 131(fixture 테스트)과 함께 켜도 된다. 켜는 시점에 `make_session.sample_payload()` 갱신이 **필수**(아래 §5). |
 | **D4** | **수동 재업로드 CLI 폐기.** 티켓 137 취소, uploader(125)·MVP에 CLI 없음. | 실패 시 자동 재시도·영구 queue·재개 없음 원칙과 일관. 범위 축소. |
 
 ---
@@ -84,9 +84,11 @@ uploader(125) 구현 직전 점검에서, **landmark 처리와 `content_digest` 
 | **EC2 backend** | `backend/apps/landmark_contract.py` | `REQUIRED=True`, `INCLUDE_IN_DIGEST=True`, `SCHEMA_DECIDED=True`, `ROOT_TYPE=list` | 김기현 |
 | | `backend/apps/digest.py` | `TEST_VECTOR`에 landmark 추가 + 교차검증 | 김기현 |
 | | `backend/apps/limits.py` | landmark part 상한(현 120MiB) 확정/조정 → Django·Nginx 상한 동반 | 김기현 |
+| | `backend/apps/management/commands/make_session.py` | `sample_payload()`가 dict(`{"schema_note","frames"}`) 형식 — **D3 적용(SCHEMA_DECIDED=True) 시 자기 서버 검증에 걸림**. exporter 배열·12필드 형식으로 갱신 (D1·D2만 적용하는 동안은 그대로 동작) | 김기현 |
+| | `backend/apps/tests_landmark.py` 등 | `assertFalse(SCHEMA_DECIDED)`·`assertFalse(INCLUDE_IN_DIGEST)` 가드 테스트는 플래그 전환 시 **의도적으로 깨지도록** 설계된 것 — True 기준으로 갱신, 3-part 업로드 테스트를 4-part로 | 김기현 |
 | **EC2 frontend** | `frontend/src/views/SessionDetailView.jsx` | 기능 변경 **없음**. 노트 문구 "형식 확정 전" 갱신(코스메틱) | 김기현 |
 | | `frontend/src/test/fixtures.js` | `downloads`·`file_sizes`·`row_counts`에 landmark 추가(테스트) | 김기현 |
-| **명세** | 요구사항 명세서 §6.5 | digest 문구를 "네 파일 포함"으로 수정, LandMark JSON 스키마 §3 반영 → V7.2 | 신수진 |
+| **명세** | 요구사항 명세서 §6.5 외 | digest 문구를 "네 파일 포함"으로 수정, LandMark JSON 스키마 §3 반영. **"세 파일" 잔재가 V7.md에 43곳**, multipart 합계 80.25MiB는 3파일 합(landmark 상한 누락, P-3) — 함께 정리 → V7.2 | 신수진 |
 | **미결정 회신** | `EC2/.../docs/pending-decisions.md` | P-1·P-2·C-1 = 해소, P-3 = 상한 확정, P-4 = MVP 미제공 유지, P-5 = 멱등상 불가 | 김기현 |
 | **Jira** | 137 | **취소/폐기**. 125·136에 본 합의 링크 | 신수진 |
 
@@ -106,6 +108,7 @@ digest 규칙은 **로봇·EC2를 동시에 바꿔야** 한다(한쪽만 바꾸�
 
 ## 7. 미해결 · 리스크
 
+- **Jira 125 완료조건 충돌**: 125에 "실패 bag를 수동 CLI로 다시 export/upload할 수 있다"가 남아 있어 D4(CLI 폐기)와 모순 — 이대로면 125 완료 검수에서 걸린다. 티켓 문구 수정은 보류 중(신수진 판단 대기).
 - **P-3**: landmark 120MiB 상한은 실측 없는 임시값. 대표 60초 세션 실제 용량으로 확정 필요(Django 210MiB·Nginx 220MiB 동반 조정).
 - EC2가 landmark의 `image_width/height` 등 필드를 표시/다운로드 외에 쓸지(현재 다운로드 전용, P-4 시계열 미제공 유지).
 - 이미 스테이징에 올라간 시험 세션이 있으면 digest 규칙 변경으로 재계산됨 — MVP 전이라 영향 없다고 가정.
