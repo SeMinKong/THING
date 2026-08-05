@@ -1,4 +1,4 @@
-"""Launch the Jetson vision pipeline and browser-facing transports."""
+"""Launch the Jetson vision pipeline, browser-facing transports, and logger."""
 
 from launch import LaunchDescription
 from launch.substitutions import PathJoinSubstitution
@@ -7,7 +7,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    """Start vision processing, MJPEG streaming, and the Web Bridge."""
+    """Start vision processing, MJPEG streaming, the Web Bridge, and the logger."""
     vision_config = PathJoinSubstitution(
         [FindPackageShare('thing_bringup'), 'config', 'vision.yaml']
     )
@@ -45,6 +45,13 @@ def generate_launch_description():
             package='thing_web_bridge',
             executable='web_bridge_node',
             name='web_bridge_node',
+            parameters=[vision_config],
+            output='screen',
+        ),
+        Node(
+            package='thing_logger',
+            executable='logger',
+            name='logger',
             parameters=[vision_config],
             output='screen',
         ),
