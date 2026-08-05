@@ -1,0 +1,115 @@
+"""Wiring tests for the robot-hand hardware bringup launch."""
+
+import importlib.util
+from pathlib import Path
+
+import yaml
+from launch.actions import DeclareLaunchArgument
+from launch_ros.actions import Node
+
+
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+LAUNCH_PATH = PACKAGE_ROOT / 'launch' / 'thing_bringup.launch.py'
+MOTORS_PATH = PACKAGE_ROOT / 'config' / 'motors.yaml'
+CONTROL_PATH = PACKAGE_ROOT / 'config' / 'control.yaml'
+
+
+def load_launch_module():
+    """Load the launch file as a normal Python module."""
+    spec = importlib.util.spec_from_file_location(
+        'thing_bringup_launch_test',
+        LAUNCH_PATH,
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_thing_bringup_starts_motor_driver_with_config_argument():
+    """The launch keeps the motor executable and parameter wiring unchanged."""
+    description = load_launch_module().generate_launch_description()
+
+    arguments = [
+        entity
+        for entity in description.entities
+        if isinstance(entity, DeclareLaunchArgument)
+    ]
+    nodes = [
+        entity
+        for entity in description.entities
+        if isinstance(entity, Node)
+    ]
+    assert [argument.name for argument in arguments] == ['motors_config']
+    assert len(nodes) == 1
+    assert nodes[0].node_package == 'thing_hardware'
+    assert nodes[0].node_executable == 'motor_driver_node'
+    assert nodes[0]._Node__parameters
+    assert not nodes[0]._Node__ros_arguments
+
+
+def test_controlled_motors_use_open_home_as_safe_start_reference():
+    """Only calibrated IDs may use the measured open-hand home targets."""
+    parameters = yaml.safe_load(MOTORS_PATH.read_text())[
+        'motor_driver_node'
+    ]['ros__parameters']
+    motor_ids = parameters['motor_ids']
+    controlled_ids = set(parameters['controlled_motor_ids'])
+    axis_fields = (
+        'actuator_names',
+        'bus_indices',
+        'home_positions_raw',
+        'closed_positions_raw',
+        'safe_positions_raw',
+        'position_tolerances_raw',
+        'position_p_gains',
+        'position_i_gains',
+        'position_d_gains',
+        'goal_currents_ma',
+        'profile_accelerations_raw',
+        'profile_velocities_raw',
+    )
+    unsupported_parameters = {
+        'model',
+        'encoder_resolution_raw',
+        'current_limit_ma',
+        'max_consecutive_read_failures',
+        'bus_failure_timeout_ms',
+    }
+
+    assert motor_ids == sorted(set(motor_ids))
+    assert len(motor_ids) == 7
+    assert controlled_ids == {1, 3, 4, 7}
+    assert all(len(parameters[field]) == len(motor_ids) for field in axis_fields)
+    assert unsupported_parameters.isdisjoint(parameters)
+    assert parameters['operating_mode'] == 5
+    assert parameters['integration_test_mode'] is True
+    assert 0.0 < parameters['safe_velocity_limit'] <= 1.0
+
+    rows = zip(
+        motor_ids,
+        parameters['home_positions_raw'],
+        parameters['closed_positions_raw'],
+        parameters['safe_positions_raw'],
+        parameters['position_tolerances_raw'],
+    )
+    for motor_id, home, closed, safe, tolerance in rows:
+        if motor_id in controlled_ids:
+            assert 0 <= home <= 4095
+            assert 0 <= closed <= 4095
+            assert 0 <= safe <= 4095
+            assert safe == home
+            assert tolerance >= 0
+        else:
+            assert home == -1
+            assert closed == -1
+            assert safe == -1
+            assert tolerance == -1
+
+
+def test_open_gesture_is_the_normalized_home_pose():
+    """The normal command path must map the named open pose to every home endpoint."""
+    parameters = yaml.safe_load(CONTROL_PATH.read_text())[
+        'manual_executor'
+    ]['ros__parameters']
+
+    assert parameters['gestures.open.axes'] == [0.0] * 7

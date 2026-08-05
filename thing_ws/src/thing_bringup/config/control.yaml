@@ -1,3 +1,18 @@
+estop_gpio_node:
+  ros__parameters:
+    # Tested Raspberry Pi wiring: isolated NO auxiliary contact to GND.
+    # Released/open is HIGH; pressed/closed is LOW. The separate main NC
+    # contact removes motor drive power independently of this GPIO process.
+    gpio_chip: "gpiochip4"
+    gpio_line: 17
+    active_low: true
+    poll_interval_ms: 5
+    debounce_ms: 50
+    heartbeat_period_ms: 100
+    # Validated startup range: 1..500 ms; slower recovery is rejected.
+    reopen_interval_ms: 500
+    safety_timeout_ms: 300
+
 command_manager:
   ros__parameters:
     owner_lease_timeout_ms: 3000
