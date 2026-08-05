@@ -9,6 +9,7 @@ import time
 from typing import Any, Dict, Mapping, Optional
 
 
+# 6.4절이 MVP 계약으로 고정한 top-level 여덟 필드다. 이름·순서를 바꾸지 않는다.
 SNAPSHOT_FIELDS = (
     'timestamp',
     'mode',
@@ -16,7 +17,15 @@ SNAPSHOT_FIELDS = (
     'landmarks',
     'motor_state',
     'safety_state',
+    'control_state',
+    'recording',
 )
+
+# 6.4절은 두 갈래를 구분한다. control_state·recording은 동결 스키마 원문을
+# 그대로 싣고, landmarks·motor_state·safety_state만 파생 표시 객체다. 파생값이
+# 필요한 이유는 SafetyState의 reset 가능 여부와 hand-loss latch가 develop 스키마
+# 밖 값이기 때문이며, 앞의 두 객체는 원문만으로 FR-19·24·26을 충족한다.
+VERBATIM_SECTIONS = ('control_state', 'recording')
 
 CONTROL_MODES = ('DISABLED', 'MIMIC', 'MANUAL', 'TELEOP')
 CONTROL_OWNERS = ('NONE', 'WEB', 'LOCAL')
@@ -153,32 +162,32 @@ def _plain(value: Any) -> Any:
 
 
 def control_state_payload(message: Any) -> Dict[str, Any]:
-    """Serialize ``ControlState`` while exposing symbolic enums."""
-    payload = _plain(message)
-    payload['active_mode'] = _symbol(
-        payload.get('active_mode'), CONTROL_MODES, 'mode')
-    payload['active_owner'] = _symbol(
-        payload.get('active_owner'), CONTROL_OWNERS, 'owner')
-    return payload
+    """
+    Serialize ``ControlState`` verbatim.
+
+    6.4절이 "control_state는 ControlState.msg 원문을 그대로 싣고"로 정했으므로
+    enum을 symbol로 바꾸지 않는다. 정수 상수가 그대로 나간다. 표시용 symbol은
+    top-level ``mode`` mirror가 담당한다.
+    """
+    return _plain(message)
 
 
 def recording_state_payload(message: Any) -> Dict[str, Any]:
-    """Serialize ``RecordingState`` without losing uint64 session IDs."""
+    """
+    Serialize ``RecordingState`` verbatim except for uint64 session IDs.
+
+    6.4절이 원문 유지를 요구하면서 Session ID만 예외로 "10진 문자열로
+    직렬화하며 세션 없음은 '0'으로 표현한다"고 정했다. JSON 숫자로 보내면
+    JavaScript가 63-bit 값의 정밀도를 잃기 때문이다.
+    """
     payload = _plain(message)
-    payload['state'] = _symbol(
-        payload.get('state'), RECORDING_STATES, 'recording_state')
-    payload['last_mimic_result'] = _symbol(
-        payload.get('last_mimic_result'),
-        RECORDING_RESULTS,
-        'recording_result',
-    )
     for key in ('active_session_id', 'last_session_id'):
         session_id = payload.get(key, 0)
         if isinstance(session_id, bool) or not isinstance(session_id, int):
             raise ProtocolError('invalid_session_id')
         if session_id < 0:
             raise ProtocolError('invalid_session_id')
-        payload[key] = '' if session_id == 0 else str(session_id)
+        payload[key] = str(session_id)
     return payload
 
 
@@ -289,19 +298,26 @@ class SnapshotStore:
         return age is not None and age <= limit
 
     def update_control_state(self, message: Any) -> None:
-        """Store the latest ControlState and top-level mode."""
+        """Store verbatim ControlState and derive the top-level mode mirror."""
         payload = control_state_payload(message)
+        # 6.4절: top-level mode는 control_state.active_mode에서 파생한 표시용
+        # mirror이며 두 표현은 항상 일치한다. 원문은 정수이므로 여기서 symbol을
+        # 만든다.
+        mode = _symbol(payload.get('active_mode'), CONTROL_MODES, 'mode')
         with self._lock:
             self._control_state = payload
-            self._mode = payload['active_mode']
+            self._mode = mode
             self._mark('control_state')
 
     def update_recording_state(self, message: Any) -> None:
-        """Store the latest RecordingState and symbolic top-level state."""
+        """Store verbatim RecordingState and derive the state mirror."""
         payload = recording_state_payload(message)
+        # 6.4절: recording_state도 recording.state에서 파생한 mirror다.
+        state = _symbol(
+            payload.get('state'), RECORDING_STATES, 'recording_state')
         with self._lock:
             self._recording = payload
-            self._recording_state = payload['state']
+            self._recording_state = state
             self._mark('recording')
 
     def update_landmarks(self, message: Any) -> None:
@@ -438,6 +454,17 @@ class SnapshotStore:
         payload['stale'] = not self._fresh(key, limit)
         return payload
 
+    def _verbatim_locked(self, key: str) -> Dict[str, Any]:
+        """
+        Copy one section without adding anything to the frozen schema.
+
+        6.4절이 control_state·recording을 "원문을 그대로" 싣도록 정했으므로
+        age_ms·stale을 붙이지 않는다. 신선도가 필요한 곳은 connection_status가
+        같은 수신 시각에서 따로 파생한다.
+        """
+        source = getattr(self, f'_{key}')
+        return deepcopy(source) if source else {}
+
     def snapshot(self) -> Dict[str, Any]:
         """Return one independent snapshot matching the browser contract."""
         with self._lock:
@@ -454,10 +481,8 @@ class SnapshotStore:
                     'motor_state', self._data_stale_after),
                 'safety_state': self._with_freshness_locked(
                     'safety_state', self._state_stale_after),
-                'control_state': self._with_freshness_locked(
-                    'control_state', self._state_stale_after),
-                'recording': self._with_freshness_locked(
-                    'recording', self._state_stale_after),
+                'control_state': self._verbatim_locked('control_state'),
+                'recording': self._verbatim_locked('recording'),
                 'last_hand_command': self._with_freshness_locked(
                     'last_hand_command', self._data_stale_after),
                 'connection_status': self._connection_status_locked(),

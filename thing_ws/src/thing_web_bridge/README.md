@@ -11,11 +11,19 @@ validation path.
 - State snapshot period: 200 ms (5 Hz)
 - MJPEG: `http://<jetson-host>:8080/stream.mjpg`
 
-Each snapshot always contains the requirement fields `timestamp`, `mode`,
-`recording_state`, `landmarks`, `motor_state`, and `safety_state`. The bridge
-also emits `control_state`, `recording`, and `last_hand_command` for the current
-web UI. ROS `uint64` session IDs are encoded as decimal strings so JavaScript
-does not lose precision.
+Every snapshot carries the eight top-level fields fixed by requirement 6.4:
+`timestamp`, `mode`, `recording_state`, `landmarks`, `motor_state`,
+`safety_state`, `control_state`, and `recording`. It also adds
+`last_hand_command` and `connection_status` for the current web UI.
+
+`control_state` and `recording` carry the frozen `.msg` schema verbatim, so
+their enums stay integers and no derived field is attached. Only `landmarks`,
+`motor_state`, and `safety_state` are display objects with symbolic enums and
+derived values. Top-level `mode` and `recording_state` are symbolic mirrors of
+the verbatim sections and always agree with them.
+
+ROS `uint64` session IDs are encoded as decimal strings so JavaScript does not
+lose precision; no active session is `"0"`.
 
 ## Browser request contract
 

@@ -23,10 +23,11 @@ def request(request_type, payload, **overrides):
     return message
 
 
-def test_empty_snapshot_has_fixed_six_fields_and_safe_extensions():
+def test_empty_snapshot_has_the_fixed_eight_fields_and_safe_extensions():
+    """6.4절: top-level 여덟 필드를 이름·순서 그대로 고정한다."""
     snapshot = SnapshotStore().snapshot()
 
-    assert tuple(snapshot)[:6] == SNAPSHOT_FIELDS
+    assert tuple(snapshot)[:8] == SNAPSHOT_FIELDS
     assert snapshot['mode'] == 'DISABLED'
     assert snapshot['recording_state'] == 'IDLE'
     assert snapshot['landmarks'] == {}
@@ -38,7 +39,13 @@ def test_empty_snapshot_has_fixed_six_fields_and_safe_extensions():
     assert snapshot['timestamp'].endswith('Z')
 
 
-def test_snapshot_maps_control_and_recording_enums_and_session_ids():
+def test_verbatim_sections_keep_raw_enums_and_string_session_ids():
+    """
+    6.4절: control_state·recording은 원문 그대로, Session ID만 문자열이다.
+
+    enum을 symbol로 바꾸지 않는다. 표시용 symbol은 top-level mode·
+    recording_state mirror가 담당하며 두 표현은 항상 일치한다.
+    """
     store = SnapshotStore()
     store.update_control_state(SimpleNamespace(
         stamp=SimpleNamespace(sec=1, nanosec=2),
@@ -68,12 +75,23 @@ def test_snapshot_maps_control_and_recording_enums_and_session_ids():
 
     snapshot = store.snapshot()
 
+    # 원문: enum은 정수 그대로다.
+    assert snapshot['control_state']['active_mode'] == 1
+    assert snapshot['control_state']['active_owner'] == 1
+    assert snapshot['recording']['state'] == 2
+    assert snapshot['recording']['last_mimic_result'] == 0
+    # 원문에 없는 파생 필드를 붙이지 않는다.
+    assert 'age_ms' not in snapshot['control_state']
+    assert 'stale' not in snapshot['control_state']
+    assert 'age_ms' not in snapshot['recording']
+    assert 'stale' not in snapshot['recording']
+    # mirror: top-level은 symbol이며 원문과 일치한다.
     assert snapshot['mode'] == 'MIMIC'
-    assert snapshot['control_state']['active_owner'] == 'WEB'
     assert snapshot['recording_state'] == 'RECORDING'
+    # Session ID만 10진 문자열, 세션 없음은 '0'이다.
     assert snapshot['recording']['active_session_id'] == (
         '8531234567890123456')
-    assert snapshot['recording']['last_session_id'] == ''
+    assert snapshot['recording']['last_session_id'] == '0'
 
 
 def test_snapshot_maps_safety_and_derives_reset_allowed():

@@ -47,6 +47,8 @@ SNAPSHOT_FIXED = (
     'landmarks',
     'motor_state',
     'safety_state',
+    'control_state',
+    'recording',
 )
 
 
@@ -129,15 +131,16 @@ def test_a_real_client_receives_the_contract_snapshot(server):
     snapshot = _run(scenario())
 
     assert snapshot is not None
-    assert tuple(snapshot)[:6] == SNAPSHOT_FIXED
+    assert tuple(snapshot)[:8] == SNAPSHOT_FIXED
     # 웹은 type 유무로 snapshot과 ACK를 구분한다 (계약 1.1).
     assert 'type' not in snapshot
     # 웹은 mode가 문자열인지로 snapshot을 판별한다. 정수면 전체를 버린다.
     assert isinstance(snapshot['mode'], str)
     # 아직 못 받은 객체는 null이 아니라 {} (6.4절).
     assert snapshot['landmarks'] == {}
-    for field in ('control_state', 'recording', 'last_hand_command',
-                  'connection_status'):
+    assert snapshot['control_state'] == {}
+    assert snapshot['recording'] == {}
+    for field in ('last_hand_command', 'connection_status'):
         assert field in snapshot
 
 

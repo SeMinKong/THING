@@ -206,18 +206,22 @@ def test_real_messages_serialize_into_the_snapshot_contract():
 
     snapshot = store.snapshot()
 
-    assert tuple(snapshot)[:6] == SNAPSHOT_FIELDS
+    assert tuple(snapshot)[:8] == SNAPSHOT_FIELDS
+    # mirror는 symbol, 원문 두 절은 정수 그대로 (6.4절)
     assert snapshot['mode'] == 'MIMIC'
     assert snapshot['recording_state'] == 'RECORDING'
-    assert snapshot['control_state']['active_owner'] == 'WEB'
+    assert snapshot['control_state']['active_mode'] == ControlState.MODE_MIMIC
+    assert snapshot['control_state']['active_owner'] == ControlState.OWNER_WEB
+    assert snapshot['recording']['state'] == RecordingState.RECORDING
+    # 파생 표시 객체 세 개는 symbol과 파생값을 갖는다
     assert snapshot['safety_state']['state'] == 'FAULT'
     assert snapshot['safety_state']['reset_allowed'] is True
     assert snapshot['landmarks']['handedness'] == 'RIGHT'
     assert snapshot['landmarks']['detect_valid'] is True
     assert snapshot['last_hand_command']['source'] == 'MIMIC'
-    # uint64는 10진 문자열, 0은 빈 문자열 (6.5절)
+    # uint64는 10진 문자열, 세션 없음은 '0' (6.4절)
     assert snapshot['recording']['active_session_id'] == '8531234567890123456'
-    assert snapshot['recording']['last_session_id'] == ''
+    assert snapshot['recording']['last_session_id'] == '0'
     # NaN은 예외가 아니라 null
     assert snapshot['motor_state']['motors'][0]['current_ampere'] is None
 

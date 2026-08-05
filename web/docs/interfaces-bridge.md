@@ -30,21 +30,33 @@
 
 ## 분담
 
+6.4절이 top-level 여덟 필드를 고정하면서 두 갈래를 구분했습니다.
+
+| 구분 | 대상 | 취급 |
+| --- | --- | --- |
+| **원문 절** | `control_state`, `recording` | `.msg` **원문을 그대로** 싣습니다. enum은 정수, 파생 필드 없음 |
+| **파생 표시 객체** | `landmarks`, `motor_state`, `safety_state` | symbol과 파생값을 붙입니다 |
+| **표시용 mirror** | top-level `mode`, `recording_state` | 원문에서 파생한 symbol. 원문과 항상 일치 |
+
 | | 담당 |
 | --- | --- |
 | `.msg` 원문을 snapshot에 얹기 | 브리지 |
-| uint8 enum → symbol 문자열 | **브리지** (1.3) |
+| **원문 절의 uint8 enum → 문자열 변환** | **웹** (브리지는 정수를 보냅니다) |
+| 파생 표시 객체의 symbol 변환 | 브리지 (1.3) |
 | 시각 필드 원문 유지 | 브리지 (1.3.3) |
-| 장치 연결 상태·hand-loss latch 파생 | **브리지** (1.2, 1.3.1) |
+| 장치 연결 상태·hand-loss latch 파생 | 브리지 (1.2, 1.3.1) |
 | 버튼 잠금 판정 | 웹 (ack 기반) |
 
-초안에서는 enum 변환과 파생 상태를 웹이 맡는 안도 검토했습니다. **브리지가
-하는 것으로 확정했습니다.** 브리지는 토픽의 실제 수신 시각을 직접 보므로
-신선도·latch 판정의 원천을 가지고 있고, 웹은 snapshot만 받아 근사만 가능하기
-때문입니다 (FR-24 "가짜 값으로 채우지 않는다").
+`control_state`·`recording`은 **정수 enum이 그대로 옵니다.** 웹의
+`toSymbol`·`*_BY_ORDINAL` 변환표가 이 두 절에서 실제로 쓰입니다. 초안에서
+브리지가 symbol로 바꾸는 안을 검토했지만, 6.4절이 "원문을 그대로 싣고"로
+확정해 원문 유지로 되돌렸습니다.
 
-웹의 방어 코드(정수도 받는 `toSymbol`, 선택 필드 자체 파생)는 그대로 두어도
-됩니다. 브리지가 보내는 값이 항상 우선입니다.
+`landmarks`·`motor_state`·`safety_state`만 표시 객체로 두는 이유는 SafetyState의
+reset 가능 여부·reason과 hand-loss latch가 develop 스키마 밖 파생값이기
+때문입니다. 브리지는 토픽의 실제 수신 시각을 직접 보므로 신선도·latch 판정의
+원천을 가지고 있고, 웹은 snapshot만 받아 근사만 가능합니다 (FR-24 "가짜 값으로
+채우지 않는다").
 
 ---
 
@@ -71,7 +83,7 @@ endpoint는 `/ws/robot-state` 하나입니다. 프론트는 `WS_URL` 외부 설�
 겹치지 않지만, 자동 재연결이 이전 소켓을 닫은 직후 곧바로 붙으면 드물게
 `1013`을 받을 수 있습니다. 그 경우 짧게 두고 한 번 더 시도하면 됩니다.
 
-### 1.1 snapshot 고정 6필드
+### 1.1 snapshot 고정 8필드
 
 6.4절 계약입니다. 이름·순서를 바꾸지 않습니다.
 
@@ -82,15 +94,20 @@ endpoint는 `/ws/robot-state` 하나입니다. 프론트는 `WS_URL` 외부 설�
   "recording_state": "RECORDING",
   "landmarks": {},
   "motor_state": {},
-  "safety_state": {}
+  "safety_state": {},
+  "control_state": {},
+  "recording": {}
 }
 ```
 
 - `timestamp` — 브리지가 snapshot을 만든 시각. RFC 3339 UTC `Z`
-- `mode` — `DISABLED` / `MIMIC` / `MANUAL` / `TELEOP`
+- `mode` — `DISABLED` / `MIMIC` / `MANUAL` / `TELEOP`.
+  `control_state.active_mode`에서 파생한 표시용 mirror이며 원문과 항상 일치합니다
 - `recording_state` — `IDLE` / `STARTING` / `RECORDING` / `STOPPING` /
-  `COMPLETED` / `FAILED` / `INTERRUPTED`
-- 나머지 세 객체 — 아직 유효 데이터를 받지 못하면 `null`이 아니라 `{}`
+  `COMPLETED` / `FAILED` / `INTERRUPTED`. `recording.state`의 mirror입니다
+- `landmarks` / `motor_state` / `safety_state` — 파생 표시 객체 (1.2)
+- `control_state` / `recording` — `.msg` **원문** (1.2)
+- 다섯 객체 모두 아직 유효 데이터를 받지 못하면 `null`이 아니라 `{}`
 
 두 가지를 지킵니다. 웹이 이 두 규칙으로 메시지를 판별하기 때문입니다.
 
@@ -99,23 +116,32 @@ endpoint는 `/ws/robot-state` 하나입니다. 프론트는 `WS_URL` 외부 설�
 - **snapshot에는 `type` 필드가 없습니다.** 웹은 `type` 유무로 snapshot과 ACK를
   구분합니다. `type`은 ACK에만 있습니다 (1.6).
 
-### 1.2 snapshot 확장 필드
+### 1.2 원문 절과 파생 표시 객체
 
-FR-21·FR-24·FR-25 표시를 위해 브리지가 얹습니다. 6.4절이 "세 객체의 세부
-field는 개발 중 확정"하도록 허용한 범위입니다.
+**원문 절 — `control_state`, `recording`**
 
-| 필드 | 내용 |
-| --- | --- |
-| `control_state` | `ControlState.msg` 원문. `active_mode`·`active_owner`는 symbol |
-| `recording` | `RecordingState.msg` 원문. Session ID는 문자열 |
-| `last_hand_command` | 최종 `/thing/command` 원문. 7논리축 표시용 |
-| `connection_status` | 브리지 파생. 1.3.1 |
+6.4절이 "`ControlState.msg`·`RecordingState.msg` 원문을 그대로 싣고"로 정한
+두 절입니다. **enum은 정수 그대로이고 파생 필드가 붙지 않습니다.**
+`age_ms`·`stale`도 없습니다.
+
+예외는 Session ID 하나뿐입니다 (1.4). 6.4절이 "10진 문자열로 직렬화하며 세션
+없음은 `"0"`으로 표현한다"고 명시했습니다.
 
 `control_state`가 없으면 웹은 owner를 알 수 없어 제어권을 인정하지 않고 모든
 조작을 막습니다 (fail-closed). `recording`이 없으면 녹화만 막힙니다.
 
-`motor_state`·`safety_state`·`control_state`·`recording`·`last_hand_command`
-·`landmarks`에는 공통으로 두 필드가 붙습니다.
+**추가 top-level 필드 — 8필드 밖**
+
+FR-21·FR-24 표시를 위해 브리지가 더 얹습니다.
+
+| 필드 | 내용 |
+| --- | --- |
+| `last_hand_command` | 최종 `/thing/command` 원문. 7논리축 표시용 (FR-21 Should) |
+| `connection_status` | 브리지 파생. 1.3.1 |
+
+**파생 표시 객체 — `landmarks`, `motor_state`, `safety_state`**
+
+이 셋과 `last_hand_command`에는 공통으로 두 필드가 붙습니다.
 
 | 필드 | 내용 |
 | --- | --- |
@@ -148,11 +174,17 @@ field는 개발 중 확정"하도록 허용한 범위입니다.
 
 ### 1.3 값 표현 (enum·실수·시각)
 
-브리지는 `.msg`의 정수 enum을 symbol 문자열로 바꿔서 보냅니다. `mode`가 `1`이
-아니라 `"MIMIC"`입니다. **정수가 오면 브리지 버그입니다.**
+enum 표현은 **절에 따라 다릅니다.**
 
-symbol은 `.msg` 상수 선언 순서와 1:1로 대응합니다. 대조는
-`test_interface_contract.py`가 실제 `.msg`와 자동 검증합니다.
+| 위치 | 표현 | 예 |
+| --- | --- | --- |
+| top-level `mode`, `recording_state` | **symbol 문자열** (mirror) | `"MIMIC"` |
+| `control_state`, `recording` (원문 절) | **정수 그대로** | `active_mode: 1` |
+| `landmarks`, `safety_state`, `last_hand_command` (파생 표시 객체) | **symbol 문자열** | `"RIGHT"`, `"FAULT"` |
+
+원문 절에서 정수를 문자열로 바꾸는 것은 웹 몫입니다(`toSymbol`·`*_BY_ORDINAL`).
+아래 표는 그 대조표이며, `test_interface_contract.py`가 실제 `.msg` 상수와 자동
+검증합니다.
 
 | 메시지 | 필드 | 순서 |
 | --- | --- | --- |
@@ -237,18 +269,18 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다. bool이 아�
 8531234567890123456  →  JS JSON.parse  →  8531234567890124000
 ```
 
-63-bit 값은 파싱 시점에 손상되고 복구할 수 없습니다. 명세 6.5절
-("JSON·API·EC2에서는 10진 문자열로 표현한다")에 따라 **10진 문자열**로 보냅니다.
-값이 `0`(세션 없음)이면 **빈 문자열 `""`**입니다.
+63-bit 값은 파싱 시점에 손상되고 복구할 수 없습니다. 6.4절이 **10진 문자열**로
+직렬화하고 **세션 없음은 `"0"`으로 표현**하도록 정했습니다.
 
 ```json
-"recording": { "active_session_id": "8531234567890123456", "last_session_id": "" }
+"recording": { "active_session_id": "8531234567890123456", "last_session_id": "0" }
 ```
 
-`0`을 `""`로 보내는 이유는 `"0"`이 JavaScript에서 truthy라 활성 세션이 없는데도
-`StopRecording(session_id="0")`을 보내게 되기 때문입니다.
+`"0"`은 JavaScript에서 truthy이므로 그대로 쓰면 활성 세션이 없는데도
+`StopRecording(session_id="0")`을 보내게 됩니다. 웹의 `readSessionId`가 `"0"`을
+빈 문자열로 정규화하고 있어 이 부분은 이미 안전합니다.
 
-요청에서도 문자열로 보내야 합니다. 브리지는 `0`과 63-bit 초과를
+요청에서는 `"0"`을 보내면 안 됩니다. 브리지는 `0`과 63-bit 초과를
 `invalid_session_id`로, 표준 10진 표기가 아닌 값(선행 `0`, 비ASCII 숫자 등)을
 `web_malformed_request`로 거부합니다 (1.6).
 
@@ -392,11 +424,15 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다. bool이 아�
 
 | | |
 | --- | --- |
+| top-level 고정 필드 | **여덟 개.** 이름·순서 고정 (1.1) |
 | uint8 상수값 | `.msg` 선언 순서와 일치. 1.3 표 |
-| enum 변환 주체 | **브리지**. symbol 문자열로 발행 (1.3) |
+| `control_state`·`recording` | **원문 그대로.** enum은 정수, 파생 필드 없음 (1.2) |
+| 원문 절 enum 변환 주체 | **웹** (`toSymbol`·`*_BY_ORDINAL`) |
+| 파생 표시 객체 | `landmarks`·`motor_state`·`safety_state` 셋만 (1.2) |
+| top-level `mode`·`recording_state` | 원문에서 파생한 symbol mirror. 항상 일치 |
 | 시각 필드 위치·타입 | `stamp` / `header.stamp`, `{sec, nanosec}` 원문 (1.3.3) |
 | `HandCommand` 7축 | 최상위 고정 필드 (1.3.2) |
-| `session_id` | JSON 10진 문자열, `0`은 `""` (1.4) |
+| `session_id` | JSON 10진 문자열, **세션 없음은 `"0"`** (1.4) |
 | snapshot 발행 주기 | **200ms(5Hz) 주기 발행.** 값이 안 바뀌어도 계속 발행 |
 | 서비스 ack 왕복 상한 | **2000ms.** 초과 시 `service_timeout` ACK가 반드시 감 |
 | 동시 접속 | **브리지가 1개만 허용.** 두 번째는 close `1013` |
