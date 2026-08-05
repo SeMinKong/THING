@@ -174,10 +174,24 @@ class WebBridgeNode(Node):
         self._sequence_client.destroy()
         return super().destroy_node()
 
-    def _wait_future(self, future: Any) -> tuple[bool, Any]:
+    def _wait_future(
+        self,
+        future: Any,
+        client: Optional[Any] = None,
+    ) -> tuple[bool, Any]:
+        """Block off the executor thread until the future finishes or times out.
+
+        timeout으로 포기한 요청은 rclpy Client의 pending 목록에 남는다. 응답이
+        영영 오지 않으면(서비스 프로세스가 죽는 등) 항목이 계속 쌓이므로
+        같이 정리한다.
+        """
         completed = Event()
         future.add_done_callback(lambda unused: completed.set())
         if not completed.wait(self._service_timeout):
+            if client is not None:
+                remove = getattr(client, 'remove_pending_request', None)
+                if callable(remove):
+                    remove(future)
             return False, None
         try:
             return True, future.result()
@@ -193,7 +207,7 @@ class WebBridgeNode(Node):
         if not client.service_is_ready():
             return None, 'service_unavailable'
         completed, response = self._wait_future(
-            client.call_async(ros_request))
+            client.call_async(ros_request), client)
         if not completed:
             return None, 'service_timeout'
         if response is None:
