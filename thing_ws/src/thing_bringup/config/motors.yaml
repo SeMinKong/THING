@@ -4,9 +4,11 @@ motor_driver_node:
     integration_test_mode: true
 
     # Common DYNAMIXEL communication and operating mode
+    model: "XL330-M288-T"
     baud_rate: 57600
     protocol_version: 2.0
     operating_mode: 5
+    encoder_resolution_raw: 4096
 
     # ROS control and monitoring periods
     read_rate_hz: 20.0
@@ -39,7 +41,7 @@ motor_driver_node:
     # Measured endpoints on the assembled hand
     # Uncalibrated thumb endpoints use -1 and are never written while disabled.
     home_positions_raw: [110, -1, 750, 1740, -1, -1, 700]
-    closed_positions_raw: [2700, -1, 3050, 4095, -1, -1, 3800]
+    closed_positions_raw: [2700, -1, 3050, 4300, -1, -1, 3800]
     safe_positions_raw: [110, -1, 750, 1740, -1, -1, 700]
     position_tolerances_raw: [30, -1, 30, 30, -1, -1, 30]
 
@@ -50,3 +52,12 @@ motor_driver_node:
     goal_currents_ma: [500, 0, 500, 500, 0, 0, 500]
     profile_accelerations_raw: [50, 0, 50, 50, 0, 0, 50]
     profile_velocities_raw: [200, 0, 200, 200, 0, 0, 200]
+
+    # Hardware limits and communication fault thresholds
+    current_limit_ma: 1470
+    max_consecutive_read_failures: 3
+    bus_failure_timeout_ms: 300
+
+    # temperature_warning_c, temperature_trip_c, fault_current_ma,
+    # fault_current_hold_ms, and bus_watchdog_ms remain intentionally omitted
+    # until monitored load tests establish safe values.
