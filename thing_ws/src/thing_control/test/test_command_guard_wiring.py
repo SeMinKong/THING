@@ -105,7 +105,9 @@ def test_bringup_installs_control_launch(monkeypatch):
 def test_control_launch_starts_all_control_nodes_with_shared_config():
     launch_source = CONTROL_LAUNCH.read_text()
     assert "FindPackageShare('thing_bringup')" in launch_source
-    assert launch_source.count('parameters=[control_config]') == 4
+    assert launch_source.count('parameters=[control_config]') == 5
+    assert "package='thing_hardware'" in launch_source
+    assert "executable='estop_gpio_node'" in launch_source
     for executable in (
         'safety_manager',
         'command_manager',

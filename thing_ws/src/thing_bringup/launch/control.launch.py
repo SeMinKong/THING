@@ -14,6 +14,13 @@ def generate_launch_description():
 
     return LaunchDescription([
         Node(
+            package='thing_hardware',
+            executable='estop_gpio_node',
+            name='estop_gpio_node',
+            parameters=[control_config],
+            output='screen',
+        ),
+        Node(
             package='thing_control',
             executable='safety_manager',
             name='safety_manager',

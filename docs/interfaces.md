@@ -32,7 +32,7 @@ Safety Manager의 8상태 전이, RESET 완료 조건과 실행법은
 | `/thing/command` | `HandCommand` | guard | hardware, logger | reliable, depth 1 |
 | `/thing/command/validation_result` | `std_msgs/msg/Bool` | guard | safety | 단일 ordered 채널. `true`=HOLD 복구 activity, `false`=window 초기화; motor 전달 금지 |
 | `/thing/motor_status` | `MotorStatus` | hardware | safety, web, logger | reliable+volatile, depth 5, 300ms freshness 미만, `header.stamp` 필수 |
-| `/thing/estop` | `std_msgs/msg/Bool` | hardware GPIO adapter | safety | reliable+volatile, 300ms freshness 미만, `true`가 E-Stop 활성 |
+| `/thing/estop` | `std_msgs/msg/Bool` | `estop_gpio_node` | safety | reliable+volatile, 100ms heartbeat, `true`가 E-Stop 활성 |
 | `/thing/control_state` | `ControlState` | manager | web, logger | 상태 변화+주기 |
 | `/thing/safety_state` | `SafetyState` | safety | manager, guard, web, logger | reliable, transient local |
 | `/thing/recording_state` | `RecordingState` | logger | web | reliable, transient local |
@@ -43,6 +43,29 @@ Safety Manager의 8상태 전이, RESET 완료 조건과 실행법은
 
 정확한 QoS와 주기는 하드웨어 측정 후 YAML로 조정하되 명령 stale 판정에 필요한
 timestamp를 변경해서는 안 됩니다.
+
+### 물리 E-Stop 입력 계약
+
+물리 E-Stop의 NC 주접점은 ROS 2, Raspberry Pi CPU와 무관하게 모터 구동 전원을
+직접 차단합니다. `thing_hardware/estop_gpio_node`는 별도의 절연 보조접점만 읽어
+Safety Manager에 상태를 알리는 2차 감시 경로이며, 이 노드의 소프트웨어 발행을 물리
+전원 차단 대신 사용하지 않습니다.
+
+GPIO 기본 배선은 주접점과 다른 **NO 보조접점**을 입력과 GND 사이에 연결합니다.
+버튼 해제 시 접점이 열려 pull-up으로 HIGH, 버튼을 누르면 접점이 닫혀 LOW입니다.
+따라서 기본 `active_low: true`는 LOW를 E-Stop active로 해석합니다. NC 주접점을
+GPIO 보조입력에 그대로 연결하면 극성이 반대가 되므로 사용해서는 안 됩니다.
+
+- 기본 배선은 `gpiochip4`, line `17`, pull-up, NO 보조접점, active-low입니다.
+- 5ms polling과 50ms debounce를 사용하며 안정된 입력 변화는 즉시 발행합니다.
+- 같은 상태도 100ms마다 heartbeat로 다시 발행합니다.
+- GPIO open/read 실패 후 재연결 시도 간격은 500ms 이하만 허용합니다.
+- 시작 전·GPIO open/read 실패·지원하지 않는 libgpiod API는 `true`로 fail-closed합니다.
+- NO 보조접점 배선이 단선되면 pull-up 때문에 HIGH/inactive로 보일 수 있어 이 GPIO
+  감시 경로만으로는 검출하지 못합니다. 독립된 NC 주접점의 모터 전원 차단이 최종
+  안전 경계입니다.
+- 물리 버튼 해제는 reset 요청이 아닙니다. 500ms 안정, `/thing/reset_safety`, INIT의
+  새로운 E-Stop·MotorStatus 검사를 모두 통과해야 READY로 돌아갑니다.
 
 ### MotorStatus 필드 계약
 
@@ -64,9 +87,11 @@ export ROS_DOMAIN_ID=<deployment-domain-id>
 ros2 launch thing_bringup control.launch.py
 ```
 
-이 launch는 같은 version-controlled `control.yaml`을 사용해 `safety_manager`,
-`command_manager`, `manual_executor`, `command_guard`를 시작합니다. 시작 시 safety manager는 INIT을
-발행하고, guard는 `DISABLED/NONE → active` 획득 경계를 새로 관측하기 전까지
+이 launch는 같은 version-controlled `control.yaml`을 사용해 `estop_gpio_node`,
+`safety_manager`, `command_manager`, `manual_executor`, `command_guard`를 시작합니다.
+시작 시 E-Stop 입력은 GPIO가 stable inactive로 확인되기 전까지 active heartbeat를
+발행하고, safety manager는 INIT을 발행하며, guard는 `DISABLED/NONE → active` 획득
+경계를 새로 관측하기 전까지
 `/thing/command`를 발행하지 않습니다. 따라서 재시작으로 이전 명령을 자동 재생하지
 않습니다.
 
