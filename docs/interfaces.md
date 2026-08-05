@@ -54,33 +54,15 @@ ID 오름차순으로 정확히 7개 포함합니다. `MotorState.torque_enabled
 
 ## 제어 Bringup
 
-장치에서는 SROS2 deny-by-default 정책을 적용한 뒤 안전 상태, 명령 중재, 최종 검증 체인을
-아래 launch로 함께 시작합니다. `control.launch.py`는 security가 꺼져 있거나 네 control
-enclave artifact 중 하나라도 없으면 node를 하나도 시작하지 않습니다.
+같은 `ROS_DOMAIN_ID`에서 안전 상태, 명령 중재, 수동 실행, 최종 검증 체인을 아래
+launch로 함께 시작합니다. 별도 keystore나 SROS2 artifact는 필요하지 않습니다.
 
 ```bash
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-
 export ROS_DOMAIN_ID=<deployment-domain-id>
-export THING_KEYSTORE=/etc/thing/sros2_keystore
-ros2 security create_keystore "$THING_KEYSTORE"
-ros2 security generate_artifacts \
-  -k "$THING_KEYSTORE" \
-  -p "$(ros2 pkg prefix --share thing_control)/security/thing_control.policy.xml"
-
-export ROS_SECURITY_KEYSTORE="$THING_KEYSTORE"
-export ROS_SECURITY_ENABLE=true
-export ROS_SECURITY_STRATEGY=Enforce
 ros2 launch thing_bringup control.launch.py
 ```
-
-생성된 keystore의 private key와 certificate는 deployment artifact이며 Git에 넣지 않습니다.
-현재 policy는 구현된 네 control node만 허용합니다. hardware와 외부 command client/producer node가 구현되면
-각 node의 고정 enclave와 필요한 topic만 별도 review로 추가한 뒤 artifact를 재생성해야 하며,
-wildcard publish 권한이나 다른 enclave의 `/thing/command`,
-`/thing/command/validation_result`,
-`/thing/control/stop_barrier_ack` publish 권한은 금지합니다.
 
 이 launch는 같은 version-controlled `control.yaml`을 사용해 `safety_manager`,
 `command_manager`, `manual_executor`, `command_guard`를 시작합니다. 시작 시 safety manager는 INIT을
@@ -88,10 +70,9 @@ wildcard publish 권한이나 다른 enclave의 `/thing/command`,
 `/thing/command`를 발행하지 않습니다. 따라서 재시작으로 이전 명령을 자동 재생하지
 않습니다.
 
-현재 control policy는 Gesture Service와 Sequence Action의 서버인 `manual_executor`만
-허용합니다. 실제 외부 client node와 고정 enclave가 확정되기 전까지 보안 Enforce
-배포에서 이 API를 호출할 수 있다고 가정하지 않으며, client 권한은 해당 통합 변경에서
-최소 권한으로 추가하고 재검증합니다.
+현재 배포는 SROS2 접근 제어를 사용하지 않으므로 같은 DDS domain의 다른 node가 발행한
+메시지를 신원 기반으로 차단하지 않습니다. 팀이 관리하는 신뢰된 네트워크와 통일된
+`ROS_DOMAIN_ID`에서 실행하고, 외부 네트워크에는 DDS discovery를 노출하지 않습니다.
 
 ## SafetyState 8상태
 
