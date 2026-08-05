@@ -1,8 +1,8 @@
 // ============================================================================
 // 조작(MANUAL) 모드 페이지
 // ----------------------------------------------------------------------------
-// FR-19/FR-20: VisionMode와 동일한 CameraStream 컴포넌트로 영상·손 검출·카메라
-//   상태를 조작 모드에서도 관제할 수 있도록 함 (두 모드 모두 관제 가능해야 함)
+// FR-25: 이 화면에서는 영상보다 모터 상태가 중요하다. 보낸 명령이 실제로
+//   반영됐는지를 왼쪽 모터 표에서 확인한다. 영상·손 검출 관제는 모방 화면이 맡는다.
 // FR-22: 버튼 입력을 통한 명령 전달 (기본 명령 = Gesture, 추가 명령 = Sequence)
 // FR-23: 웹 명령 범위 제한 (정지 명령 최우선, 큐잉 금지)
 // FR-25: 모터 상태 확인
@@ -12,8 +12,6 @@ import { useHandSocket } from "../context/HandSocketContext";
 import { BASIC_GESTURES, SEQUENCE_ACTIONS } from "../config/commandPresets";
 import { CONTROL_MODE, CONTROL_OWNER } from "../config/messageProtocol";
 import MotorStatusPanel from "../components/MotorStatusPanel";
-import ModeAcquirePanel from "../components/ModeAcquirePanel";
-import CameraStream from "../components/CameraStream";
 import { motion } from "motion/react";
 import { Panel, Head, Body, Tag } from "../ui/Sheet";
 import GesturePreview from "../components/GesturePreview";
@@ -34,7 +32,6 @@ export default function OrderMode() {
     commandInFlight,
     sendGesture,
     sendSequence,
-    sendStop,
   } = useHandSocket();
 
   // FR-22 "같은 시점에 Gesture 하나만 실행하고 새 일반 동작은 큐에 쌓지 않고
@@ -82,30 +79,27 @@ export default function OrderMode() {
     sendSequence(action.id, action.speed_limit);
   };
 
-  const handleStop = () => {
-    // FR-23: 정지는 다른 일반 명령보다 우선한다. 잠금과 무관하게 항상 전송한다.
-    sendStop();
-  };
+  // 정지는 화면 이동 게이트가 맡는다 (components/ModeGate.jsx).
+  // sendStop() 은 SetControlMode(DISABLED, NONE) 이므로 실행 중 동작을 끊는 것이
+  // 아니라 제어권을 해제하는 것이다. 여기 버튼으로 두면 누르는 순간 제어권이
+  // 풀려 개요로 되돌아가므로, 이동 흐름 안에 두는 편이 맞다.
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(330px,1fr)] lg:items-start">
-      <div className="flex flex-col gap-4">
-        {/* FR-19 인수조건: 조작 모드에서도 영상·손 검출을 관제할 수 있어야 한다 */}
-        <CameraStream />
-        {/* FR-25: 명령 결과를 바로 확인할 수 있도록 영상 아래에 둔다 */}
+    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
+      {/* FR-25: 조작 모드에서는 영상보다 모터 상태가 중요하다.
+          보낸 명령이 실제로 반영됐는지를 여기서 확인한다 */}
+      <div className="flex min-h-0 flex-col">
         <MotorStatusPanel
           motorStatus={motorStatus}
           motorUpdatedAt={sectionUpdatedAt.motor_state ?? null}
           receivedAt={snapshotReceivedAt}
+          fill
         />
       </div>
 
-      <div className="flex flex-col gap-4">
-        {/* FR-19 / FR-35 / NFR-23: 제어권은 사용자가 직접 획득한다 */}
-        <ModeAcquirePanel targetMode={CONTROL_MODE.MANUAL} />
-
-        <Panel>
-          <div aria-label="명령">
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+        <Panel className="flex min-h-0 flex-1 flex-col">
+          <div aria-label="명령" className="flex min-h-0 flex-1 flex-col">
             <Head title="명령">
               <GesturePreview />
               <Tag tone={commandsDisabled ? "idle" : "live"}>
@@ -113,11 +107,11 @@ export default function OrderMode() {
               </Tag>
             </Head>
 
-            <Body className="flex flex-col gap-4">
+            <Body className="flex min-h-0 flex-1 flex-col gap-3">
               {reason && <p className="text-xs leading-relaxed text-ink-500">{reason}</p>}
 
-              {/* FR-22 기본 명령 (Gesture) */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* FR-22 기본 명령 (Gesture) — 남는 높이를 4칸이 나눠 갖는다 */}
+              <div className="grid min-h-0 flex-1 grid-cols-2 gap-2">
                 {BASIC_GESTURES.map((gesture) => (
                   <motion.button
                     key={gesture.id}
@@ -129,8 +123,8 @@ export default function OrderMode() {
                     whileHover={commandsDisabled ? undefined : { y: -2 }}
                     whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
                     transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                    className="flex flex-col items-center gap-1.5 rounded border
-                               border-ink-300 bg-ink-50 px-2 py-4
+                    className="flex flex-col items-center justify-center gap-1.5 rounded
+                               border border-ink-300 bg-ink-50 px-2 py-3
                                transition-colors hover:bg-white disabled:opacity-30"
                   >
                     <span className="text-2xl leading-none" aria-hidden="true">
@@ -142,8 +136,9 @@ export default function OrderMode() {
                 ))}
               </div>
 
-              {/* FR-22 추가 명령 (Sequence) — FR-39 Could */}
-              <div className="grid grid-cols-2 gap-2">
+              {/* FR-22 추가 명령 (Sequence) — FR-39 Could.
+                  기본 동작 타일과 결을 맞춰 두 줄로 두되 높이는 절반만 갖는다 */}
+              <div className="grid min-h-0 shrink-0 grid-cols-2 gap-2">
                 {SEQUENCE_ACTIONS.map((action) => (
                   <motion.button
                     key={action.id}
@@ -152,28 +147,19 @@ export default function OrderMode() {
                     disabled={commandsDisabled}
                     title={action.label}
                     whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
-                    className="rounded-full bg-ink-100 px-3 py-2 text-xs font-medium
-                               transition-colors hover:bg-ink-200/70 disabled:opacity-30"
+                    className="flex items-center justify-center gap-1.5 rounded
+                               border border-ink-200 bg-ink-100 px-3 py-3
+                               text-xs font-medium transition-colors
+                               hover:bg-ink-200/70 disabled:opacity-30"
                   >
-                    <span aria-hidden="true">{action.icon}</span> {action.label}
+                    <span className="text-base leading-none" aria-hidden="true">
+                      {action.icon}
+                    </span>
+                    {action.label}
                   </motion.button>
                 ))}
               </div>
 
-              <div className="h-px bg-ink-200" />
-
-              <motion.button
-                type="button"
-                onClick={handleStop}
-                whileTap={{ scale: 0.98 }}
-                className="w-full rounded-full bg-st-fault py-2.5 text-[13px] font-semibold
-                           text-white transition-opacity hover:opacity-90"
-              >
-                기능 중지
-              </motion.button>
-              <p className="text-xs text-ink-400">
-                정지는 잠금과 무관하게 항상 전송됩니다.
-              </p>
             </Body>
           </div>
         </Panel>

@@ -1,9 +1,56 @@
+estop_gpio_node:
+  ros__parameters:
+    # Tested Raspberry Pi wiring: isolated NO auxiliary contact to GND.
+    # Released/open is HIGH; pressed/closed is LOW. The separate main NC
+    # contact removes motor drive power independently of this GPIO process.
+    gpio_chip: "gpiochip4"
+    gpio_line: 17
+    active_low: true
+    poll_interval_ms: 5
+    debounce_ms: 50
+    heartbeat_period_ms: 100
+    # Validated startup range: 1..500 ms; slower recovery is rejected.
+    reopen_interval_ms: 500
+    safety_timeout_ms: 300
+
 command_manager:
   ros__parameters:
     owner_lease_timeout_ms: 3000
     stop_reacquire_delay_ms: 500
     lease_check_period_ms: 100
     state_publish_period_ms: 1000
+
+manual_executor:
+  ros__parameters:
+    # At most 50 ms preserves the V7.0 requirement of fresh commands at >=20 Hz.
+    publish_period_ms: 50
+    control_state_timeout_ms: 1500
+    safety_state_timeout_ms: 300
+
+    # Normalized HandCommand order:
+    # thumb_flex, thumb_opp, thumb_abd, index, middle, ring, little.
+    # Tune these software presets after physical endpoint calibration; hardware
+    # limits and Command Guard remain the final safety boundary.
+    gestures.open.axes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    gestures.open.duration_ms: 1000
+    gestures.fist.axes: [1.0, 1.0, 0.5, 1.0, 1.0, 1.0, 1.0]
+    gestures.fist.duration_ms: 1000
+    gestures.pinch.axes: [1.0, 1.0, 0.5, 1.0, 0.0, 0.0, 0.0]
+    gestures.pinch.duration_ms: 3000
+    gestures.cylindrical_grasp.axes: [0.8, 0.8, 0.3, 0.85, 0.85, 0.85, 0.85]
+    gestures.cylindrical_grasp.duration_ms: 3000
+
+    # Sequence-only presets. ExecuteGesture still accepts only the four
+    # canonical gestures plus home|paper|rock aliases.
+    gestures.count_4.axes: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    gestures.count_3.axes: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+    gestures.scissors.axes: [1.0, 0.3, 0.2, 0.0, 0.0, 1.0, 1.0]
+    gestures.count_1.axes: [1.0, 0.3, 0.2, 0.0, 1.0, 1.0, 1.0]
+
+    sequences.countdown.steps: [open, count_4, count_3, scissors, count_1]
+    sequences.countdown.step_durations_ms: [800, 800, 800, 800, 800]
+    sequences.scissors_rock_paper.steps: [scissors, fist, open]
+    sequences.scissors_rock_paper.step_durations_ms: [1000, 1000, 1000]
 
 command_guard:
   ros__parameters:
@@ -45,8 +92,8 @@ command_guard:
 
 safety_manager:
   ros__parameters:
-    command_hold_ms: 300
-    command_safe_ms: 1000
+    command_hold_ms: 5000
+    command_safe_ms: 10000
     safe_action_timeout_ms: 3000
     recovery_stable_ms: 300
     recovery_max_gap_ms: 100

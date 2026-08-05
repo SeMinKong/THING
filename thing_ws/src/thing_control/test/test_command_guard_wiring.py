@@ -61,8 +61,8 @@ def test_control_yaml_defines_v6_3_guard_and_state_freshness_limits():
 
     safety = config['safety_manager']['ros__parameters']
     assert safety == {
-        'command_hold_ms': 300,
-        'command_safe_ms': 1000,
+        'command_hold_ms': 5000,
+        'command_safe_ms': 10000,
         'safe_action_timeout_ms': 3000,
         'recovery_stable_ms': 300,
         'recovery_max_gap_ms': 100,
@@ -102,11 +102,18 @@ def test_bringup_installs_control_launch(monkeypatch):
     )
 
 
-def test_control_launch_starts_manager_guard_and_safety_with_shared_config():
+def test_control_launch_starts_all_control_nodes_with_shared_config():
     launch_source = CONTROL_LAUNCH.read_text()
     assert "FindPackageShare('thing_bringup')" in launch_source
-    assert launch_source.count('parameters=[control_config]') == 3
-    for executable in ('safety_manager', 'command_manager', 'command_guard'):
+    assert launch_source.count('parameters=[control_config]') == 5
+    assert "package='thing_hardware'" in launch_source
+    assert "executable='estop_gpio_node'" in launch_source
+    for executable in (
+        'safety_manager',
+        'command_manager',
+        'manual_executor',
+        'command_guard',
+    ):
         assert "package='thing_control'" in launch_source
         assert f"executable='{executable}'" in launch_source
 

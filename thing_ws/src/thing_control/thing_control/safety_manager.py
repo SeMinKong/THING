@@ -20,7 +20,7 @@ ROS 2 입출력을 8상태 안전 정책 코어에 연결하는 어댑터 사용
 
 ④ 주요 실행 흐름
     callback이 메시지 형식과 freshness를 확인하고 monotonic 수신 시각을 붙인다
-    → 코어 입력 메서드를 호출한다 → 20 ms 기본 tick이 300/1000 ms watchdog과
+    → 코어 입력 메서드를 호출한다 → 20 ms 기본 tick이 5000/10000 ms watchdog과
     action deadline을 판정한다 → 전이가 생기면 즉시, 전이가 없어도 100 ms 기본
     주기로 SafetyState를 heartbeat 발행한다. 상태는 INIT, READY, RUN, HOLD, SAFE,
     FAULT, ESTOP, RESET이며 자세한 전이 조건은 코어의 클래스 설명을 참고한다.
@@ -56,7 +56,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import Bool, Empty
+from std_msgs.msg import Bool, UInt64
 from std_srvs.srv import Trigger
 
 from thing_control.safety_manager_core import (
@@ -66,7 +66,12 @@ from thing_control.safety_manager_core import (
     SafetyLimits,
     SafetyManagerCore,
 )
-from thing_interfaces.msg import ControlState, HandCommand, MotorStatus, SafetyState
+from thing_interfaces.msg import (
+    ControlState,
+    HandCommand,
+    MotorStatus,
+    SafetyState,
+)
 
 
 _STATE_QOS = QoSProfile(
@@ -119,11 +124,11 @@ class SafetyManager(Node):
         self._steady_clock = Clock(clock_type=ClockType.STEADY_TIME)
         self._system_clock = Clock(clock_type=ClockType.SYSTEM_TIME)
 
-        # 어댑터와 코어가 모두 범위를 검사한다. launch 설정 하나로 300/1000 ms 같은
+        # 어댑터와 코어가 모두 범위를 검사한다. launch 설정 하나로 5000/10000 ms 같은
         # 안전 상한을 느슨하게 만들 수 없도록 이중으로 fail-closed 검증한다.
         limits = SafetyLimits(
-            command_hold_ms=self._positive_parameter('command_hold_ms', 300),
-            command_safe_ms=self._positive_parameter('command_safe_ms', 1000),
+            command_hold_ms=self._positive_parameter('command_hold_ms', 5000),
+            command_safe_ms=self._positive_parameter('command_safe_ms', 10000),
             safe_action_timeout_ms=self._positive_parameter(
                 'safe_action_timeout_ms', 3000
             ),
@@ -177,6 +182,7 @@ class SafetyManager(Node):
             started_ns=self._now_ns(),
             configuration_valid=self._trip_limits_validated,
         )
+        self._last_stop_generation = 0
         self._last_published_epoch = -1
         self._wire_state_epoch = -1
         self._wire_state_stamp_ns = -1
@@ -201,7 +207,7 @@ class SafetyManager(Node):
         # raw STOP 요청이 아니라 Guard의 barrier ACK를 받는다. 이 ACK는 Guard가 먼저
         # command 통과 latch를 닫았다는 인과적 증거이므로, 이후에만 RESET에 들어간다.
         self.stop_subscription = self.create_subscription(
-            Empty,
+            UInt64,
             '/thing/control/stop_barrier_ack',
             self.handle_stop_requested,
             _INTERNAL_QOS,
@@ -423,7 +429,7 @@ class SafetyManager(Node):
         Owner lease 만료를 command timeout보다 먼저 RUN→HOLD로 전달한다.
 
         단순 MODE_DISABLED가 아니라 manager가 명시한 ``owner_lease_expired`` 전이만
-        사용한다. 제어권 heartbeat가 사라진 사실을 다음 300 ms command watchdog까지
+        사용한다. 제어권 heartbeat가 사라진 사실을 다음 5000 ms command watchdog까지
         숨기지 않고 즉시 제한 상태에 반영하기 위함이다.
         """
         if (
@@ -435,7 +441,7 @@ class SafetyManager(Node):
         ):
             self._publish_if_changed()
 
-    def handle_stop_requested(self, message: Empty) -> None:
+    def handle_stop_requested(self, message: UInt64) -> None:
         """
         Guard의 STOP barrier ACK를 받아 정상 제어용 RESET 진입을 요청한다.
 
@@ -443,7 +449,10 @@ class SafetyManager(Node):
         먼저 보이는 분산 순서 문제를 막기 위해서다. Guard가 latch를 닫은 뒤 보낸 ACK가
         있어야 READY/RUN/HOLD에서 RESET으로 갈 수 있으며, ACK가 없으면 전이하지 않는다.
         """
-        del message
+        generation = int(message.data)
+        if generation <= self._last_stop_generation:
+            return
+        self._last_stop_generation = generation
         now_ns = self._now_ns()
         state_stamp_ns = self._system_clock.now().nanoseconds
         if self._core.on_control_stop_requested(
@@ -481,7 +490,7 @@ class SafetyManager(Node):
         return response
 
     def _on_tick(self) -> None:
-        """주기적으로 freshness, 300/1000 ms watchdog, action deadline을 평가한다."""
+        """주기적으로 freshness, 5000/10000 ms watchdog, action deadline을 평가한다."""
         self._core.tick(
             self._now_ns(),
             state_stamp_ns=self._system_clock.now().nanoseconds,

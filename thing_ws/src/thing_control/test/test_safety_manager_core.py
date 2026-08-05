@@ -17,6 +17,15 @@ from thing_control.safety_manager_core import (
 )
 
 
+# 대부분의 상태기 단위 테스트는 wall time을 쓰지 않지만, 작은 값으로 경계를 빠르게
+# 재현하면 각 테스트의 시각 관계가 읽기 쉽다. 운영 기본값 5초/10초는 별도 회귀
+# 테스트에서 정확한 경계까지 검증한다.
+_FAST_COMMAND_LIMITS = SafetyLimits(
+    command_hold_ms=300,
+    command_safe_ms=1000,
+)
+
+
 def ms(value):
     return value * 1_000_000
 
@@ -64,8 +73,8 @@ def heartbeat(core, time_ms, **overrides):
     core.update_hardware_status(healthy_status(time_ms, **overrides))
 
 
-def ready_core():
-    core = SafetyManagerCore(started_ns=0)
+def ready_core(limits=_FAST_COMMAND_LIMITS):
+    core = SafetyManagerCore(limits=limits, started_ns=0)
     heartbeat(core, 0)
     core.tick(0)
     assert core.snapshot().state == READY
@@ -79,8 +88,9 @@ def enter_run(core, time_ms=10):
 
 def enter_hold(core):
     enter_run(core, 10)
-    heartbeat(core, 310)
-    core.tick(ms(310))
+    hold_at_ms = 10 + core._limits.command_hold_ms
+    heartbeat(core, hold_at_ms)
+    core.tick(ms(hold_at_ms))
     assert core.snapshot().state == HOLD
 
 
@@ -130,7 +140,7 @@ def test_startup_missing_estop_preempts_simultaneous_hardware_fault():
     assert core.snapshot().reason == 'estop_input_stale'
 
 
-def test_ready_first_valid_command_enters_run_and_300ms_gap_enters_hold():
+def test_configured_300ms_gap_enters_hold():
     core = ready_core()
     enter_run(core, 10)
     heartbeat(core, 309)
@@ -197,7 +207,7 @@ def test_hold_recovery_window_restarts_after_guard_validation_failure():
     assert core.snapshot().state == RUN
 
 
-def test_hold_enters_safe_at_1000ms_without_recovery():
+def test_configured_1000ms_gap_enters_safe_without_recovery():
     core = ready_core()
     enter_hold(core)
     heartbeat(core, 1009)
@@ -774,11 +784,38 @@ def test_state_transition_epoch_changes_only_internally_on_transitions():
     assert core.snapshot().transition_epoch == ready_epoch + 1
 
 
+def test_default_command_watchdog_enters_hold_at_5s_and_safe_at_10s():
+    limits = SafetyLimits()
+    assert limits.command_hold_ms == 5000
+    assert limits.command_safe_ms == 10000
+
+    core = SafetyManagerCore(started_ns=0)
+    heartbeat(core, 0)
+    core.tick(0)
+    enter_run(core, 0)
+
+    heartbeat(core, 4999)
+    core.tick(ms(4999))
+    assert core.snapshot().state == RUN
+
+    heartbeat(core, 5000)
+    core.tick(ms(5000))
+    assert core.snapshot().state == HOLD
+
+    heartbeat(core, 9999)
+    core.tick(ms(9999))
+    assert core.snapshot().state == HOLD
+
+    heartbeat(core, 10000)
+    core.tick(ms(10000))
+    assert core.snapshot().state == SAFE
+
+
 @pytest.mark.parametrize(
     'kwargs',
     [
-        {'command_hold_ms': 301},
-        {'command_safe_ms': 1001},
+        {'command_hold_ms': 5001},
+        {'command_safe_ms': 10001},
         {'recovery_stable_ms': 299},
         {'recovery_stable_ms': 1001},
         {'recovery_max_gap_ms': 101},
