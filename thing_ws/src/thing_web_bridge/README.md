@@ -55,11 +55,65 @@ old requests.
 
 ## Run
 
-Install the Ubuntu package `python3-websockets`, build the workspace, then run:
+### Requirements
+
+`websockets` **10.0 or newer** is required. Version 9.1 passes a removed `loop`
+argument to `asyncio.Lock()` and `asyncio.sleep()`, which raises `TypeError` on
+Python 3.10. The node still binds its port, so the failure only shows up when a
+browser connects and the connection is reset immediately.
 
 ```bash
+python3 -c "import websockets; print(websockets.__version__)"   # must be >= 10
+```
+
+Ubuntu 22.04 (Jetson JetPack 6.2) ships 10.1 via `apt install python3-websockets`,
+which satisfies this. Older hosts need `pip3 install --user 'websockets>=10.4'`.
+Pin the version in the Jetson container image as well.
+
+### Start
+
+```bash
+cd thing_ws
+colcon build --packages-select thing_web_bridge
+source install/setup.bash
 ros2 launch thing_bringup vision.launch.py
 ```
 
+To run only the bridge:
+
+```bash
+ros2 run thing_web_bridge web_bridge_node
+```
+
 The bind address, port, snapshot period, and ROS request timeout are configured
-under `web_bridge_node` in `thing_bringup/config/vision.yaml`.
+under `web_bridge_node` in `thing_bringup/config/vision.yaml`:
+
+| Parameter | Default |
+| --- | --- |
+| `bind_address` | `0.0.0.0` |
+| `port` | `8000` |
+| `snapshot_period_ms` | `200` |
+| `service_timeout_ms` | `2000` |
+
+Startup is confirmed by this log line:
+
+```
+[INFO] [web_bridge_node]: Web Bridge listening on ws://0.0.0.0:8000/ws/robot-state
+```
+
+### Test
+
+```bash
+cd thing_ws
+colcon test --packages-select thing_web_bridge
+colcon test-result --verbose
+```
+
+`test_interface_contract.py` compares the JSON symbol tables against the real
+`thing_interfaces` constants and is skipped when the workspace is not sourced.
+
+## Contract
+
+The frozen browser-facing contract is
+[web/docs/interfaces-bridge.md](../../../web/docs/interfaces-bridge.md). The ROS 2
+side is `docs/interfaces.md`.
