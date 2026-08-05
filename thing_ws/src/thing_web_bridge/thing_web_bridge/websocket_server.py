@@ -195,7 +195,7 @@ class WebSocketServer:
         host: str = '0.0.0.0',
         port: int = 8000,
         path: str = '/ws/robot-state',
-        snapshot_period: float = 0.1,
+        snapshot_period: float = 0.2,
         max_pending: int = 32,
     ) -> None:
         """Store server configuration without opening a socket."""

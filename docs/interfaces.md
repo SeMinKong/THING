@@ -272,3 +272,164 @@ MotorStatus를 기준으로 담당합니다. command_guard는 정규화 목표·
 WebSocket은 JSON을 사용하되 ROS 메시지 필드명을 가능한 그대로 유지합니다.
 명령 요청에는 `request_id`, `type`, `timestamp`, `payload`를 포함하고 응답에는
 동일한 `request_id`, `accepted`, `reason`을 포함합니다.
+
+담당 노드는 `thing_web_bridge/web_bridge_node`이며 endpoint는
+`/ws/robot-state` 하나입니다. 이 절이 6.4절 계약의 동결 지점입니다.
+브라우저 쪽 사용 예시는 `web/docs/interfaces-bridge.md`에 있습니다.
+
+### 전송 규칙
+
+| 항목 | 값 | 근거 |
+| --- | --- | --- |
+| endpoint | `/ws/robot-state` | 6.4절 |
+| snapshot 주기 | 200ms 고정, 값이 바뀌지 않아도 계속 발행 | NFR-13 모터·상태 5Hz |
+| 동시 연결 | **1개만 허용.** 두 번째는 close 1013 | 탭 두 개면 한쪽 STOP이 다른 쪽 제어권까지 해제 |
+| 잘못된 endpoint | close 1008 | 임의 경로 차단 (NFR-20) |
+| 서비스 왕복 상한 | 2000ms, 초과는 `service_timeout` | |
+| 대기열 상한 | 32건, 초과는 `web_queue_overflow` | |
+
+snapshot과 ACK는 하나의 send lock으로 직렬화합니다. `websockets`는 여러
+coroutine의 동시 `send()`를 지원하지 않습니다.
+
+### snapshot 필드
+
+top-level 6필드는 6.4절 계약이므로 순서와 이름을 바꾸지 않습니다. 그 뒤 네
+필드는 FR-21·FR-24·FR-25 표시를 위한 확장입니다. 아직 유효 데이터를 받지 못한
+객체는 `null`이 아니라 `{}`입니다.
+
+| 필드 | 출처 | 내용 |
+| --- | --- | --- |
+| `timestamp` | 브리지 | snapshot 생성 시각, RFC 3339 UTC `Z` |
+| `mode` | `ControlState.active_mode` | `DISABLED\|MIMIC\|MANUAL\|TELEOP` |
+| `recording_state` | `RecordingState.state` | symbolic state |
+| `landmarks` | `/thing/landmarks` | 아래 파생 필드 포함 |
+| `motor_state` | `/thing/motor_status` | `.msg` 원문 + `stale`·`age_ms` |
+| `safety_state` | `/thing/safety_state` | `.msg` 원문 + `reset_allowed`·`stale`·`age_ms` |
+| `control_state` | `/thing/control_state` | `.msg` 원문 + `stale`·`age_ms` |
+| `recording` | `/thing/recording_state` | `.msg` 원문 + `stale`·`age_ms` |
+| `last_hand_command` | 최종 `/thing/command` | 7논리축 표시용 (FR-21) |
+| `connection_status` | 브리지 파생 | 아래 5종 |
+
+`.msg` 원문을 실을 때 enum은 정수 대신 symbol로 바꾸고 `uint64` Session ID는
+10진 문자열로 바꿉니다. 값이 0인 Session ID는 빈 문자열입니다. 읽기 실패로
+`NaN`·`Infinity`가 온 실수는 `null`로 보냅니다. 모터 통신 실패 시 `NaN`은 정상
+시나리오이므로 여기서 예외를 던지면 안 됩니다.
+
+`landmarks` 파생 필드 — FR-27은 hand-loss latch를 develop ROS 2 메시지에 필드를
+추가하지 않고 Web Bridge가 파생한 표시 상태로만 제공하라고 정합니다.
+
+| 필드 | 의미 |
+| --- | --- |
+| `detect_valid` | `detected` + 오른손 + `confidence >= 0.70` (FR-01 MIMIC 유효 기준) |
+| `hand_loss_latched` | 무효가 150ms 연속되면 `true`. **재검출만으로 해제하지 않고** SafetyState가 실제로 `RUN`이 됐을 때만 닫음 (FR-01) |
+| `reacquire_elapsed_ms` | 현재 연속 유효 경과 시간 |
+| `reacquire_stable_ms` | 재검출 인정 기준값 300 |
+| `confidence_min` | 유효 판정에 쓴 임계값 |
+
+`connection_status` — FR-24. 값은 `up`·`down`·`unknown` 세 가지입니다. bool 두
+값으로는 "아직 못 받았다"와 "끊겼다"를 구분할 수 없고, `camera`를 `false`로
+단정하면 MJPEG가 정상인데 영상이 가려집니다.
+
+| 키 | 판정 근거 |
+| --- | --- |
+| `jetson` | snapshot 자체가 Jetson에서 생성되므로 도달했다는 사실이 증거 |
+| `rpi` | `control_state`·`safety_state`·`motor_status` 중 하나라도 신선 |
+| `ros2` | 어느 토픽이든 신선 |
+| `camera` | `landmarks` 신선도로 대리 판정. `image_raw`를 구독하지 않으며 노드별 세분화는 diagnostics 소관 (NFR-09) |
+| `motor` | `motor_status` 신선 |
+
+신선도 임계값은 표시 전용입니다. 데이터 토픽 1000ms, 상태 토픽 5000ms이며
+제어·안전 판정에는 쓰지 않습니다. 각 섹션의 `age_ms`를 함께 보내므로 웹이
+자기 기준으로 다시 판단할 수 있습니다 (FR-25).
+
+### 요청 type
+
+브리지는 아래 8종만 받고 임의 topic·motor ID·ROS 이름을 받지 않습니다
+(FR-23). payload 키가 정확히 일치하지 않으면 거부합니다.
+
+| type | payload | 변환 대상 |
+| --- | --- | --- |
+| `set_control_mode` | `requested_mode`(`MIMIC\|MANUAL`), `requested_owner`(`WEB`) | `/thing/set_control_mode` |
+| `stop` | `requested_mode`(`DISABLED`), `requested_owner`(`NONE`) | 같은 서비스, FR-10의 명시적 STOP |
+| `execute_gesture` | `gesture_name`(4종), `speed_limit` | `/thing/execute_gesture` |
+| `execute_sequence` | `sequence_name`(2종), `speed_limit` | `/thing/execute_sequence` — Could |
+| `start_recording` | `label` | `/thing/start_recording` |
+| `stop_recording` | `session_id`(문자열) | `/thing/stop_recording` |
+| `set_mimic_result` | `session_id`, `result`(`SUCCESS\|FAILURE`) | `/thing/set_mimic_result` |
+| `reset_safety` | 없음 | `/thing/reset_safety` |
+
+MIMIC↔MANUAL 직접 전환은 브리지에서도 막습니다. `set_control_mode`는
+`MIMIC`·`MANUAL`만 받고 `DISABLED`는 `stop` type으로만 보냅니다 (FR-19).
+
+`speed_limit`은 `0.0 < value <= 1.0`만 받고 `0`과 비유한값을 거부합니다
+(FR-06). Session ID는 0이 아닌 63-bit 십진 문자열만 받습니다 (FR-18).
+
+### STOP 선점
+
+FR-19·FR-31은 STOP과 안전 전이가 일반 동작을 항상 선점하라고 정합니다. 요청
+하나를 처리하는 동안 다음 메시지를 읽지 않으면 STOP이 긴급 요청인지 확인조차
+못 하므로 수신과 실행을 분리합니다.
+
+- 일반 요청은 도착 순서대로 하나씩 실행합니다.
+- `stop`과 `reset_safety`는 대기열을 건너뛰고 즉시 실행합니다.
+- `stop`은 아직 시작하지 않은 일반 요청을 폐기하고 각각에 같은 `request_id`로
+  실패 ACK를 돌려줍니다. 이미 ROS로 나간 in-flight 요청은 취소할 수 없습니다.
+- `reset_safety`는 대기열을 건너뛰되 대기 중 요청을 폐기하지 않습니다.
+- 대기 중 같은 mode·owner `set_control_mode`(FR-34 lease 갱신)는 최신 하나만
+  남깁니다. 전부 버리지는 않습니다. in-flight가 timeout되면 실제 갱신이 끊겨
+  3000ms 뒤 lease가 만료됩니다.
+
+ACK 응답 순서는 요청 순서와 다를 수 있습니다. 클라이언트는 순서가 아니라
+`request_id`로 응답을 찾아야 합니다.
+
+### ACK reason
+
+응답 `reason`은 두 계열입니다. **접두어로 출처를 구분합니다.**
+
+`web_*`는 브리지가 ROS에 보내기 전에 스스로 내린 판단입니다.
+
+| reason | 의미 |
+| --- | --- |
+| `web_malformed_request` | envelope·payload 키·값 형식이 규칙에 맞지 않음 |
+| `web_unknown_type` | 위 8종에 없는 type |
+| `web_preempted_by_stop` | STOP이 들어와 실행 전에 폐기됨 |
+| `web_superseded` | 대기 중 lease 갱신이 더 새 요청으로 교체됨 |
+| `web_queue_overflow` | 대기열 상한 초과 |
+| `web_bridge_error` | 브리지 내부 예외 |
+| `invalid_mode` | mode·owner 조합이 허용 범위 밖 |
+| `invalid_session_id` | Session ID가 0이거나 63-bit를 넘음 |
+
+ROS 호출 자체가 실패한 경우입니다.
+
+| reason | 의미 |
+| --- | --- |
+| `service_unavailable` | 서비스 서버가 아직 없음 |
+| `service_timeout` | 2000ms 안에 응답 없음 |
+| `service_failed` | 호출이 예외로 끝남 |
+| `service_rejected` | 서버가 거부했지만 `reason`이 비어 있음 |
+| `action_unavailable` / `action_timeout` / `action_failed` | Sequence 액션의 같은 경우 |
+| `reset_rejected` | Safety Reset 거부인데 `message`가 비어 있음 |
+
+그 밖의 값은 **ROS 응답의 `reason`·`message` 원문을 그대로 전달한 것**입니다.
+브리지는 변환하지 않습니다. FR-37의 `accepted`·`invalid_mode`·`owner_conflict`
+·`safety_not_ready`·`recording_active`·`motion_active`·`stop_barrier_pending`
+·`stop_barrier_timeout`, FR-18의 `not_mimic_mode`·`start_failed`
+·`already_recording`·`result_pending`·`not_recording`·`session_mismatch`
+·`stop_failed`, FR-35의 `owner_lease_expired`가 여기 해당합니다.
+
+`web_*` 계열은 develop 스키마에 없으므로 이 문서가 단일 기준입니다 (FR-41).
+
+### 브리지가 하지 않는 것
+
+- 모터 command 토픽에 직접 발행하지 않습니다. 모든 일반 명령은
+  `command_manager`와 `command_guard`를 거칩니다 (FR-06 경로).
+- `HandCommand`에 mode·owner·enable을 넣지 않습니다 (FR-30).
+- STOP·Safety Reset을 command 토픽의 가짜 명령으로 넣지 않습니다 (FR-32).
+- lease를 대신 갱신하지 않습니다. 갱신은 owner인 내부 제어 웹이 1000ms마다
+  보냅니다. 브리지가 대행하면 브라우저를 닫아도 lease가 유지되어 NFR-15의
+  "종료·연결 단절 시 lease가 만료되어 안전 전이한다"를 깨뜨립니다.
+- 재연결 시 이전 요청을 재생하지 않습니다. 대기열은 연결마다 새로 만듭니다
+  (NFR-15).
+- rosbag2·DB를 조회하지 않습니다 (FR-26).
+- 커스텀 ROS 메시지·서비스·액션·토픽을 만들지 않습니다. `thing_interfaces`는
+  메시지 7종·서비스 5종·액션 1종을 그대로 유지합니다 (FR-30).

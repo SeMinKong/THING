@@ -69,6 +69,8 @@ class WebBridgeNode(Node):
         super().__init__('web_bridge_node')
         self.declare_parameter('bind_address', '0.0.0.0')
         self.declare_parameter('port', 8000)
+        # 내부 제어 웹이 이 주기에서 장치 up/down 판정 임계값을 파생하므로
+        # 바꾸면 web/docs/pending-decisions.md A-1로 웹에 알려야 한다.
         self.declare_parameter('snapshot_period_ms', 200)
         self.declare_parameter('service_timeout_ms', 2000)
 
@@ -84,6 +86,10 @@ class WebBridgeNode(Node):
         if self._service_timeout <= 0.0:
             raise ValueError('service_timeout_ms must be positive')
 
+        # 표시용 파생 임계값은 protocol.py의 명세 기본값을 그대로 쓴다.
+        # hand_target_node YAML에 같은 값이 이미 있어 여기에 또 두면 한쪽만
+        # 고쳤을 때 화면과 제어 판정이 갈린다. 실제 제어 판정은 Raspberry Pi
+        # 소관이고(FR-27) 브리지는 표시만 만든다.
         self._snapshot_store = SnapshotStore()
         self._subscriptions = [
             self.create_subscription(
