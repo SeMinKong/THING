@@ -372,7 +372,7 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다. bool이 아�
 
 | reason | 의미 |
 | --- | --- |
-| `service_unavailable` | 서비스 서버가 아직 없음. Raspberry Pi 미기동 등 |
+| `service_unavailable` | 해당 서비스 노드가 아직 없음. 제어는 Raspberry Pi 스택, 기록은 Jetson logger 미기동 |
 | `service_timeout` | 2000ms 안에 응답 없음 |
 | `service_failed` | 호출이 예외로 끝남 |
 | `service_rejected` | 서버가 거부했지만 `reason`이 비어 있음 |
