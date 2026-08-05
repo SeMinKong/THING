@@ -43,6 +43,7 @@ def test_launches_start_without_sros2_and_keep_node_wiring(monkeypatch):
     hardware_nodes = [entity for entity in hardware.entities if isinstance(entity, Node)]
 
     assert [node.node_executable for node in control_nodes] == [
+        'estop_gpio_node',
         'safety_manager',
         'command_manager',
         'manual_executor',

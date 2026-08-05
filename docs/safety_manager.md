@@ -7,7 +7,8 @@
 - Safety Manager: 상태 전이, timeout, reset 완료 판정
 - Command Manager: mode·owner 해제, STOP event 발행
 - Command Guard: 명령 형식·freshness 검증, HOLD activity 분기
-- Hardware: GPIO E-Stop 감지, torque disable write, timestamp가 채워진 MotorStatus 발행
+- Hardware: `estop_gpio_node`의 GPIO E-Stop heartbeat, torque disable write,
+  timestamp가 채워진 MotorStatus 발행
 - Web/UI: RUN 중 사용자 확인 및 confirmation token 관리
 
 Hardware GPIO 접근과 DYNAMIXEL torque write, Web popup/token은 이 패키지의 구현 범위가 아니다.
@@ -85,7 +86,7 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 - SafetyState stamp는 같은 transition의 periodic heartbeat 동안 고정하고 상태 전이 때만 증가한다. Guard는 stamp가 역행한 지연 상태를 거부하고 `command_stream_recovered` 전이를 관측해 HOLD 표본을 놓친 경우에도 local forwarding 기준을 안전하게 다시 연다.
 - MotorStatus 유발 FAULT publication은 최대 한 20ms steady tick 동안 coalesce한다. 같은 ready set의 active E-Stop은 ESTOP으로 우선 publish하며, E-Stop이 없으면 deadline 직후 FAULT를 publish한다.
 - `builtin_interfaces/Time.nanosec`가 `[0, 1000000000)` 밖이면 MotorStatus와 HandCommand를, SafetyState source stamp가 0 이하이거나 역행·동일 stamp로 enum이 바뀌면 Guard와 Manager가 해당 상태를 malformed/replayed로 거부한다. Manual Executor는 표준 `UInt64.data` generation으로 raw STOP과 Guard ACK을 상관시키고, 동일 ACK 이후 로컬 callback 관측 순서가 `DISABLED`, `RESET/INIT→READY`, 새 `MANUAL`까지 완성된 경우에만 admission latch를 연다.
-- `control.launch.py`는 별도 security artifact 없이 네 control node를 동일한 `control.yaml`로 시작하며, 노드 이름·토픽·서비스 계약은 기존과 동일하게 유지한다.
+- `control.launch.py`는 별도 security artifact 없이 `estop_gpio_node`와 네 control node를 동일한 `control.yaml`로 시작하며, 노드 이름·토픽·서비스 계약은 기존과 동일하게 유지한다.
 - 모든 timing parameter는 strict integer이며 V6.4 fail-closed envelope의 유한 상한을 초과할 수 없다.
 
 ## ROS 인터페이스
@@ -96,7 +97,8 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 - `/thing/command/validation_result` (`std_msgs/msg/Bool`), reliable depth 10 단일 ordered 결과 채널
 - `/thing/control/stop_barrier_ack` (`std_msgs/msg/UInt64`, `data`에 raw STOP과 동일한 generation을 담고 Guard latch 이후 발행하는 causal ACK)
 - `/thing/motor_status` (`thing_interfaces/msg/MotorStatus`), reliable + volatile, depth 5 heartbeat
-- `/thing/estop` (`std_msgs/msg/Bool`), reliable + volatile heartbeat
+- `/thing/estop` (`std_msgs/msg/Bool`), `estop_gpio_node`의 reliable + volatile
+  100ms heartbeat. `true`는 active이고 입력 불명·open/read 실패도 active로 처리
 
 ### 발행
 
@@ -123,6 +125,8 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 | SAFE/FAULT 원인 해소 안정 | 1000ms |
 | E-Stop 해제 안정 | 500ms |
 | MotorStatus freshness | 300ms |
+| E-Stop GPIO poll/debounce | 5ms / 50ms |
+| E-Stop heartbeat | 100ms |
 | E-Stop input freshness | 300ms |
 | SafetyState heartbeat | 100ms |
 
@@ -145,16 +149,17 @@ READY 전이를 위해 이 flag를 켜면 안 된다. 자동화 테스트는 syn
 ```bash
 cd thing_ws
 source /opt/ros/humble/setup.bash
-colcon build --packages-select thing_interfaces thing_control thing_bringup
+colcon build --packages-select thing_interfaces thing_hardware thing_control thing_bringup
 source install/setup.bash
 
 export ROS_DOMAIN_ID=<deployment-domain-id>
 ros2 launch thing_bringup control.launch.py
 ```
 
-시작 직후에는 INIT이지만, 300ms 안에 E-Stop heartbeat를 한 번도 받지 못하면 ESTOP,
-MotorStatus를 한 번도 받지 못하면 FAULT로 fail-closed한다. READY 전이를 위해 hardware node가
-`/thing/motor_status`와 `/thing/estop`을 freshness 제한보다 빠르게 발행해야 하며,
+시작 직후 `estop_gpio_node`는 GPIO가 stable inactive로 확인되기 전까지 active를
+발행합니다. 이후 heartbeat가 300ms 안에 오지 않으면 ESTOP, MotorStatus를 한 번도
+받지 못하면 FAULT로 fail-closed합니다. READY 전이를 위해 motor status node가
+`/thing/motor_status`를 freshness 제한보다 빠르게 발행해야 하며,
 전류·온도 trip 값의 실물 검증도 완료돼야 한다.
 
 상태 확인:
@@ -177,7 +182,7 @@ ros2 service call /thing/reset_safety std_srvs/srv/Trigger '{}'
 cd thing_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-colcon test --packages-select thing_interfaces thing_control thing_bringup
+colcon test --packages-select thing_interfaces thing_hardware thing_control thing_bringup
 colcon test-result --verbose
 ```
 
