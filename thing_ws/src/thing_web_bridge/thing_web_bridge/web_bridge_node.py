@@ -61,6 +61,29 @@ def _state_qos() -> QoSProfile:
     )
 
 
+def _guarded(
+    update: Callable[[Any], None],
+    logger: Any,
+) -> Callable[[Any], None]:
+    """
+    Keep one bad ROS message from killing the whole bridge.
+
+    enum 범위 밖 값 등은 상대 노드와의 버전 불일치에서 실제로 올 수 있고
+    (NaN 크래시와 같은 계열), 구독 콜백 밖으로 예외가 나가면 spin이 죽어
+    모니터링 전체가 끊긴다. 표시 전용 경로이므로 그 메시지만 버리고
+    직전 상태를 유지한다.
+    """
+    def callback(message: Any) -> None:
+        try:
+            update(message)
+        except Exception as error:
+            logger.warning(
+                f'state update dropped: {error}',
+                throttle_duration_sec=5.0,
+            )
+    return callback
+
+
 class WebBridgeNode(Node):
     """Expose ROS 2 monitoring and allowed control requests to one endpoint."""
 
@@ -91,41 +114,43 @@ class WebBridgeNode(Node):
         # 고쳤을 때 화면과 제어 판정이 갈린다. 실제 제어 판정은 Raspberry Pi
         # 소관이고(FR-27) 브리지는 표시만 만든다.
         self._snapshot_store = SnapshotStore()
+        store = self._snapshot_store
+        logger = self.get_logger()
         self._subscriptions = [
             self.create_subscription(
                 ControlState,
                 '/thing/control_state',
-                self._snapshot_store.update_control_state,
+                _guarded(store.update_control_state, logger),
                 _state_qos(),
             ),
             self.create_subscription(
                 RecordingState,
                 '/thing/recording_state',
-                self._snapshot_store.update_recording_state,
+                _guarded(store.update_recording_state, logger),
                 _state_qos(),
             ),
             self.create_subscription(
                 HandLandmarks,
                 '/thing/landmarks',
-                self._snapshot_store.update_landmarks,
+                _guarded(store.update_landmarks, logger),
                 _sensor_qos(),
             ),
             self.create_subscription(
                 MotorStatus,
                 '/thing/motor_status',
-                self._snapshot_store.update_motor_state,
+                _guarded(store.update_motor_state, logger),
                 _reliable_qos(5),
             ),
             self.create_subscription(
                 SafetyState,
                 '/thing/safety_state',
-                self._snapshot_store.update_safety_state,
+                _guarded(store.update_safety_state, logger),
                 _state_qos(),
             ),
             self.create_subscription(
                 HandCommand,
                 '/thing/command',
-                self._snapshot_store.update_hand_command,
+                _guarded(store.update_hand_command, logger),
                 _reliable_qos(1),
             ),
         ]
@@ -169,8 +194,15 @@ class WebBridgeNode(Node):
     def destroy_node(self) -> bool:
         """Stop WebSocket activity before destroying ROS entities."""
         if self._server_started:
-            self._server.stop()
             self._server_started = False
+            try:
+                self._server.stop()
+            except RuntimeError as error:
+                # stop 실패(스레드 join timeout)가 action client와 rclpy
+                # 자원 정리까지 건너뛰게 두지 않는다. 스레드는 daemon이라
+                # 프로세스 종료를 막지 못한다.
+                self.get_logger().error(
+                    f'WebSocket server stop failed: {error}')
         self._sequence_client.destroy()
         return super().destroy_node()
 

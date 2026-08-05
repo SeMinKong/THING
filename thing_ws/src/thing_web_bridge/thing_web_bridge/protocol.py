@@ -274,7 +274,6 @@ class SnapshotStore:
         self._hand_valid_since: Optional[float] = None
         self._hand_invalid_since: Optional[float] = None
         self._hand_loss_latched = False
-        self._hand_reacquired = False
 
     def _mark(self, key: str) -> None:
         self._received_at[key] = self._clock()
@@ -353,12 +352,8 @@ class SnapshotStore:
             self._hand_invalid_since = None
             if self._hand_valid_since is None:
                 self._hand_valid_since = now
-            self._hand_reacquired = (
-                now - self._hand_valid_since >= self._hand_reacquire_stable
-            )
             return
         self._hand_valid_since = None
-        self._hand_reacquired = False
         if self._hand_invalid_since is None:
             self._hand_invalid_since = now
         if now - self._hand_invalid_since >= self._hand_loss_debounce:
@@ -488,7 +483,12 @@ def _validate_speed(value: Any) -> None:
 
 
 def _validate_session_id(value: Any) -> None:
-    if not isinstance(value, str) or not value.isdigit() or value == '0':
+    # str.isdigit()는 '²' 같은 유니코드 숫자도 통과시키는데 그런 값은
+    # int()에서 ProtocolError가 아닌 예외가 나 reader task째 죽는다.
+    # 선행 0도 막아야 '00'이 미지정 센티널 0으로 ROS까지 들어가지 않는다.
+    if not isinstance(value, str) or not value.isascii():
+        raise ProtocolError('web_malformed_request')
+    if not value.isdigit() or value.startswith('0'):
         raise ProtocolError('web_malformed_request')
     if int(value) >= 2 ** 63:
         raise ProtocolError('web_malformed_request')

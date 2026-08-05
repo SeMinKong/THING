@@ -142,6 +142,11 @@ def test_frontend_request_types_are_accepted(request_type, payload):
         ),
         request('stop_recording', {'session_id': 8531234567890123456}),
         request('stop_recording', {'session_id': '0'}),
+        # 선행 0은 int() 하면 미지정 센티널 0이나 다른 ID로 바뀐다
+        request('stop_recording', {'session_id': '00'}),
+        request('stop_recording', {'session_id': '007'}),
+        # isdigit()은 통과하지만 int()가 ValueError를 내는 유니코드 숫자
+        request('stop_recording', {'session_id': '²'}),
         request(
             'execute_gesture',
             {'gesture_name': 'custom', 'speed_limit': 0.5},

@@ -3,6 +3,7 @@
 import asyncio
 from collections import deque
 import json
+import logging
 from threading import Event, Lock, Thread
 from typing import Any, Callable, Deque, Dict, Optional, Tuple
 
@@ -14,6 +15,10 @@ from thing_web_bridge.protocol import SnapshotStore
 
 
 RequestHandler = Callable[[Any], Dict[str, Any]]
+
+# rclpy 로거는 노드 소유라 이 계층에서는 표준 logging을 쓴다. 기본 설정으로도
+# WARNING 이상은 stderr에 남아 launch 로그에서 볼 수 있다.
+LOGGER = logging.getLogger('thing_web_bridge.websocket_server')
 
 # FR-19·FR-31: STOP과 안전 전이는 일반 동작을 항상 선점한다. 일반 요청 하나를
 # 처리하는 동안 다음 메시지를 읽지 않으면 STOP이 긴급 요청인지 확인조차 못 하고
@@ -180,7 +185,13 @@ class ClientSession:
             done, pending = await asyncio.wait(
                 tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
-                task.exception()
+                error = task.exception()
+                if error is not None:
+                    # 세션이 왜 끝났는지 기록이 없으면 통합 시험에서 원인
+                    # 추적이 불가능하다. 정상 종료(reader의 close)는 예외
+                    # 없이 끝나므로 여기 걸리는 것은 비정상 절단이나 버그다.
+                    LOGGER.warning(
+                        'client session task ended with %r', error)
         finally:
             for task in (*tasks, *tuple(self._urgent_tasks)):
                 task.cancel()
