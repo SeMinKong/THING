@@ -1,4 +1,5 @@
-"""격리 uploader 데몬 (S15P11C103-125).
+"""
+격리 uploader 데몬 (S15P11C103-125).
 
 logger와 **별도 프로세스**로 Jetson에서 기동한다. exporter가 private Unix socket으로 넘긴
 완료 canonical 4파일 manifest만 받아, 파일을 읽기 전용으로 재검증한 뒤 EC2 Django 업로드
@@ -93,7 +94,8 @@ def verify_manifest_files(manifest: Manifest) -> None:
 
 
 def read_metadata(manifest: Manifest) -> dict:
-    """metadata.json에서 robot_id·session_id·data_version·content_digest를 얻는다.
+    """
+    metadata.json에서 robot_id·session_id·data_version·content_digest를 얻는다.
 
     Idempotency-Key 구성과 EC2 응답 대조에 쓴다. manifest 값과 교차 확인한다.
     """
@@ -209,7 +211,8 @@ class UploadState(str, enum.Enum):
 
 
 def handle_manifest_line(manifest_line: bytes, config: Config) -> bytes:
-    """manifest 한 줄 → ACK 한 줄. 어떤 실패도 FAILURE ACK로 귀결한다.
+    """
+    받은 manifest 한 줄을 처리해 ACK 한 줄을 만든다. 어떤 실패도 FAILURE ACK로 귀결한다.
 
     session_id를 못 얻으면(ManifestError) ACK를 만들 수 없어 예외를 위로 올린다
     → 서버가 ACK 없이 연결을 닫고, 클라이언트가 실패로 인지한다.

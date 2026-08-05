@@ -1,4 +1,5 @@
-"""격리 uploader의 계약·설정·예외 (S15P11C103-125).
+"""
+격리 uploader의 계약·설정·예외 (S15P11C103-125).
 
 여기 담긴 것:
   - 예외 계층
@@ -166,7 +167,8 @@ class Ack:
 
 
 def parse_manifest(line: bytes) -> Manifest:
-    """소켓으로 받은 한 줄 manifest를 구조로 파싱·형식 검증한다.
+    """
+    소켓으로 받은 한 줄 manifest를 구조로 파싱·형식 검증한다.
 
     형식만 본다. 파일 존재·해시 재계산·집합 검증은 uploader.verify 단계에서 한다.
     """
