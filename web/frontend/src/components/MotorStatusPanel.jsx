@@ -54,7 +54,13 @@ function useElapsed(since) {
   return Math.max(0, tick - since);
 }
 
-export default function MotorStatusPanel({ motorStatus, motorUpdatedAt, receivedAt }) {
+/**
+ * @param fill 남는 높이를 채울 것인가. 조작 화면처럼 이 표가 열 전체를 차지할 때
+ *             켜면 7행이 높이를 나눠 갖고 아래가 비지 않는다.
+ */
+export default function MotorStatusPanel({
+  motorStatus, motorUpdatedAt, receivedAt, fill = false,
+}) {
   const sinceMs = useElapsed(receivedAt);
   const staleMs = useElapsed(motorUpdatedAt);
 
@@ -78,11 +84,11 @@ export default function MotorStatusPanel({ motorStatus, motorUpdatedAt, received
   const sinceSec = sinceMs !== null ? Math.round(sinceMs / 100) / 10 : null;
   const dim = isStale || isPast;
 
-  const COLS = ["ID", "액추에이터", "목표 rad", "현재 rad", "rad/s", "A", "°C", "통신"];
-  const LEFT = new Set([0, 1, 7]);
+  const COLS = ["ID", "액추에이터", "목표 rad", "현재 rad", "rad/s", "A", "°C", "토크", "통신"];
+  const LEFT = new Set([0, 1, 7, 8]);
 
   return (
-    <Panel>
+    <Panel className={fill ? "flex min-h-0 flex-1 flex-col" : ""}>
       <div aria-label="모터 상태">
         <Head title="모터 7채널">
           <AnimatePresence mode="wait" initial={false}>
@@ -112,12 +118,12 @@ export default function MotorStatusPanel({ motorStatus, motorUpdatedAt, received
           </AnimatePresence>
         </Head>
 
-        <Body>
+        <Body className={fill ? "flex min-h-0 flex-1 flex-col" : ""}>
           {!hasData ? (
             <p className="text-xs text-ink-500">모터 상태를 아직 받지 못했습니다.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+            <div className={`overflow-x-auto ${fill ? "min-h-0 flex-1" : ""}`}>
+              <table className={`w-full text-xs ${fill ? "h-full" : ""}`}>
                 <thead>
                   <tr className="border-b border-ink-200">
                     {COLS.map((h, i) => (
@@ -160,8 +166,20 @@ export default function MotorStatusPanel({ motorStatus, motorUpdatedAt, received
                         <td className={`px-2 py-1.5 text-right font-mono ${alert}`}>
                           <Num value={motor.current_ampere} />
                         </td>
-                        <td className={`px-2 py-1.5 text-right font-mono ${alert}`}>
+<td className={`px-2 py-1.5 text-right font-mono ${alert}`}>
                           <Num value={motor.temperature_celsius} digits={1} />
+                        </td>
+                        {/* interfaces.md MotorStatus 계약: communication_ok=false 면
+                            torque_enabled 를 유효 상태로 보지 않는다. 값이 없거나 통신
+                            실패면 "-"(FR-24 가짜 값 금지). ON/OFF 는 판정이 아니라 표시다. */}
+                        <td className="px-2 py-1.5 text-left">
+                          {commOk && typeof motor.torque_enabled === "boolean" ? (
+                            <Tag tone={motor.torque_enabled ? "live" : "idle"}>
+                              {motor.torque_enabled ? "ON" : "OFF"}
+                            </Tag>
+                          ) : (
+                            <span className={`font-mono ${muted || "text-ink-400"}`}>-</span>
+                          )}
                         </td>
                         <td className="px-2 py-1.5 text-left">
                           <Tag tone={!commOk ? "bad"

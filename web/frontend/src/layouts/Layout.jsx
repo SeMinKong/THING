@@ -1,11 +1,12 @@
 // ============================================================================
-// 셸
+// 셸 — 모드 화면 전용
 // ----------------------------------------------------------------------------
 // 색으로 채운 머리 → 알림 → 작업 영역.
 //
-// 화면 전환 시 영상이 사라졌다 다시 뜨지 않는다. 모방과 조작 둘 다 영상을
-// 쓰는데, 전환할 때마다 MJPEG 연결이 끊기면 몇 프레임을 놓친다.
-// layoutId 로 같은 요소임을 알려 자리만 옮긴다.
+// 노트북 한 화면에 스크롤 없이 들어가야 한다. 그래서 h-screen 을 세로 flex 로
+// 쓰고 작업 영역만 flex-1 로 남긴다. min-h-0 이 없으면 자식이 넘쳐 스크롤이 생긴다.
+//
+// 개요 화면은 이 셸을 쓰지 않는다 (App.jsx 참고).
 // ============================================================================
 import { Outlet, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
@@ -19,12 +20,14 @@ export default function Layout() {
 
   return (
     <div
-      className="min-h-screen bg-ink-0"
+      className="flex h-screen flex-col overflow-hidden bg-ink-0"
       data-safety={safetyStateKnown ? safetyState.state : "INIT"}
     >
       <Header />
 
-      <main className="mx-auto flex max-w-[1400px] flex-col gap-4 px-6 py-6">
+      <main className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col
+                       gap-3 px-6 py-4">
+        {/* 알림은 있을 때만 자리를 차지한다. 없으면 높이 0 이다 */}
         <SafetyBanner />
 
         <AnimatePresence mode="popLayout" initial={false}>
@@ -34,6 +37,7 @@ export default function Layout() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.14 }}
+            className="min-h-0 flex-1"
           >
             <Outlet />
           </motion.div>

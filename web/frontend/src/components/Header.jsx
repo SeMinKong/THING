@@ -14,12 +14,13 @@
 // FR-27 은 "reset 가능 여부와 거부 사유를 구분" 하라고 한다. 판정 문구가 그
 // 역할을 한다. 숫자는 전부 pending.js 의 SPEC 에서 읽는다.
 // ============================================================================
-import { NavLink } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { motion } from "motion/react";
 import { useHandSocket } from "../context/HandSocketContext";
 import { CONTROL_MODE, CONTROL_OWNER } from "../config/messageProtocol";
 import { SPEC } from "../config/pending";
 import StatusBar from "./StatusBar";
+import { useModeGate } from "./ModeGate";
 
 // 트랙 순서는 uint8 상수값이 아니라 FR-35 위상 순서다.
 // .msg 는 RESET=7 이라 배열 끝이지만 절차상 RESET 은 HOLD 다음이다.
@@ -78,6 +79,8 @@ export default function Header() {
     safetyState, safetyStateKnown, controlState, controlStateKnown, webHasControl,
   } = useHandSocket();
 
+  const { pathname } = useLocation();
+  const { go } = useModeGate();
   const state = safetyStateKnown ? safetyState.state : null;
   const [head, why] = verdict(state, safetyStateKnown, controlState.active_mode);
   const owner = controlStateKnown ? controlState.active_owner : null;
@@ -91,50 +94,59 @@ export default function Header() {
       className="bg-[var(--signal)] text-white transition-colors duration-500
                  ease-[cubic-bezier(0.2,0,0.1,1)]"
     >
-      <div className="mx-auto max-w-[1400px] px-6 pb-5 pt-3.5">
-        {/* 1행 — 정체·이동·연결 */}
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-          <span className="font-mono text-[13px] font-semibold tracking-tight">THING</span>
+      <div className="mx-auto max-w-[1400px] px-6 pb-3 pt-3">
+        {/* 1행 — 정체·이동·연결.
+            nav 를 화면 중앙에 두려면 양옆이 같은 폭을 가져야 한다.
+            flex-1 basis-0 두 개가 남는 공간을 반씩 나눠 가진다. */}
+        <div className="flex items-center gap-x-4">
+          <div className="flex flex-1 basis-0 items-center">
+            <span className="font-mono text-[13px] font-semibold tracking-tight">THING</span>
+          </div>
 
-          <nav className="flex gap-1" aria-label="화면 이동">
-            {NAV.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className="relative rounded-full px-3.5 py-1 text-[13px] font-medium
-                           text-white/70 transition-colors hover:text-white
-                           aria-[current=page]:text-white"
-              >
-                {({ isActive }) => (
-                  <>
-                    {/* 활성 알약이 탭 사이를 미끄러진다 */}
-                    {isActive && (
-                      <motion.span
-                        layoutId="nav-pill"
-                        transition={{ type: "spring", stiffness: 460, damping: 38 }}
-                        className="absolute inset-0 rounded-full bg-white/20"
-                      />
-                    )}
-                    <span className="relative">{item.label}</span>
-                  </>
-                )}
-              </NavLink>
-            ))}
+          {/* 이동은 게이트를 지난다. 제어권을 쥔 채로는 나가지 못한다 */}
+          <nav className="flex shrink-0 gap-1" aria-label="화면 이동">
+            {NAV.map((item) => {
+              const isActive = item.end
+                ? pathname === item.to
+                : pathname.startsWith(item.to);
+              return (
+                <button
+                  key={item.to}
+                  type="button"
+                  onClick={() => go(item.to)}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`relative rounded-full px-3.5 py-1 text-[13px] font-medium
+                              transition-colors ${
+                                isActive ? "text-white" : "text-white/70 hover:text-white"}`}
+                >
+                  {/* 활성 알약이 탭 사이를 미끄러진다 */}
+                  {isActive && (
+                    <motion.span
+                      layoutId="nav-pill"
+                      transition={{ type: "spring", stiffness: 460, damping: 38 }}
+                      className="absolute inset-0 rounded-full bg-white/20"
+                    />
+                  )}
+                  <span className="relative">{item.label}</span>
+                </button>
+              );
+            })}
           </nav>
 
-          <StatusBar />
+          <div className="flex flex-1 basis-0 justify-end">
+            <StatusBar />
+          </div>
         </div>
 
         {/* 2행 — 판정. 화면에서 제일 큰 글자 */}
-        <div className="mt-5 flex flex-wrap items-end gap-x-6 gap-y-2">
+        <div className="mt-3 flex flex-wrap items-end gap-x-6 gap-y-2">
           <div className="min-w-0 flex-1">
             <motion.h1
               key={head}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.28, ease: [0.2, 0, 0.1, 1] }}
-              className="text-[26px] font-bold leading-tight tracking-[-0.02em] sm:text-[32px]"
+              className="text-[20px] font-bold leading-tight tracking-[-0.02em] sm:text-[24px]"
             >
               {head}
             </motion.h1>
@@ -143,7 +155,7 @@ export default function Header() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.75 }}
               transition={{ duration: 0.28, delay: 0.06 }}
-              className="mt-1.5 max-w-[74ch] text-[13.5px] leading-relaxed"
+              className="mt-1 max-w-[74ch] text-[12.5px] leading-relaxed"
             >
               {why}
             </motion.p>
@@ -168,13 +180,13 @@ export default function Header() {
         {/* 3행 — 8상태 트랙. 표시자가 칸 사이를 실제로 이동한다.
             굵은 구분선 뒤부터는 /thing/reset_safety 가 필요하다 */}
         {!safetyStateKnown && (
-          <p className="mt-4 font-mono text-[11px] opacity-70">
+          <p className="mt-2 font-mono text-[11px] opacity-70">
             안전 상태 수신 대기 — 트랙에 현재 위치를 표시하지 않습니다
           </p>
         )}
 
         <div
-          className="mt-4 flex gap-0.5"
+          className="mt-2.5 flex gap-0.5"
           role="img"
           aria-label={`안전 상태 ${state ?? "수신 대기"}`}
         >

@@ -163,7 +163,7 @@ export const STOP_OWNER = CONTROL_OWNER.NONE;
 // SafetyState.msg — FR-35
 // ---------------------------------------------------------------------------
 // V7: "SafetyState.msg: 기존 상수 뒤 uint8 RESET=7 추가" (FR-30 승인된 변경 사항).
-// RESET 은 명시적 정상 STOP 의 Guard ACK·settle·torque-off 확인 상태이며
+// RESET 은 명시적 정상 STOP 뒤 모터를 움직이지 않고 torque OFF 를 재확인하는 상태이며
 // /thing/reset_safety 와는 다른 정상 제어 상태다.
 // 배열 순서가 곧 uint8 상수값이다.
 export const SAFETY_STATES = [
@@ -362,13 +362,37 @@ export function isSnapshot(message) {
 //  recording_active, motion_active, stop_barrier_pending, stop_barrier_timeout"
 export const REJECT_REASON = {
   ACCEPTED: "accepted",
+
+  // 모드 서비스 /thing/set_control_mode (interfaces.md)
   INVALID_MODE: "invalid_mode",
-  OWNER_CONFLICT: "owner_conflict",
-  SAFETY_NOT_READY: "safety_not_ready",
-  RECORDING_ACTIVE: "recording_active",
   MOTION_ACTIVE: "motion_active",
-  STOP_BARRIER_PENDING: "stop_barrier_pending",
-  STOP_BARRIER_TIMEOUT: "stop_barrier_timeout",
+  STOP_IN_PROGRESS: "stop_in_progress",        // 명시적 STOP 후 500ms 재획득 차단 구간
+  OWNER_LEASE_EXPIRED: "owner_lease_expired",  // lease 만료 → DISABLED/NONE 발행 후 거부
+  SAFETY_NOT_READY: "safety_not_ready",        // INIT·SAFE·FAULT·ESTOP·RESET (HOLD 는 검증만)
+  // ↓ interfaces.md 모드 4종엔 이름이 없으나 서비스가 "녹화 중·타 owner"에서 거부한다.
+  //   실제 reason 문자열 미확정 — 회신 전까지 유지(불일치 시 fallback).
+  OWNER_CONFLICT: "owner_conflict",
+  RECORDING_ACTIVE: "recording_active",
+
+  // Manual Executor /thing/execute_gesture · /thing/execute_sequence (interfaces.md)
+  INVALID_GESTURE: "invalid_gesture",
+  INVALID_SEQUENCE: "invalid_sequence",
+  INVALID_SPEED_LIMIT: "invalid_speed_limit",
+  NOT_MANUAL_MODE: "not_manual_mode",
+  CONTROL_STATE_UNAVAILABLE: "control_state_unavailable",
+  CONTROL_STATE_STALE: "control_state_stale",
+  SAFETY_STATE_UNAVAILABLE: "safety_state_unavailable",
+  SAFETY_STATE_STALE: "safety_state_stale",
+  STOP_LATCHED: "stop_latched",
+
+  // 기록 서비스 /thing/start_recording · /thing/stop_recording (FR-18)
+  NOT_MIMIC_MODE: "not_mimic_mode",
+  START_FAILED: "start_failed",
+  ALREADY_RECORDING: "already_recording",
+  RESULT_PENDING: "result_pending",
+  NOT_RECORDING: "not_recording",
+  SESSION_MISMATCH: "session_mismatch",   // 로봇 StopRecording 사유 — WEB_REASON.SESSION_MISMATCH 와 별개
+  STOP_FAILED: "stop_failed",
 };
 
 // 웹 전송 계층 전용 사유 (web_ 접두사)
@@ -384,22 +408,59 @@ export const WEB_REASON = {
 // FR-27: "reset 가능 여부와 거부 사유를 구분하고"
 // 사용자가 다음에 무엇을 해야 하는지까지 알려준다.
 const REASON_MESSAGES = {
+  // 모드 서비스
   [REJECT_REASON.INVALID_MODE]:
     "지금 이 모드로 바꿀 수 없습니다. 모방↔조작은 직접 전환할 수 없으니 먼저 정지(STOP)로 비활성화한 뒤 다시 선택하세요.",
-  [REJECT_REASON.OWNER_CONFLICT]:
-    "다른 조작 주체가 제어권을 가지고 있습니다. 해당 주체가 해제한 뒤 다시 시도하세요.",
-  [REJECT_REASON.SAFETY_NOT_READY]:
-    "안전 상태가 준비(READY)가 아닙니다. 정지 후 안정화를 기다리거나, 위험 상태라면 원인을 해소하고 안전 초기화를 수행하세요.",
-  [REJECT_REASON.RECORDING_ACTIVE]:
-    "기록이 진행 중이거나 판정이 끝나지 않았습니다. 기록을 종료하고 성공·실패를 판정한 뒤 다시 시도하세요.",
   [REJECT_REASON.MOTION_ACTIVE]:
     "동작이 실행 중입니다. 새 동작은 대기열에 쌓이지 않습니다. 끝나기를 기다리거나 정지(STOP)를 누르세요.",
-  // FR-35: STOP 은 Guard 가 latch 를 닫고 stop_barrier_ack 를 보낸 뒤에만 성공한다.
-  [REJECT_REASON.STOP_BARRIER_PENDING]:
-    "이전 정지 요청을 처리하는 중입니다. 잠시 후 다시 시도하세요.",
-  [REJECT_REASON.STOP_BARRIER_TIMEOUT]:
-    "정지 요청이 제어기 확인 응답을 받지 못했습니다. 제어권은 해제된 상태로 유지되며 "
-    + "모드 재획득이 차단됩니다. 로봇 상태를 확인한 뒤 다시 정지를 요청하세요.",
+  [REJECT_REASON.STOP_IN_PROGRESS]:
+    "정지 직후 잠시 재획득이 차단되는 구간입니다. 잠시 후 다시 시도하세요.",
+  [REJECT_REASON.OWNER_LEASE_EXPIRED]:
+    "제어권 유지 신호가 끊겨 제어권이 해제됐습니다. 안전 상태를 확인한 뒤 모드를 다시 획득하세요.",
+  [REJECT_REASON.SAFETY_NOT_READY]:
+    "안전 상태가 준비(READY)가 아닙니다. 정지 후 안정화를 기다리거나, 위험 상태라면 원인을 해소하고 안전 초기화를 수행하세요.",
+  [REJECT_REASON.OWNER_CONFLICT]:
+    "다른 조작 주체가 제어권을 가지고 있습니다. 해당 주체가 해제한 뒤 다시 시도하세요.",
+  [REJECT_REASON.RECORDING_ACTIVE]:
+    "기록이 진행 중이거나 판정이 끝나지 않았습니다. 기록을 종료하고 성공·실패를 판정한 뒤 다시 시도하세요.",
+
+  // Manual Executor (Gesture·Sequence)
+  [REJECT_REASON.INVALID_GESTURE]:
+    "지원하지 않는 동작입니다. 열기·주먹·집기·원통 파지만 가능합니다.",
+  [REJECT_REASON.INVALID_SEQUENCE]:
+    "지원하지 않는 연속 동작입니다. 카운트다운·가위바위보만 가능합니다.",
+  [REJECT_REASON.INVALID_SPEED_LIMIT]:
+    "속도 값이 허용 범위를 벗어났습니다. (0.0 초과 1.0 이하)",
+  [REJECT_REASON.NOT_MANUAL_MODE]:
+    "조작 모드가 아닙니다. 조작 모드와 제어권을 먼저 획득하세요.",
+  [REJECT_REASON.CONTROL_STATE_UNAVAILABLE]:
+    "제어 상태를 확인할 수 없어 명령을 보낼 수 없습니다. 잠시 후 다시 시도하세요.",
+  [REJECT_REASON.CONTROL_STATE_STALE]:
+    "제어 상태 갱신이 지연되고 있어 명령을 보낼 수 없습니다. 연결을 확인하세요.",
+  [REJECT_REASON.SAFETY_STATE_UNAVAILABLE]:
+    "안전 상태를 확인할 수 없어 명령을 보낼 수 없습니다. 잠시 후 다시 시도하세요.",
+  [REJECT_REASON.SAFETY_STATE_STALE]:
+    "안전 상태 갱신이 지연되고 있어 명령을 보낼 수 없습니다. 연결을 확인하세요.",
+  [REJECT_REASON.STOP_LATCHED]:
+    "정지 이후 아직 새 제어권을 획득하지 않았습니다. 모드를 다시 획득한 뒤 시도하세요.",
+
+  // 기록 서비스
+  [REJECT_REASON.NOT_MIMIC_MODE]:
+    "기록은 모방 모드에서만 시작할 수 있습니다.",
+  [REJECT_REASON.START_FAILED]:
+    "기록을 시작하지 못했습니다. 잠시 후 다시 시도하세요.",
+  [REJECT_REASON.ALREADY_RECORDING]:
+    "이미 기록이 진행 중입니다.",
+  [REJECT_REASON.RESULT_PENDING]:
+    "직전 세션의 성공·실패 판정이 끝나지 않았습니다. 먼저 판정한 뒤 새 기록을 시작하세요.",
+  [REJECT_REASON.NOT_RECORDING]:
+    "진행 중인 기록이 없습니다.",
+  [REJECT_REASON.SESSION_MISMATCH]:
+    "화면의 세션과 로봇의 현재 세션이 다릅니다. 화면을 새로 고쳐 최신 기록 상태를 확인하세요.",
+  [REJECT_REASON.STOP_FAILED]:
+    "기록 종료에 실패했습니다. 로봇 상태를 확인한 뒤 다시 시도하세요.",
+
+  // 웹 전송 계층 (web_ 접두사)
   [WEB_REASON.BRIDGE_OFFLINE]:
     "ROS 2 브릿지에 연결되어 있지 않아 요청을 전달할 수 없습니다.",
   [WEB_REASON.MALFORMED]:

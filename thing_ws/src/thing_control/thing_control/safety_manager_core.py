@@ -19,8 +19,8 @@ ROS 없이도 시험할 수 있는 8상태 안전 정책 코어 사용 안내.
 
 ④ 주요 실행 흐름
     시작은 INIT이다. fresh MotorStatus와 비활성 E-Stop을 확인하면 READY, 첫 유효 명령은
-    RUN으로 보낸다. 마지막 hardware-forwarded 명령에서 300 ms가 지나면 HOLD,
-    총 1000 ms가 지나면 SAFE다. HOLD 중 Guard가 검증한 activity가 최대 100 ms 간격으로
+    RUN으로 보낸다. 마지막 hardware-forwarded 명령에서 5000 ms가 지나면 HOLD,
+    총 10000 ms가 지나면 SAFE다. HOLD 중 Guard가 검증한 activity가 최대 100 ms 간격으로
     300 ms 연속되면 RUN으로 회복한다. STOP은 Guard의 차단 ACK 뒤 RESET으로 들어가며,
     최소 500 ms 뒤 fresh torque-off 증거가 있으면 READY가 된다. 센서/heartbeat 이상은
     FAULT 또는 최우선 ESTOP으로 가고, SAFE action이나 RESET의 3000 ms deadline 실패도
@@ -64,14 +64,14 @@ class SafetyLimits:
     """
     상태 전이 시간과 freshness limit의 변경 불가능한 묶음.
 
-    300 ms HOLD, 1000 ms SAFE, 300 ms heartbeat freshness를 포함한 값들이다.
+    5000 ms HOLD, 10000 ms SAFE, 300 ms heartbeat freshness를 포함한 값들이다.
     어댑터 parameter로 값을 받더라도 명세보다 느슨해지지 않게 ``__post_init__``에서
     타입·관계·상한/하한을 다시 검사한다. ``True``도 Python에서는 정수처럼 보이므로
     명시적으로 거부한다. 잘못된 설정으로 watchdog을 사실상 끄는 일을 막기 위함이다.
     """
 
-    command_hold_ms: int = 300
-    command_safe_ms: int = 1000
+    command_hold_ms: int = 5000
+    command_safe_ms: int = 10000
     safe_action_timeout_ms: int = 3000
     recovery_stable_ms: int = 300
     recovery_max_gap_ms: int = 100
@@ -100,10 +100,10 @@ class SafetyLimits:
             value = getattr(self, name)
             if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
                 raise ValueError(f'{name} must be a positive integer')
-        if self.command_hold_ms > 300:
-            raise ValueError('command_hold_ms cannot exceed 300')
-        if self.command_safe_ms > 1000:
-            raise ValueError('command_safe_ms cannot exceed 1000')
+        if self.command_hold_ms > 5000:
+            raise ValueError('command_hold_ms cannot exceed 5000')
+        if self.command_safe_ms > 10000:
+            raise ValueError('command_safe_ms cannot exceed 10000')
         if self.command_safe_ms <= self.command_hold_ms:
             raise ValueError('command_safe_ms must exceed command_hold_ms')
         if self.safe_action_timeout_ms > 3000:
@@ -199,10 +199,10 @@ class SafetyManagerCore:
       진입보다 새 hardware/E-Stop 표본을 모두 요구해 이전 cache 재사용을 막는다.
     * ``READY``: 안전 조건은 만족했지만 아직 동작 명령이 없는 상태다. 첫 Guard-approved
       명령은 ``RUN``, Guard의 STOP barrier ACK는 ``RESET``으로 보낸다.
-    * ``RUN``: 정상 명령 흐름이다. 마지막으로 hardware에 전달된 유효 명령 후 300 ms가
+    * ``RUN``: 정상 명령 흐름이다. 마지막으로 hardware에 전달된 유효 명령 후 5000 ms가
       지나거나 owner lease가 만료되면 ``HOLD``다.
     * ``HOLD``: hardware command barrier가 닫힌 일시 정지다. 마지막 전달 명령 기준 총
-      1000 ms가 되면 ``SAFE``다. 그 전에 Guard validation activity가 최대 100 ms
+      10000 ms가 되면 ``SAFE``다. 그 전에 Guard validation activity가 최대 100 ms
       간격으로 300 ms 연속되면 ``RUN``으로 복귀한다. 이 activity는 검증 증거일 뿐
       hardware에 전달된 명령으로 세지 않는다.
     * ``SAFE``: hardware 계층이 안전 자세/torque-off를 수행해야 하는 제한 상태다.
@@ -454,7 +454,7 @@ class SafetyManagerCore:
         판정 순서는 E-Stop stale → MotorStatus stale/bus timeout → fault clear 갱신 →
         현재 상태 전이다. 위험 우선순위를 먼저 검사하므로 같은 tick에 RUN timeout과
         heartbeat 손실이 겹쳐도 더 높은 ESTOP/FAULT가 선택된다. 경계는 ``>=``이므로
-        정확히 300 ms 또는 1000 ms가 된 순간 이미 timeout이다.
+        설정된 각 제한 시간에 도달한 순간 이미 timeout이다.
         """
         if state_stamp_ns is None:
             state_stamp_ns = now_ns
@@ -542,7 +542,7 @@ class SafetyManagerCore:
         """
         hardware까지 전달된 Guard-approved 명령의 activity를 기록한다.
 
-        READY의 첫 명령은 RUN을 열고 RUN의 후속 명령은 300/1000 ms 기준시각을
+        READY의 첫 명령은 RUN을 열고 RUN의 후속 명령은 5000/10000 ms 기준시각을
         갱신한다. HOLD에서는 barrier를 우회해 hardware-forwarded로 간주하지 않고 복구
         validation 흐름으로만 처리한다. SAFE/FAULT/ESTOP/RESET 입력은 상태를 열지 않는다.
         """
@@ -570,9 +570,9 @@ class SafetyManagerCore:
         """
         HOLD 중 검증됐지만 hardware에는 전달하지 않은 activity를 기록한다.
 
-        executor 지연으로 RUN의 300 ms deadline 직후 이 callback이 먼저 실행된 경우에도
+        executor 지연으로 RUN의 5000 ms deadline 직후 이 callback이 먼저 실행된 경우에도
         먼저 HOLD를 확정한 뒤 recovery activity로 취급한다. 이 activity로 원래의
-        1000 ms SAFE deadline을 연장하지 않는다.
+        10000 ms SAFE deadline을 연장하지 않는다.
         """
         if state_stamp_ns is None:
             state_stamp_ns = now_ns
@@ -596,7 +596,7 @@ class SafetyManagerCore:
     ) -> None:
         """최대 100 ms gap의 연속 activity를 모아 300 ms HOLD 복구를 판정한다."""
         # HOLD 자동복귀는 "명령 한 번"이 아니라 최대 gap 100 ms인 300 ms 연속 흐름을
-        # 요구한다. 간헐 입력으로 1000 ms SAFE 마감시각을 연장하지 않는다.
+        # 요구한다. 간헐 입력으로 10000 ms SAFE 마감시각을 연장하지 않는다.
         if (
             self._last_validated_command_ns is not None
             and now_ns - self._last_validated_command_ns

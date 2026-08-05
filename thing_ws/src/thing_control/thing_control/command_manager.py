@@ -48,7 +48,7 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from std_msgs.msg import Bool, Empty
+from std_msgs.msg import Bool, UInt64
 
 from thing_interfaces.msg import (
     ControlState,
@@ -158,7 +158,9 @@ class CommandManagerNode(Node):
         # count snapshot은 요청 전에 이미 수신·계수된 ACK를 이번 응답에서 제외한다.
         # 요청별 correlation ID는 없으므로 count 자체가 개별 transaction을 식별하지는 않는다.
         self._stop_ack_condition = Condition()
-        self._stop_ack_count = 0
+        self._stop_generation = 0
+        self._pending_stop_generation = None
+        self._last_ack_generation = 0
         self._stop_barrier_pending = False
         self._stop_barrier_timeout_sec = float(stop_barrier_timeout_ms) / 1000.0
         self._core = CommandManagerCore(
@@ -176,12 +178,12 @@ class CommandManagerNode(Node):
             _STATE_QOS,
         )
         self._stop_event_publisher = self.create_publisher(
-            Empty,
+            UInt64,
             '/thing/control/stop_requested',
             _INTERNAL_QOS,
         )
         self._stop_ack_subscription = self.create_subscription(
-            Empty,
+            UInt64,
             '/thing/control/stop_barrier_ack',
             self._on_stop_barrier_ack,
             _INTERNAL_QOS,
@@ -331,16 +333,21 @@ class CommandManagerNode(Node):
             if self._core.set_sequence_running(message.data):
                 self._publish_control_state()
 
-    def _on_stop_barrier_ack(self, message: Empty) -> None:
+    def _on_stop_barrier_ack(self, message: UInt64) -> None:
         """
         Guard가 latch를 닫은 뒤 보낸 ACK로 대기 중인 STOP transaction을 깨운다.
 
         mode service와 다른 callback group/thread에서 실행되어야 한다. 그렇지 않으면
         service가 ACK를 기다리는 동안 ACK callback도 실행되지 못하는 교착이 난다.
         """
-        del message
         with self._stop_ack_condition:
-            self._stop_ack_count += 1
+            if (
+                self._pending_stop_generation is None
+                or message.data != self._pending_stop_generation
+            ):
+                return
+            self._last_ack_generation = int(message.data)
+            self._pending_stop_generation = None
             self._stop_barrier_pending = False
             self._stop_ack_condition.notify_all()
 
@@ -403,17 +410,30 @@ class CommandManagerNode(Node):
             if request.requested_mode == ControlState.MODE_DISABLED:
                 # service 성공은 publish 호출이 아니라 Guard latch 완료를 뜻한다. ACK 전
                 # response를 보내면 호출자가 "정지 완료"로 오해할 수 있으므로 bounded
-                # wait로 STOP 요청 뒤 새 ACK가 관측될 때까지 응답을 보류한다. 요청별
-                # correlation ID 대신 직렬화된 STOP service와 count 경계를 사용한다.
+                # wait로 분산 STOP transaction을 선형화한다.
+                stop_event = UInt64()
+                stop_stamp_ns = self._system_clock.now().nanoseconds
                 with self._stop_ack_condition:
-                    ack_count_before_request = self._stop_ack_count
+                    # A system-time-derived generation remains ordered across a
+                    # Command Manager restart; max(+1) also tolerates equal ticks
+                    # or a small in-process wall-clock adjustment.
+                    self._stop_generation = max(
+                        self._stop_generation + 1,
+                        stop_stamp_ns,
+                    )
+                    stop_generation = self._stop_generation
+                    self._pending_stop_generation = stop_generation
                     self._stop_barrier_pending = True
-                self._stop_event_publisher.publish(Empty())
+                stop_event.data = stop_generation
+                self._stop_event_publisher.publish(stop_event)
                 with self._stop_ack_condition:
                     acked = self._stop_ack_condition.wait_for(
-                        lambda: self._stop_ack_count > ack_count_before_request,
+                        lambda: self._last_ack_generation == stop_generation,
                         timeout=self._stop_barrier_timeout_sec,
                     )
+                    if acked:
+                        self._pending_stop_generation = None
+                        self._stop_barrier_pending = False
                 if not acked:
                     response.accepted = False
                     response.reason = 'stop_barrier_timeout'

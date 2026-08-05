@@ -12,6 +12,7 @@ from launch_ros.substitutions import FindPackageShare
 _ENCLAVES = (
     '/thing/control/safety_manager',
     '/thing/control/command_manager',
+    '/thing/control/manual_executor',
     '/thing/control/command_guard',
 )
 _REQUIRED_ENCLAVE_FILES = (
@@ -82,9 +83,17 @@ def generate_launch_description():
         ),
         Node(
             package='thing_control',
+            executable='manual_executor',
+            name='manual_executor',
+            ros_arguments=['--enclave', _ENCLAVES[2]],
+            parameters=[control_config],
+            output='screen',
+        ),
+        Node(
+            package='thing_control',
             executable='command_guard',
             name='command_guard',
-            ros_arguments=['--enclave', _ENCLAVES[2]],
+            ros_arguments=['--enclave', _ENCLAVES[3]],
             parameters=[control_config],
             output='screen',
         ),

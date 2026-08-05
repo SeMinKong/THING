@@ -24,8 +24,6 @@ import {
 import CameraStream from "../components/CameraStream";
 import { motion, AnimatePresence } from "motion/react";
 import { Panel, Head, Body, Tag } from "../ui/Sheet";
-import ModeAcquirePanel from "../components/ModeAcquirePanel";
-import MotorStatusPanel from "../components/MotorStatusPanel";
 
 /** 7축 표시. 값이 없으면 "-" 를 낸다 (FR-24: 가짜 값으로 채우지 않는다). */
 function formatAxis(value) {
@@ -44,15 +42,13 @@ export default function VisionMode() {
     handCommand,
     recordingState,
     recordingStateKnown,
-    motorStatus,
-    sectionUpdatedAt,
-    snapshotReceivedAt,
     webHasControl,
     startRecording,
     stopRecording,
     submitRecordingResult,
   } = useHandSocket();
-  const [showRealtimeData, setShowRealtimeData] = useState(false);
+  // 기본이 펼치기다. 접는 것은 화면이 좁을 때를 위한 선택지다
+  const [showRealtimeData, setShowRealtimeData] = useState(true);
 
   const isMimicActive = controlState.active_mode === CONTROL_MODE.MIMIC && webHasControl;
   // "아직 모름" 을 단절로 단정하지 않는다 (FR-24).
@@ -103,8 +99,10 @@ export default function VisionMode() {
   const BAR = { type: "spring", stiffness: 200, damping: 26, mass: 0.5 };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(330px,1fr)] lg:items-start">
-      <div className="flex flex-col gap-4">
+    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
+      {/* 영상이 남는 높이를 전부 받는다. hand-loss 안내는 필요할 때만 자리를 갖고,
+          그만큼 영상이 줄어든다 */}
+      <div className="flex min-h-0 flex-col gap-3">
         <CameraStream />
 
         {/* FR-27: 손 미검출과 유효 재검출을 표시하되, 재검출만으로 제어가
@@ -155,16 +153,9 @@ export default function VisionMode() {
           )}
         </AnimatePresence>
 
-        <MotorStatusPanel
-          motorStatus={motorStatus}
-          motorUpdatedAt={sectionUpdatedAt.motor_state ?? null}
-          receivedAt={snapshotReceivedAt}
-        />
       </div>
 
-      <div className="flex flex-col gap-4">
-        <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />
-
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         {/* FR-21 Should: 7논리축 목표와 confidence */}
         <Panel>
           <div aria-label="손동작 정보">

@@ -1,9 +1,15 @@
 # 내부 제어 웹 ↔ Web Bridge 계약
 
-- 대상: `thing_ws/src/thing_web_bridge/web_bridge_node` ↔ `web/frontend`
-- 상위 기준: 요구사항 명세서 6.4절, `docs/interfaces.md`의 **WebSocket** 절
+- 대상: `thing_ws/src/thing_web_bridge/web_bridge_node` (Jetson) ↔ `web/frontend` (Laptop)
+- endpoint: `/ws/robot-state` (6.4절)
+- 상위 기준: 요구사항 명세서 V7.1 6.4절, `docs/interfaces.md`의 **WebSocket** 절,
+  `thing_interfaces`의 `.msg`/`.srv`
 - 이 문서는 브라우저 쪽에서 보이는 모양만 다룹니다. ROS 2 계약의 단일 기준은
   `docs/interfaces.md`입니다.
+
+**이 문서는 구현 완료 시점의 실제 동작을 동결한 것입니다.** 6.4절이 "세 객체의
+세부 field와 클라이언트→서버 요청 JSON은 개발 중 확정하되 통합 시험 전에
+동결한다"고 정한 그 확정본입니다.
 
 프론트엔드 진단 메시지의 `ref` 필드가 아래 절 번호를 가리킵니다.
 
@@ -11,13 +17,34 @@
 | --- | --- |
 | 1.1 | snapshot 고정 6필드 |
 | 1.2 | snapshot 확장 필드 |
-| 1.3 | enum 표현 |
+| 1.3 | 값 표현 (enum·실수·시각) |
 | 1.3.1 | `connection_status` |
 | 1.3.2 | `last_hand_command` 7축 |
+| 1.3.3 | 시각 필드 |
 | 1.4 | Session ID 표현 |
 | 1.5 | 요청 전송 |
 | 1.6 | ACK |
 | 1.7 | 브리지가 하지 않는 것 |
+
+---
+
+## 분담
+
+| | 담당 |
+| --- | --- |
+| `.msg` 원문을 snapshot에 얹기 | 브리지 |
+| uint8 enum → symbol 문자열 | **브리지** (1.3) |
+| 시각 필드 원문 유지 | 브리지 (1.3.3) |
+| 장치 연결 상태·hand-loss latch 파생 | **브리지** (1.2, 1.3.1) |
+| 버튼 잠금 판정 | 웹 (ack 기반) |
+
+초안에서는 enum 변환과 파생 상태를 웹이 맡는 안도 검토했습니다. **브리지가
+하는 것으로 확정했습니다.** 브리지는 토픽의 실제 수신 시각을 직접 보므로
+신선도·latch 판정의 원천을 가지고 있고, 웹은 snapshot만 받아 근사만 가능하기
+때문입니다 (FR-24 "가짜 값으로 채우지 않는다").
+
+웹의 방어 코드(정수도 받는 `toSymbol`, 선택 필드 자체 파생)는 그대로 두어도
+됩니다. 브리지가 보내는 값이 항상 우선입니다.
 
 ---
 
@@ -32,11 +59,13 @@ endpoint는 `/ws/robot-state` 하나입니다. 프론트는 `WS_URL` 외부 설�
 | 동시 연결 | **1개만.** 두 번째 연결은 close code `1013`으로 거절 |
 | 잘못된 경로 | close code `1008` |
 | 서비스 왕복 상한 | 2000ms |
+| 요청 대기열 상한 | 32건. 초과 시 `web_queue_overflow` |
 
 새 snapshot은 같은 연결의 이전 snapshot을 대체합니다. 누적하지 않습니다.
 
 동시 연결을 하나로 제한한 이유는 탭을 두 개 열면 한쪽에서 누른 STOP이 다른 쪽
-제어권까지 해제하기 때문입니다. owner는 하나뿐이고 웹에서는 구분할 수 없습니다.
+제어권까지 해제하기 때문입니다. owner는 `WEB` 하나뿐이고 클라이언트 식별자가
+없어 웹에서는 구분할 수 없습니다.
 
 ### 1.1 snapshot 고정 6필드
 
@@ -59,6 +88,13 @@ endpoint는 `/ws/robot-state` 하나입니다. 프론트는 `WS_URL` 외부 설�
   `COMPLETED` / `FAILED` / `INTERRUPTED`
 - 나머지 세 객체 — 아직 유효 데이터를 받지 못하면 `null`이 아니라 `{}`
 
+두 가지를 지킵니다. 웹이 이 두 규칙으로 메시지를 판별하기 때문입니다.
+
+- **`mode`와 `recording_state`는 항상 문자열입니다.** 웹은 `mode`가 문자열인지로
+  snapshot을 판별합니다. 정수로 오면 snapshot 전체가 버려집니다.
+- **snapshot에는 `type` 필드가 없습니다.** 웹은 `type` 유무로 snapshot과 ACK를
+  구분합니다. `type`은 ACK에만 있습니다 (1.6).
+
 ### 1.2 snapshot 확장 필드
 
 FR-21·FR-24·FR-25 표시를 위해 브리지가 얹습니다. 6.4절이 "세 객체의 세부
@@ -70,6 +106,9 @@ field는 개발 중 확정"하도록 허용한 범위입니다.
 | `recording` | `RecordingState.msg` 원문. Session ID는 문자열 |
 | `last_hand_command` | 최종 `/thing/command` 원문. 7논리축 표시용 |
 | `connection_status` | 브리지 파생. 1.3.1 |
+
+`control_state`가 없으면 웹은 owner를 알 수 없어 제어권을 인정하지 않고 모든
+조작을 막습니다 (fail-closed). `recording`이 없으면 녹화만 막힙니다.
 
 `motor_state`·`safety_state`·`control_state`·`recording`·`last_hand_command`
 ·`landmarks`에는 공통으로 두 필드가 붙습니다.
@@ -103,17 +142,30 @@ field는 개발 중 확정"하도록 허용한 범위입니다.
 `hand_loss_latched`가 `true`인 상태가 정상적으로 존재합니다. 이 조합에서
 "제어가 재개됐다"고 표시하면 안 됩니다.
 
-### 1.3 enum 표현
+### 1.3 값 표현 (enum·실수·시각)
 
 브리지는 `.msg`의 정수 enum을 symbol 문자열로 바꿔서 보냅니다. `mode`가 `1`이
-아니라 `"MIMIC"`입니다. 정수가 오면 브리지 버그입니다.
+아니라 `"MIMIC"`입니다. **정수가 오면 브리지 버그입니다.**
+
+symbol은 `.msg` 상수 선언 순서와 1:1로 대응합니다. 대조는
+`test_interface_contract.py`가 실제 `.msg`와 자동 검증합니다.
+
+| 메시지 | 필드 | 순서 |
+| --- | --- | --- |
+| `ControlState` | `active_mode` | 0 DISABLED, 1 MIMIC, 2 MANUAL, 3 TELEOP |
+| `ControlState` | `active_owner` | 0 NONE, 1 WEB, 2 LOCAL |
+| `SafetyState` | `state` | 0 INIT, 1 READY, 2 RUN, 3 HOLD, 4 SAFE, 5 FAULT, 6 ESTOP, **7 RESET** |
+| `RecordingState` | `state` | 0 IDLE, 1 STARTING, 2 RECORDING, 3 STOPPING, 4 COMPLETED, 5 FAILED, 6 INTERRUPTED |
+| `RecordingState` | `last_mimic_result` | 0 UNSET, 1 SUCCESS, 2 FAILURE |
+| `HandLandmarks` | `handedness` | 0 UNKNOWN, 1 LEFT, 2 RIGHT |
+| `HandCommand` | `source` | 0 UNKNOWN, 1 MIMIC, 2 TELEOP, 3 GESTURE, 4 SEQUENCE, 5 SAFETY |
 
 읽기 실패로 `NaN`·`Infinity`가 된 실수는 `null`로 보냅니다. 모터 통신 실패 시
 `NaN`은 정상 시나리오이며 명세 6.5절도 "읽기 실패 숫자는 JSON `null`"로 정합니다.
 
 #### 1.3.1 `connection_status`
 
-FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다.
+FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다. bool이 아닙니다.
 
 ```json
 "connection_status": {
@@ -140,7 +192,8 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다.
 
 #### 1.3.2 `last_hand_command` 7축
 
-`HandCommand.msg` 필드를 **평평하게** 보냅니다. `values` 같은 래퍼가 없습니다.
+`HandCommand.msg`의 7논리축은 **최상위 고정 필드**입니다 (FR-30). `values` 같은
+래퍼로 감싸지 않습니다.
 
 ```json
 "last_hand_command": {
@@ -157,16 +210,43 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다.
 출처는 최종 `/thing/command`입니다. `command_guard`를 통과해 모터로 실제
 전달된 목표이므로 화면 값과 로봇 동작이 어긋나지 않습니다.
 
+#### 1.3.3 시각 필드
+
+`.msg`마다 위치가 다릅니다. 브리지는 원문 위치를 그대로 둡니다.
+
+| 위치 | 메시지 |
+| --- | --- |
+| `stamp` | `ControlState`, `SafetyState`, `HandCommand` |
+| `header.stamp` | `HandLandmarks`, `MotorStatus`, `RecordingState` |
+
+`builtin_interfaces/Time`은 **`{sec, nanosec}` 원문 그대로** 보냅니다. 문자열로
+바꾸지 않습니다. 문자열 시각은 top-level `timestamp`(1.1) 하나뿐입니다.
+
+웹은 이 값을 파싱하지 않고 바뀌었는지만 비교해 신선도를 판정해도 됩니다.
+브리지가 `age_ms`·`stale`을 함께 주므로(1.2) 그쪽을 쓰는 편이 정확합니다.
+
 ### 1.4 Session ID
 
-`uint64`를 JSON 숫자로 보내면 JavaScript가 정밀도를 잃습니다. 명세 6.5절에
-따라 **10진 문자열**로 보냅니다. 값이 `0`이면 빈 문자열 `""`입니다.
+`uint64`를 JSON 숫자로 보내면 JavaScript가 정밀도를 잃습니다.
+
+```
+8531234567890123456  →  JS JSON.parse  →  8531234567890124000
+```
+
+63-bit 값은 파싱 시점에 손상되고 복구할 수 없습니다. 명세 6.5절
+("JSON·API·EC2에서는 10진 문자열로 표현한다")에 따라 **10진 문자열**로 보냅니다.
+값이 `0`(세션 없음)이면 **빈 문자열 `""`**입니다.
 
 ```json
 "recording": { "active_session_id": "8531234567890123456", "last_session_id": "" }
 ```
 
-요청에서도 문자열로 보내야 합니다. 브리지는 `0`과 63-bit 초과를 거부합니다.
+`0`을 `""`로 보내는 이유는 `"0"`이 JavaScript에서 truthy라 활성 세션이 없는데도
+`StopRecording(session_id="0")`을 보내게 되기 때문입니다.
+
+요청에서도 문자열로 보내야 합니다. 브리지는 `0`과 63-bit 초과를
+`invalid_session_id`로, 표준 10진 표기가 아닌 값(선행 `0`, 비ASCII 숫자 등)을
+`web_malformed_request`로 거부합니다 (1.6).
 
 ### 1.5 요청 전송
 
@@ -182,17 +262,22 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다.
 네 필드가 정확히 있어야 하고 `payload` 키도 정확히 일치해야 합니다. 남거나
 모자라면 `web_malformed_request`입니다 (FR-23).
 
-| type | payload |
-| --- | --- |
-| `set_control_mode` | `requested_mode`: `MIMIC`\|`MANUAL`, `requested_owner`: `WEB` |
-| `stop` | `requested_mode`: `DISABLED`, `requested_owner`: `NONE` |
-| `execute_gesture` | `gesture_name`: `open`\|`fist`\|`pinch`\|`cylindrical_grasp`, `speed_limit` |
-| `execute_sequence` | `sequence_name`: `countdown`\|`scissors_rock_paper`, `speed_limit` |
-| `start_recording` | `label` (문자열, 빈 문자열 허용) |
-| `stop_recording` | `session_id` (문자열) |
-| `set_mimic_result` | `session_id`, `result`: `SUCCESS`\|`FAILURE` |
-| `reset_safety` | `{}` |
+| type | ROS 2 대상 | payload |
+| --- | --- | --- |
+| `set_control_mode` | `/thing/set_control_mode` | `requested_mode`: `MIMIC`\|`MANUAL`, `requested_owner`: `WEB` |
+| `stop` | `/thing/set_control_mode` | `requested_mode`: `DISABLED`, `requested_owner`: `NONE` |
+| `execute_gesture` | `/thing/execute_gesture` | `gesture_name`: `open`\|`fist`\|`pinch`\|`cylindrical_grasp`, `speed_limit` |
+| `execute_sequence` | `/thing/execute_sequence` | `sequence_name`: `countdown`\|`scissors_rock_paper`, `speed_limit` |
+| `start_recording` | `/thing/start_recording` | `label` (문자열, 빈 문자열 허용) |
+| `stop_recording` | `/thing/stop_recording` | `session_id` (문자열) |
+| `set_mimic_result` | `/thing/set_mimic_result` | `session_id`, `result`: `SUCCESS`\|`FAILURE` |
+| `reset_safety` | `/thing/reset_safety` | `{}` |
 
+- **enum은 웹이 symbol 문자열로 보냅니다.** `.srv`는 uint8이므로 브리지가
+  정수로 매핑합니다 (`requested_mode`·`requested_owner`·`result`).
+- payload 키는 `.srv` 요청 필드명과 같습니다. 브리지 재매핑은 없습니다.
+- `gesture_name`은 canonical 4종만 받습니다. 웹이 alias(`home`·`paper`·`rock`)를
+  펴서 보내므로 브리지는 alias를 처리하지 않습니다.
 - `DISABLED`는 `set_control_mode`가 아니라 `stop` type으로 보냅니다.
   MIMIC↔MANUAL 직접 전환은 브리지도 막습니다 (FR-19).
 - `speed_limit`은 `0.0 < value <= 1.0`. `0`과 `NaN`은 거부됩니다 (FR-06).
@@ -204,14 +289,14 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다.
 - 일반 요청은 도착 순서대로 하나씩 처리
 - `stop`·`reset_safety`는 대기열을 건너뛰고 즉시 처리
 - `stop`은 아직 시작하지 않은 일반 요청을 폐기하고 각각에 ACK를 돌려줌
-- 대기 중 같은 mode·owner 갱신은 최신 하나만 남김
+- 대기 중 같은 mode·owner 갱신은 최신 하나만 남김 (`web_superseded`)
 
 따라서 **ACK 순서가 요청 순서와 다를 수 있습니다.** 반드시 `request_id`로
 찾으십시오. 순서를 가정하면 STOP ACK를 다른 요청의 응답으로 오인합니다.
 
 ### 1.6 ACK
 
-모든 요청은 폐기되더라도 **정확히 한 번** ACK를 받습니다.
+모든 요청은 폐기되더라도 **정확히 한 번** ACK를 받습니다. 요청자에게만 갑니다.
 
 ```json
 {
@@ -223,8 +308,8 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다.
 }
 ```
 
-`request_id`는 요청의 값을 그대로 돌려줍니다. `accepted`는 항상 boolean입니다.
-type에 따라 필드가 더 붙습니다.
+`request_id`는 요청의 값을 그대로 돌려줍니다. 웹이 이 값으로 버튼 잠금을
+풉니다. `accepted`는 항상 boolean입니다. type에 따라 필드가 더 붙습니다.
 
 | type | 추가 필드 |
 | --- | --- |
@@ -232,9 +317,9 @@ type에 따라 필드가 더 붙습니다.
 | `start_recording` | `session_id`, `bag_path` |
 | `stop_recording` | `stopped_session_id`, `bag_path` |
 
-`reason`은 두 계열입니다. **접두어로 출처가 구분됩니다.**
+`reason`은 세 계열입니다. **접두어로 출처가 구분됩니다.**
 
-`web_*` — 브리지가 ROS에 보내기 전에 스스로 내린 판단입니다.
+**`web_*`·`invalid_*`** — 브리지가 ROS에 보내기 전에 스스로 내린 판단입니다.
 
 | reason | 웹이 할 일 |
 | --- | --- |
@@ -247,7 +332,7 @@ type에 따라 필드가 더 붙습니다.
 | `invalid_mode` | mode·owner 조합 오류 |
 | `invalid_session_id` | Session ID가 `0`이거나 63-bit 초과 |
 
-ROS 호출 실패입니다.
+**`service_*`·`action_*`** — ROS 호출 실패입니다.
 
 | reason | 의미 |
 | --- | --- |
@@ -258,13 +343,22 @@ ROS 호출 실패입니다.
 | `action_unavailable` / `action_timeout` / `action_failed` | Sequence 액션 |
 | `reset_rejected` | Safety Reset 거부인데 `message`가 비어 있음 |
 
-그 밖의 값은 **ROS 응답 원문을 그대로 전달한 것**입니다. 브리지는 변환하지
-않습니다. FR-37의 8종(`accepted`, `invalid_mode`, `owner_conflict`,
-`safety_not_ready`, `recording_active`, `motion_active`,
-`stop_barrier_pending`, `stop_barrier_timeout`), FR-18의 기록 거부 사유
-(`not_mimic_mode`, `start_failed`, `already_recording`, `result_pending`,
-`not_recording`, `session_mismatch`, `stop_failed`), FR-35의
-`owner_lease_expired`가 여기 해당합니다.
+**그 밖의 값** — ROS 응답 원문을 그대로 전달한 것입니다. 브리지는 변환하지
+않습니다.
+
+| 계열 | 값 |
+| --- | --- |
+| 제어권 (FR-37) | `accepted` `invalid_mode` `owner_conflict` `safety_not_ready` |
+| 동작 | `motion_active` `recording_active` |
+| 정지 | `stop_barrier_pending` `stop_barrier_timeout` `stop_in_progress` |
+| 기록 시작 (FR-18) | `not_mimic_mode` `start_failed` `already_recording` `result_pending` |
+| 기록 종료 (FR-18) | `not_recording` `session_mismatch` `stop_failed` |
+| lease (FR-35) | `owner_lease_expired` |
+
+> 웹의 문구표(`REASON_MESSAGES`)에 없는 `reason`은 "요청이 거부되었습니다.
+> (원문)" 형태로 표시됩니다. 동작에는 문제가 없지만 사용자에게 영문 원문이
+> 노출됩니다. `web_preempted_by_stop`·`web_superseded`·`invalid_session_id`는
+> 아직 문구표에 없으므로 추가가 필요합니다.
 
 ### 1.7 브리지가 하지 않는 것
 
@@ -278,7 +372,99 @@ ROS 호출 실패입니다.
 - **rosbag2·DB를 조회하지 않습니다** (FR-26). 완료된 공개 세션은 EC2 포털의
   GET API에서 봅니다.
 - **커스텀 ROS 메시지·서비스·액션·토픽을 만들지 않습니다.** `thing_interfaces`는
-  메시지 7종·서비스 5종·액션 1종 그대로입니다 (FR-30).
+  메시지 7종·서비스 5종·액션 1종 그대로입니다 (FR-30). Safety Reset도 표준
+  `std_srvs/Trigger`를 씁니다.
 - **FR-35의 타이밍 숫자를 snapshot에 싣지 않습니다.** `hold_recovery_activity_ms`
   같은 값은 Raspberry Pi YAML 소관(FR-41)이고 Jetson 브리지는 그 파일을 읽을 수
   없습니다. 웹이 명세 조문 값을 계속 사용하십시오.
+- **`ControlState.sequence_running`을 브리지가 정하지 않습니다.** 원문을 그대로
+  전달만 합니다. 범위는 `command_manager` 소관입니다.
+
+---
+
+## 2. 확정된 사항
+
+`.msg`/`.srv`와 명세서로 결정되어 협의가 끝난 항목입니다.
+
+| | |
+| --- | --- |
+| uint8 상수값 | `.msg` 선언 순서와 일치. 1.3 표 |
+| enum 변환 주체 | **브리지**. symbol 문자열로 발행 (1.3) |
+| 시각 필드 위치·타입 | `stamp` / `header.stamp`, `{sec, nanosec}` 원문 (1.3.3) |
+| `HandCommand` 7축 | 최상위 고정 필드 (1.3.2) |
+| `session_id` | JSON 10진 문자열, `0`은 `""` (1.4) |
+| snapshot 발행 주기 | **200ms(5Hz) 주기 발행.** 값이 안 바뀌어도 계속 발행 |
+| 서비스 ack 왕복 상한 | **2000ms.** 초과 시 `service_timeout` ACK가 반드시 감 |
+| 동시 접속 | **브리지가 1개만 허용.** 두 번째는 close `1013` |
+| 파생 필드 주체 | **브리지.** `connection_status`·hand-loss (1.2, 1.3.1) |
+| FR-35 타이밍 값 | 브리지가 전달하지 않음. 웹이 명세 조문 값 사용 (1.7) |
+| `sequence_running` 범위 | `command_manager` 소관. 브리지는 원문 전달만 |
+| 정상 STOP 뒤 재획득 거부 | `stop_in_progress`. 웹은 순서 추적 없이 현행 유지 |
+| `SafetyState.RESET=7` | 명시적 정상 STOP 뒤 torque OFF를 재확인하는 상태 |
+| `ExecuteGesture.srv` | `gesture_name`, `speed_limit` |
+| `ExecuteSequence.action` | `sequence_name`, `speed_limit` |
+| `StartRecording.srv` | `label` |
+| `StopRecording.srv` | `session_id` |
+| `SetMimicResult.srv` | `session_id`, `result` |
+
+경위와 근거는 [pending-decisions.md](pending-decisions.md)의 회신 항목에
+있습니다.
+
+---
+
+## 3. 웹이 하지 않는 것
+
+- 임의 ROS topic·motor ID 전송 (NFR-20)
+- 7논리축 값 전송 — `ExecuteGesture.srv`에 해당 필드가 없고 목표값은 YAML
+  소관 (FR-41)
+- rosbag2·EC2 SQLite 접근 (FR-26)
+- 안전 판정 — 범위·속도·timeout·E-Stop은 Raspberry Pi 담당 (NFR-16)
+- 제어권 자동 획득·재획득 — 재연결·복구 후에도 사용자가 직접 (NFR-15, NFR-23)
+
+---
+
+## 4. 검증
+
+계약 예시는 [sample-snapshot.jsonc](sample-snapshot.jsonc)입니다.
+
+### 로봇 없이 웹만 확인
+
+```bash
+cd web/frontend
+npm run mock                  # ws://localhost:8000/ws/robot-state
+npm run mock -- --no-derived  # 선택 필드를 빼고 웹의 파생 경로 확인
+```
+
+mock은 개발용 픽스처이지 계약의 근거가 아닙니다. 계약은 이 문서, 경계 검증은
+`bridgeContract.test.jsx`입니다.
+
+### 브리지만 확인
+
+```bash
+cd thing_ws
+colcon test --packages-select thing_web_bridge
+colcon test-result --verbose
+```
+
+계약 관련 검증은 다음이 자동으로 돕니다.
+
+- `test_interface_contract.py` — 1.3 symbol 표를 실제 `.msg` 상수와 대조
+- `test_protocol.py` — 요청 검증과 거부 `reason` 구분 (1.5, 1.6)
+- `test_websocket_server.py` — STOP 선점, 단일 연결, 재연결 무재실행
+
+기동 방법은 [thing_web_bridge README](../../thing_ws/src/thing_web_bridge/README.md)를
+보십시오.
+
+### 통합 중 문제가 생기면
+
+브라우저 콘솔을 보십시오. 조용히 실패하는 경로를 전부 없앴습니다.
+
+```
+▼ [진단:브릿지] snapshot 에 control_state 가 없습니다 (3회째)
+   증상   owner 를 알 수 없어 제어권을 인정하지 않습니다(fail-closed).
+   조치   ControlState.msg 원문을 control_state 키로 실어 보내세요.
+   근거   FR-19 / interfaces-bridge.md 1.2
+```
+
+앞머리에 담당이 붙습니다. 콘솔에서 `__diag()`를 치면 지금까지 잡힌 문제 전체가
+나옵니다.

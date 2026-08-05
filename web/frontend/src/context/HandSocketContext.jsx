@@ -583,9 +583,13 @@ export function HandSocketProvider({ children }) {
     // code 는 FR-37 사유 원문, message 는 사용자 문구
     setLastError({ code: ack.reason, message });
 
-    // 갱신이 거부되면 제어권을 잃은 것으로 보고 갱신을 멈춘다.
+// 갱신이 거부되면 제어권을 잃은 것으로 보고 갱신을 멈춘다.
     // FR-27: 연결 복구만으로 제어가 재개된 것처럼 표시하지 않는다.
+    // owner_lease_expired 는 manager 가 DISABLED/NONE 을 발행한 뒤 거부하므로
+    // (interfaces.md) 제어권 상실로 처리한다. stop_in_progress 는 일시적 차단이라
+    // 여기 포함하지 않는다 — 잠시 뒤 재시도로 풀린다.
     if (ack.reason === REJECT_REASON.OWNER_CONFLICT
+        || ack.reason === REJECT_REASON.OWNER_LEASE_EXPIRED
         || ack.reason === REJECT_REASON.SAFETY_NOT_READY) {
       heldModeRef.current = null;
       stopRenewTimer();
