@@ -25,7 +25,7 @@ Safety Manager의 8상태 전이, RESET 완료 조건과 실행법은
 | 토픽 | 타입 | 발행자 | 구독자 | 권장 주기/QoS |
 | --- | --- | --- | --- | --- |
 | `/thing/landmarks` | `HandLandmarks` | MediaPipe | target, web, logger | 센서 데이터, best effort |
-| `/thing/command/mimic` | `HandCommand` | vision | manager, logger | 20Hz 이상 |
+| `/thing/command/mimic` | `HandCommand` | vision | manager | 20Hz 이상 |
 | `/thing/command/teleop` | `HandCommand` | teleop | manager | 사용자 입력 시 |
 | `/thing/command/manual` | `HandCommand` | gesture/sequence | manager | 동작 실행 시 |
 | `/thing/command/selected` | `HandCommand` | manager | guard | 20Hz 이상 |
@@ -36,7 +36,7 @@ Safety Manager의 8상태 전이, RESET 완료 조건과 실행법은
 | `/thing/control_state` | `ControlState` | manager | web, logger | 상태 변화+주기 |
 | `/thing/safety_state` | `SafetyState` | safety | manager, guard, web, logger | reliable, transient local |
 | `/thing/recording_state` | `RecordingState` | logger | web | reliable, transient local |
-| `/thing/control/stop_requested` | `std_msgs/msg/Empty` | manager | guard, gesture/sequence, logger | reliable, depth 10, 명시적 STOP마다 1건 |
+| `/thing/control/stop_requested` | `std_msgs/msg/Empty` | manager | guard, gesture/sequence | reliable, depth 10, 명시적 STOP마다 1건 |
 | `/thing/control/stop_barrier_ack` | `std_msgs/msg/Empty` | guard | safety | reliable+volatile, Guard latch 닫힌 뒤 1건 |
 | `/thing/control/motion_active` | `std_msgs/msg/Bool` | gesture/sequence | manager | reliable, depth 10, 실행 시작·종료 시 |
 | `/thing/diagnostics` | `diagnostic_msgs/DiagnosticArray` | 각 장치 | web/운영자 | 1Hz 이상 |
