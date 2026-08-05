@@ -353,6 +353,57 @@ def test_a_new_session_starts_with_no_queued_work(monkeypatch):
     assert len(second_session._pending) == 0
 
 
+def test_disconnect_drops_unstarted_work_and_reconnect_replays_nothing():
+    """연결이 끊기면 대기 중 요청이 사라지고 재연결이 재실행하지 않는다.
+
+    Jira 완료조건: "연결 해제·재연결에서 이전 요청 자동 재실행이 0건이다."
+    NFR-15: "재연결은 이전 명령을 재생하지 않는다."
+    """
+    executed = []
+    gate = asyncio.Event()
+
+    async def blocking_handler(request):
+        executed.append(request.request_id)
+        await gate.wait()          # 첫 요청을 ROS에서 붙잡아 둔다
+        return make_ack(request.request_id, True, 'accepted')
+
+    async def scenario():
+        async def to_thread(function, *args):
+            return await blocking_handler(*args)
+
+        original = asyncio.to_thread
+        asyncio.to_thread = to_thread
+        try:
+            server = make_server(snapshot_period=999)
+            # 요청 3건을 준 뒤 바로 연결이 끊기는 클라이언트
+            first = FakeWebSocket([
+                message('start_recording', 'rec-1', {'label': ''}),
+                message('execute_gesture', 'g-1',
+                        {'gesture_name': 'open', 'speed_limit': 1.0}),
+                message('execute_gesture', 'g-2',
+                        {'gesture_name': 'fist', 'speed_limit': 1.0}),
+            ])
+            await server.new_session(first).run()
+            after_first = list(executed)
+
+            # 재연결: 아무 요청도 보내지 않는다
+            second = FakeWebSocket()
+            await server.new_session(second).run()
+            return after_first, list(executed), second.acks()
+        finally:
+            asyncio.to_thread = original
+            gate.set()
+
+    after_first, after_second, second_acks = asyncio.run(scenario())
+
+    # 첫 세션에서 시작된 것은 rec-1 하나뿐이고 나머지는 대기열에서 사라졌다
+    assert after_first == ['rec-1']
+    # 재연결 뒤 추가 실행 0건
+    assert after_second == after_first
+    # 재연결 세션은 이전 요청의 ACK를 보내지 않는다
+    assert second_acks == []
+
+
 # --------------------------------------------------------------------------
 # endpoint와 동시 접속
 # --------------------------------------------------------------------------
