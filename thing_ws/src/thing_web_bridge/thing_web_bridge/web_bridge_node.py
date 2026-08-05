@@ -179,7 +179,8 @@ class WebBridgeNode(Node):
         future: Any,
         client: Optional[Any] = None,
     ) -> tuple[bool, Any]:
-        """Block off the executor thread until the future finishes or times out.
+        """
+        Block off the executor thread until the future finishes or times out.
 
         timeout으로 포기한 요청은 rclpy Client의 pending 목록에 남는다. 응답이
         영영 오지 않으면(서비스 프로세스가 죽는 등) 항목이 계속 쌓이므로

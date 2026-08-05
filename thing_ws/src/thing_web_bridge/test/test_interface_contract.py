@@ -1,4 +1,5 @@
-"""Pin the JSON symbol tables to the frozen thing_interfaces definitions.
+"""
+Pin the JSON symbol tables to the frozen thing_interfaces definitions.
 
 Jira 완료조건: "develop 인터페이스의 enum·필드와 JSON mapping fixture가 일치한다."
 

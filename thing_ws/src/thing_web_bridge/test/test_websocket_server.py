@@ -354,7 +354,8 @@ def test_a_new_session_starts_with_no_queued_work(monkeypatch):
 
 
 def test_disconnect_drops_unstarted_work_and_reconnect_replays_nothing():
-    """연결이 끊기면 대기 중 요청이 사라지고 재연결이 재실행하지 않는다.
+    """
+    연결이 끊기면 대기 중 요청이 사라지고 재연결이 재실행하지 않는다.
 
     Jira 완료조건: "연결 해제·재연결에서 이전 요청 자동 재실행이 0건이다."
     NFR-15: "재연결은 이전 명령을 재생하지 않는다."

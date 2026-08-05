@@ -365,7 +365,8 @@ class SnapshotStore:
             self._hand_loss_latched = True
 
     def _hand_display_locked(self) -> Dict[str, Any]:
-        """Build the hand-loss display fields the internal web reads.
+        """
+        Build the hand-loss display fields the internal web reads.
 
         이름과 타입은 내부 제어 웹이 이미 기대하는 것에 맞춘다
         (``landmarks.hand_loss_latched`` / ``reacquire_elapsed_ms`` /
@@ -427,8 +428,12 @@ class SnapshotStore:
         key: str,
         limit: float,
     ) -> Dict[str, Any]:
-        """Copy one section and attach stale/age so the web can tell them
-        apart from a dropped connection (FR-25)."""
+        """
+        Copy one section and attach stale and age fields.
+
+        stale·age_ms가 있어야 웹이 오래된 데이터와 끊긴 연결을 구분할 수
+        있다 (FR-25).
+        """
         source = getattr(self, f'_{key}')
         if not source:
             return {}

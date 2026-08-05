@@ -37,7 +37,8 @@ def _dumps(payload: Dict[str, Any]) -> str:
 
 
 class ClientSession:
-    """Serve one browser: read fast, run general requests in order, preempt.
+    """
+    Serve one browser: read fast, run general requests in order, preempt.
 
     수신(reader)·일반 실행(worker)·snapshot 발행(producer)을 각각 독립 task로
     두고, 모든 outbound 전송은 하나의 lock으로 직렬화한다.
@@ -63,7 +64,8 @@ class ClientSession:
         self._urgent_tasks: set = set()
 
     async def _send(self, payload: Dict[str, Any]) -> None:
-        """Send one JSON object, serialized against every other sender.
+        """
+        Send one JSON object, serialized against every other sender.
 
         websockets는 여러 coroutine이 동시에 send()를 호출하는 것을 지원하지
         않는다. snapshot producer와 ACK 경로가 이제 진짜로 겹치므로 lock이
@@ -93,7 +95,8 @@ class ClientSession:
         return dropped
 
     async def _enqueue(self, request: BridgeRequest) -> None:
-        """Queue one general request, collapsing duplicate lease renewals.
+        """
+        Queue one general request, collapsing duplicate lease renewals.
 
         내부 제어 웹은 1000ms마다 같은 mode·owner로 set_control_mode를 보낸다
         (FR-34 갱신). 처리 중 대기열에 같은 갱신이 쌓이면 뒤로 갈수록 밀리므로
