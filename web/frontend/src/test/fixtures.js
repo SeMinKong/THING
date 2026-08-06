@@ -1,6 +1,6 @@
 // frontend/src/test/fixtures.js
 //
-// 요구사항 명세서 V7.0 6.4절 snapshot v1 과 FR-37 ack 을 그대로 모사한다.
+// 요구사항 명세서 V7.1 6.4절 snapshot v1 과 거부 사유(FR-37) ack 을 그대로 모사한다.
 //
 // 구조는 thing_interfaces 의 .msg 실물을 따른다 (FR-30).
 //   시각 필드 위치: ControlState·SafetyState·HandCommand 는 `stamp`,

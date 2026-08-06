@@ -75,7 +75,7 @@ npm run dev
 | `npm run dev` | 개발 서버 |
 | `npm run build` | 배포 산출물 |
 | `npm run preview` | 산출물 미리보기 |
-| `npm test` | vitest 144건 |
+| `npm test` | vitest 151건 |
 | `npm run lint` | eslint |
 | `npm run mock` | 로봇 없이 브릿지 흉내 |
 
@@ -90,6 +90,7 @@ Node 는 Vite 8 요구사항(20.19+ 또는 22.12+)을 따릅니다. 폰트는 �
 | `VITE_WS_URL` | ● | `ws://192.168.0.10:8000/ws/robot-state` |
 | `VITE_MJPEG_STREAM_URL` | ● | `http://192.168.0.10:8080/stream/overlay` |
 | `VITE_MJPEG_RAW_STREAM_URL` | | 비우면 원본 전환 버튼이 사라짐 |
+| `VITE_DEV_WS_TARGET` | | `npm run dev` 프록시가 붙을 WS 주소(vite.config.js). dev 전용, 빌드엔 영향 없음. 비우면 `ws://localhost:8000` |
 
 `VITE_WS_URL` 을 비운 채 배포하지 마십시오. `ws://<현재 호스트>/ws/robot-state` 로 폴백하는데, 이를 받아 주는 것은 `npm run dev` 의 프록시뿐입니다.
 
@@ -167,7 +168,6 @@ mock 은 `messageProtocol.js` 를 import 하므로 상수가 따로 자라지 �
 web/
 ├─ docs/
 │  ├─ interfaces-bridge.md    브릿지와의 인터페이스 계약
-│  ├─ pending-values.md       채워야 할 값 목록
 │  └─ pending-decisions.md    담당별 회신표
 └─ frontend/
    ├─ .env / env.txt          주소 설정 (실제 값은 .env.local 에)
@@ -180,7 +180,7 @@ web/
       │  └─ commandPresets.js    FR-22 버튼 정의
       ├─ context/HandSocketContext.jsx
       ├─ components/             Header, StatusBar, SafetyBanner, CameraStream,
-      │                          MotorStatusPanel, ModeAcquirePanel, GesturePreview
+      │                          MotorStatusPanel, ModeGate, GesturePreview
       ├─ pages/                  Home, VisionMode, OrderMode
       ├─ ui/                     Sheet, Num
       └─ test/
@@ -203,7 +203,7 @@ React + Vite + Tailwind v4 + Motion. 한국어가 화면의 대부분이라 Pret
 
 특히 `BRIDGE_SNAPSHOT_PERIOD_MS` 하나에서 판정 임계값 4개가 파생됩니다. 실제 주기를 알면 그 값만 고쳐도 장치 상태·모터 stale·영상 정지·연결 끊김 판정이 동시에 맞춰집니다.
 
-목록과 담당은 [`docs/pending-values.md`](docs/pending-values.md) 에 있습니다.
+목록과 담당은 [`docs/pending-decisions.md`](docs/pending-decisions.md) 에 있습니다.
 
 ---
 
@@ -215,9 +215,9 @@ npm test
 
 | 파일 | 건수 | 범위 |
 |---|---|---|
-| `config/messageProtocol.test.js` | 32 | 상수·enum·검증 함수 |
+| `config/messageProtocol.test.js` | 35 | 상수·enum·검증 함수 |
 | `context/HandSocketContext.test.jsx` | 45 | 요청 envelope, lease, 거부 사유, 복구 |
-| `test/screens.test.jsx` | 47 | 화면 렌더·표시 판정 |
+| `test/screens.test.jsx` | 51 | 화면 렌더·표시 판정 |
 | `test/bridgeContract.test.jsx` | 20 | **브릿지 계약 경계** |
 
 `bridgeContract.test.jsx` 는 fixtures 를 쓰지 않고 **손으로 만든 payload** 로 경계를 고정합니다. 나머지는 fixtures 가 만든 snapshot 을 쓰는데, fixtures 는 프런트가 원하는 필드를 항상 채워 주므로 "프런트가 정한 것" 과 "명세서가 정한 것" 의 차이를 검증하지 못합니다. 고정하는 경계는 다음과 같습니다.
@@ -245,8 +245,8 @@ npm test
 | 항목 | 근거 | 상태 |
 |---|---|---|
 | `pending.js` 임시값 11개 | [pending-decisions.md](docs/pending-decisions.md) | 회신 대기 |
-| `.msg`/`.srv` 최신본 확인 | 같은 문서 3장 | 확인 대기 |
-| 기록 서비스 거부 사유 8종 | FR-18 / FR-34 | 문구 추가 예정 |
-| `MotorState.torque_enabled` 표시 | FR-30 | `.msg` 반영 후 |
+| `.msg`/`.srv` 최신본 확인 | 같은 문서 3장 | 완료 (pending.js 2026-08-04 반영) |
+| 기록 서비스 거부 사유 8종 | FR-18 / FR-34 | 완료 (REJECT_REASON·describeReason 반영) |
+| `MotorState.torque_enabled` 표시 | FR-30 | 완료 (MotorStatusPanel 열 추가) |
 | 이벤트 회전 로그 | NFR-22 (Should) | 미구현 |
 | 동시 접속 클라이언트 식별 | FR-34 에 식별자 없음 | 웹에서 해결 불가 |

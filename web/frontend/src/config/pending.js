@@ -52,8 +52,9 @@ const UNCONFIRMED = {
   /**
    * 요청을 보내고 ack 를 기다리는 최대 시간. 지나면 버튼 잠금을 푼다.
    *
-   * 명세는 STOP 의 Guard ACK 만 규정한다(기본 300ms·최대 500ms, FR-35).
-   * Gesture·Sequence·Recording 의 ack 지연 상한은 어디에도 없다.
+   * STOP 의 Guard ACK(stop_barrier_ack)는 causal ACK 이라 웹이 관측할 고정 상한이
+   * 없고, Gesture·Sequence·Recording 의 ack 지연 상한도 규정돼 있지 않다. 그래서
+   * 웹이 방어적으로 이 상한을 둔다.
    */
   ACK_TIMEOUT_MS: 2000,
 
@@ -133,10 +134,6 @@ const SPEC_MIRRORED = {
 
   /** FR-35. RESET 최소 유지 시간. 모터 이동 없이 torque OFF 재확인(현재 자세 유지). */
   STOP_SETTLE_MS: 500,
-
-  /** FR-35. STOP 의 Guard ACK 기본 / 최대 대기. */
-  STOP_BARRIER_ACK_MS: 300,
-  STOP_BARRIER_ACK_MAX_MS: 500,
 
   /** FR-35. SAFE·FAULT 원인 해소 뒤 안정 시간. */
   FAULT_CLEAR_STABLE_MS: 1000,

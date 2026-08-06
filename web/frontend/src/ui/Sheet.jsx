@@ -21,10 +21,13 @@ export function Panel({ children, className = "", delay = 0 }) {
 }
 
 /** 구획 머리. 라벨은 읽으라고 있는 글자다 — 10px 대문자로 줄이지 않는다 */
-export function Head({ title, children }) {
+export function Head({ title, afterTitle, children }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 px-5 pb-1 pt-4">
-      <h2 className="text-[13px] font-semibold text-ink-600">{title}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-[13px] font-semibold text-ink-600">{title}</h2>
+        {afterTitle}
+      </div>
       {children && <div className="flex items-center gap-2">{children}</div>}
     </div>
   );

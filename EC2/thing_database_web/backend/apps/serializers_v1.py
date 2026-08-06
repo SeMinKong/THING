@@ -117,7 +117,7 @@ OMIT_SESSION_ID_COLUMN = True
 _STRING_COLUMNS = {"source", "frame_id", "actuator_name"}
 
 #: boolean 컬럼 (CSV 에서 true|false)
-_BOOL_COLUMNS = {"communication_ok", "bus_communication_ok"}
+_BOOL_COLUMNS = {"communication_ok", "bus_communication_ok", "torque_enabled"}
 
 #: 정수 컬럼. 나머지 숫자는 실수로 취급한다.
 _INT_COLUMNS = {

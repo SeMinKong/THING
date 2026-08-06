@@ -51,11 +51,14 @@ MAX_BYTES = limits.PART_MAX_BYTES[KIND]
 REQUIRED = False
 
 #: content_digest 계산에 이 파일의 files 항목을 포함할 것인가.
-#: 6.5절은 "두 CSV 의 filename·size_bytes·row_count·sha256 은 계산 대상에
-#: 포함한다" 고만 적어 landmark 를 언급하지 않는다. 포함 여부를 바꾸면 이미
-#: 업로드된 세션의 digest 가 달라져 멱등성(NFR-26)이 깨지므로 기본은 제외다.
-#: docs/pending-decisions.md P-3 참조.
-INCLUDE_IN_DIGEST = False
+#: 로봇 exporter(thing_logger)의 calculate_content_digest 는 content_digest 만 빼고
+#: files 전체(landmark 포함)로 digest 를 계산한다. 서버가 landmark 를 빼고 재계산하면
+#: 로봇 digest 와 어긋나 모든 업로드가 422 가 되므로 포함으로 맞춘다.
+#: 로봇은 항상 네 파일을 보내므로(build_metadata) landmark 유무로 같은 세션이 흔들리지
+#: 않아 멱등성(NFR-26)도 안전하다.
+#: 주의: V7.1 §6.5 본문은 여전히 "두 CSV" 만 열거한다 — 스펙 문구 정정 대상.
+#: docs/pending-decisions.md P-2 (결정: 로봇을 따른다).
+INCLUDE_IN_DIGEST = True
 
 # ── 내용 검증 ──────────────────────────────────────────────────────────────
 

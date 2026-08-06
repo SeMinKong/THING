@@ -47,7 +47,7 @@ def make_session(**overrides):
         uploaded_at=_dt("2026-07-29T00:01:06.000Z"),
         result=Session.Result.SUCCESS,
         duration_ms=0,
-        interface_commit="70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec",
+        interface_commit="626c59e09f108e6e5eb6d2313efe28bf0e51ed03",
         time_sync=True,
         content_digest=compute_content_digest(TEST_VECTOR),
         status=Session.Status.READY,
@@ -63,7 +63,7 @@ class ContentDigestTests(TestCase):
     """[NFR-26] content_digest 계산 규칙. 로봇 exporter와 일치해야 한다."""
 
     #: 로봇 측 구현이 이 값을 재현해야 한다. 규칙 변경 시 양측 동시 갱신 필요.
-    EXPECTED = "sha256:9609870430c57c2c994797359fe63f1060907fc5834379d0a0f27a765d5f6671"
+    EXPECTED = "sha256:90f382c974222a860d54985629a9a135c3e360bbb343a5b07ff2316fc4bfd8f2"
 
     def test_test_vector_digest_is_stable(self):
         """교차 검증용 고정 벡터. 이 값이 바뀌면 로봇 측과 계약이 깨진다."""

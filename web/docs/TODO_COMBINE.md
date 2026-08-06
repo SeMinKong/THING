@@ -12,18 +12,12 @@
 
 ## 1.1 미구현 마무리
 
-- [ ] **기록 서비스 거부 사유 8종 추가**
-  FR-18·FR-34 가 새로 정한 사유가 `REJECT_REASON` 에 없습니다. 지금은 원문이 그대로 화면에 나오고 콘솔에 `ACK_UNKNOWN_REASON_*` 진단이 남습니다.
-  ```
-  StartRecording   not_mimic_mode  start_failed  already_recording  result_pending
-  StopRecording    not_recording   session_mismatch  stop_failed
-  SetControlMode   owner_lease_expired
-  ```
-  `messageProtocol.js` 의 `REJECT_REASON` 과 `describeReason()` 문구표에 넣습니다. 회신 없이 진행할 수 있습니다.
-  > `session_mismatch` 는 웹이 이미 가진 `web_session_mismatch` 와 **다른 값**입니다. 둘을 합치지 마십시오.
+- [x] **기록 서비스 거부 사유 8종 추가** — 완료
+8종(`not_mimic_mode` `start_failed` `already_recording` `result_pending` `not_recording` `session_mismatch` `stop_failed` `owner_lease_expired`)이 `messageProtocol.js` 의 `REJECT_REASON` 과 `describeReason()` 문구표에 반영됨. 남은 확인은 "브릿지가 원문 그대로 싣는가"(pending-decisions E-1) 뿐.
+   > `session_mismatch` 는 웹이 이미 가진 `web_session_mismatch` 와 **다른 값**입니다. 둘을 합치지 마십시오.
 
-- [ ] **`MotorState.torque_enabled` 표시**
-  `.msg` 에 반영된 뒤 `MotorStatusPanel` 에 열을 추가합니다. FR-35 의 READY·RESET 전이 근거라 통합 중에 보이면 유용합니다.
+- [x] **`MotorState.torque_enabled` 표시** — 완료
+`MotorStatusPanel` 에 "토크" 열 추가됨. `communication_ok=false` 면 값을 유효로 안 보고 "-" 로 둠(FR-30 인수조건). FR-35 READY·RESET 전이 근거로 통합 중 유용.
 
 - [ ] **NFR-22 이벤트 회전 로그** (Should)
   Must 가 아니므로 통합 후로 미뤄도 됩니다.
@@ -54,7 +48,7 @@
 - [ ] **Jetson MJPEG 가 http, 페이지가 https 인 경우 확인**
   혼합 콘텐츠로 브라우저가 영상을 막습니다. 내부망이라 둘 다 http 면 문제없습니다.
 
-- [ ] **`npm test` `npm run build` `npm run lint` 통과 확인** (현재 144건)
+- [ ] **`npm test` `npm run build` `npm run lint` 통과 확인** (현재 151건)
 
 ---
 
@@ -72,8 +66,8 @@
 - [!] **브릿지: ack 의 `request_id` 를 요청과 동일하게**
   웹이 이 값으로 버튼 잠금을 풉니다. 없으면 2초 타임아웃으로만 풀립니다.
 
-- [!] **`.msg`/`.srv` 최신본 확인**
-  받은 것이 초기본이었습니다. `SafetyState.RESET=7` 과 `MotorState.torque_enabled` 두 additive delta 외에는 필드명이 그대로일 것으로 보지만, 갱신되면 **`SetControlMode` 요청 필드명부터** 확인하십시오. 틀리면 모드 전환이 전건 실패합니다.
+- [x] **`.msg`/`.srv` 최신본 확인** — 완료
+  2026-08-04 최신본 반영(pending.js C-1·C-3·C-4·C-6 확정 제거). `SetControlMode` 요청은 `requested_mode`/`requested_owner`, `ControlState` 는 `active_mode`/`active_owner` 로 확인됨.
 
 - [!] **스펙: 동시 접속 처리 결정** (D-1)
   `owner` 가 `WEB` 하나뿐이라 탭이 두 개면 둘 다 제어권 보유로 인식합니다. 웹에서 해결할 수 없습니다. 브릿지가 연결 하나만 허용하는 것이 가장 간단합니다.
@@ -197,7 +191,7 @@
 # 7. 통합 후
 
 - [ ] `pending.js` 에서 확정된 항목의 status 정리
-- [ ] `CONTRACT_ASSUMPTIONS` 에서 확인된 항목 삭제 (현재 C-1·C-2·C-3·C-4·C-6·C-7·C-8)
+- [ ] `CONTRACT_ASSUMPTIONS` 에서 확인된 항목 삭제 (현재 C-2·C-5·C-7·C-8)
 - [ ] `interfaces-bridge.md` 3장의 결정 사항을 1장으로 이동
 - [ ] `bridgeContract.test.jsx` 에 통합에서 실제로 만난 실패를 회귀로 추가
 - [ ] NFR-22 이벤트 로그 (미뤘다면)

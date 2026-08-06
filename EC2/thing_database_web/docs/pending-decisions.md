@@ -1,6 +1,6 @@
 # EC2 데이터 포털 — 값·계약 확정 회신 요청
 
-- 기준: 요구사항 명세서 V7.0
+- 기준: 요구사항 명세서 V7.1
 - 회신처: EC2 담당 / **저장소를 열 필요 없습니다.** 이 문서에 답만 적어 주십시오
 
 명세서를 실제 프로젝트에 그대로 연결한다고 가정하고 검증한 결과입니다.
@@ -8,7 +8,7 @@
 | 등급 | 항목 | 내용 |
 |---|---|---|
 | **막힘** | P-1 | LandMark JSON 의 형식이 정의되어 있지 않습니다 |
-| **막힘** | P-2 | landmark 를 `content_digest` 에 넣는가 |
+| 해결 | P-2 | landmark 를 `content_digest` 에 넣는가 → **포함**(로봇 exporter 따라) |
 | 확인 | P-3 | landmark part 상한을 얼마로 둘 것인가 |
 | 확인 | P-4 | landmark 시계열 조회를 제공하는가 |
 | 확인 | P-5 | 이미 업로드된 세션에 landmark 를 나중에 추가할 수 있는가 |
@@ -60,11 +60,13 @@ sha256:          [ ] 다른 파일과 같은 64자 hex 로 확정
 | landmark 내용이 다른 재업로드 | 409 로 걸림 | 200, 조용히 무시 |
 | 기존 3파일 세션의 digest | 영향 없음 | 영향 없음 |
 
-**현재 코드** — 제외합니다(`INCLUDE_IN_DIGEST = False`). 명세가 두 CSV 만 열거했고, 포함하면 landmark 유무로 같은 세션이 충돌하기 때문입니다. 대신 **landmark 내용은 멱등성 보호를 받지 않습니다.**
+**결정: 포함(`INCLUDE_IN_DIGEST = True`).** 로봇 exporter(thing_logger)의 `calculate_content_digest` 가 `content_digest` 만 빼고 `files` 전체(landmark 포함)로 digest 를 계산한다. 서버가 landmark 를 빼면 재계산 digest 가 어긋나 모든 업로드가 422 가 되므로 로봇을 따른다. 로봇은 `build_metadata` 에서 항상 네 파일을 요구하므로 landmark 유무로 같은 세션이 흔들리지 않아 멱등성(NFR-26)도 안전하다.
+
+> ⚠️ **스펙 문구 정정 필요:** V7.1 §6.5 본문은 여전히 digest 대상을 "두 CSV" 만 열거한다. 실제 로봇은 landmark 를 넣으므로 §6.5 를 "세 파일" 로 고쳐야 한다 (스펙 담당 회신 요청).
 
 ```
-[ ] 제외 — 현재 동작 유지
-[ ] 포함 — landmark 도 digest 대상 (이 경우 6.5절 문구를 "세 파일" 로 고쳐야 함)
+[ ] 제외
+[x] 포함 — landmark 도 digest 대상 (§6.5 문구를 "세 파일" 로 정정)
 ```
 
 ---

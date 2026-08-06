@@ -382,14 +382,17 @@ FR-24. 값은 `"up"` / `"down"` / `"unknown"` 세 가지입니다. bool이 아�
 **그 밖의 값** — ROS 응답 원문을 그대로 전달한 것입니다. 브리지는 변환하지
 않습니다.
 
+
 | 계열 | 값 |
 | --- | --- |
 | 제어권 (FR-37) | `accepted` `invalid_mode` `owner_conflict` `safety_not_ready` |
 | 동작 | `motion_active` `recording_active` |
+| 동작(Gesture·Sequence) | `invalid_gesture` `invalid_sequence` `invalid_speed_limit` `not_manual_mode` `control_state_unavailable\|stale` `safety_state_unavailable\|stale` `stop_latched` |
 | 정지 | `stop_barrier_pending` `stop_barrier_timeout` `stop_in_progress` |
 | 기록 시작 (FR-18) | `not_mimic_mode` `start_failed` `already_recording` `result_pending` |
 | 기록 종료 (FR-18) | `not_recording` `session_mismatch` `stop_failed` |
 | lease (FR-35) | `owner_lease_expired` |
+
 
 > 웹의 문구표(`REASON_MESSAGES`)에 없는 `reason`은 "요청이 거부되었습니다.
 > (원문)" 형태로 표시됩니다. 동작에는 문제가 없지만 사용자에게 영문 원문이

@@ -162,7 +162,7 @@ export default function Header() {
           </div>
 
           {/* 제어권. 박동 주기는 FR-34 의 갱신 주기 그 자체다 */}
-          <div className="flex items-center gap-2 rounded-full bg-white/15 px-3.5 py-1.5">
+          {/* <div className="flex items-center gap-2 rounded-full bg-white/15 px-3.5 py-1.5">
             {webHasControl && (
               <span
                 className="animate-lease size-1.5 rounded-full bg-white"
@@ -174,7 +174,7 @@ export default function Header() {
               제어권 {!controlStateKnown ? "수신 대기"
                 : owner === CONTROL_OWNER.NONE ? "없음" : owner}
             </span>
-          </div>
+          </div> */}
         </div>
 
         {/* 3행 — 8상태 트랙. 표시자가 칸 사이를 실제로 이동한다.

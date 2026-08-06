@@ -97,11 +97,13 @@ class LandmarkUploadTests(UploadBaseTest):
                 self.assertIn(resp.status_code, (200, 201), resp.content[:250])
 
 
-    def test_landmark_does_not_change_content_digest(self):
-        """[NFR-26] landmark 유무가 digest 를 바꾸면 같은 세션이 409 로 충돌한다.
+    def test_landmark_is_included_in_content_digest(self):
+        """[통합] 로봇 exporter 는 landmark 를 content_digest 에 포함한다.
 
-        landmark_contract.INCLUDE_IN_DIGEST 가 False 인 동안에는 landmark 선언이
-        digest 계산에서 빠져야 한다. 이 시험이 그 플래그가 실제로 지켜지는지 본다.
+        landmark_contract.INCLUDE_IN_DIGEST 가 True 이면 landmark 선언이 digest
+        계산에 들어가야 서버 재계산이 로봇 값과 일치한다. 이 시험이 그 플래그가
+        실제로 지켜지는지 본다. 로봇은 항상 네 파일을 보내므로(build_metadata)
+        landmark 유무로 같은 세션이 409 로 흔들리지 않는다.
         """
         hc, ms = hand_command_csv(), motor_status_csv()
         without = build_metadata(hc, ms)
@@ -111,7 +113,7 @@ class LandmarkUploadTests(UploadBaseTest):
             "size_bytes": 13,
             "sha256": _sha(b'{"frames":[]}'),
         }
-        self.assertFalse(landmark_contract.INCLUDE_IN_DIGEST)
-        self.assertEqual(
+        self.assertTrue(landmark_contract.INCLUDE_IN_DIGEST)
+        self.assertNotEqual(
             compute_content_digest(without), compute_content_digest(with_lm)
         )

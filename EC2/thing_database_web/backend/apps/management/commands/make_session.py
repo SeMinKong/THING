@@ -28,6 +28,7 @@ Nginx 까지 지나가므로 `client_max_body_size` 반영 여부도 함께 확�
 """
 import hashlib
 import json
+import math
 import mimetypes
 import secrets
 import urllib.error
@@ -42,7 +43,7 @@ from apps.digest import compute_content_digest
 from apps.validators import HAND_COMMAND_HEADER, MOTOR_STATUS_HEADER
 
 #: FR-30 이 동결 기준으로 정한 커밋. metadata 가 요구한다.
-INTERFACE_COMMIT = "70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec"
+INTERFACE_COMMIT = "626c59e09f108e6e5eb6d2313efe28bf0e51ed03"
 
 #: 시각마다 몇 모터를 기록하는가 (FR-07)
 MOTOR_COUNT = 7
@@ -69,14 +70,22 @@ def _new_session_id():
 def _hand_command_csv(session_id, samples, hz):
     lines = [",".join(HAND_COMMAND_HEADER)]
     base_sec = 1785283200
+    w = 2 * math.pi * 0.25          # 0.25Hz — 4초에 한 주기
     for i in range(samples):
         elapsed = int(i * 1000 / hz)
         # stamp 는 비감소여야 한다 (validate_csv)
         sec = base_sec + elapsed // 1000
         nsec = (elapsed % 1000) * 1_000_000
+        t = elapsed / 1000.0
+        # 7논리축을 서로 다른 위상의 사인파로 흔들어 시계열 곡선을 만든다 (0.05~0.95)
+        axes = ",".join(
+            f"{0.5 + 0.45 * math.sin(w * t + a * 2 * math.pi / 7):.4f}"
+            for a in range(7)
+        )
+        confidence = 0.90 + 0.05 * math.sin(w * t)
         lines.append(
-            f"{session_id},{sec},{nsec},{elapsed},{i + 1},VISION,"
-            "0.10,0.20,0.00,0.30,0.30,0.20,0.20,0.50,0.92"
+            f"{session_id},{sec},{nsec},{elapsed},{i + 1},MIMIC,"
+            f"{axes},1.00,{confidence:.3f}"
         )
     return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -84,15 +93,29 @@ def _hand_command_csv(session_id, samples, hz):
 def _motor_status_csv(session_id, samples, hz):
     lines = [",".join(MOTOR_STATUS_HEADER)]
     base_sec = 1785283200
+    w = 2 * math.pi * 0.25
     for i in range(samples):
         elapsed = int(i * 1000 / hz)
         sec = base_sec + elapsed // 1000
         nsec = (elapsed % 1000) * 1_000_000
+        t = elapsed / 1000.0
+        # temperature_celsius 는 정수 컬럼(serializers._INT_COLUMNS)이라 int 로 램프.
+        # +1℃/2s, +15℃ 상한.
+        temp = 30 + min(15, elapsed // 2000)
         for m in range(MOTOR_COUNT):
+            phase = m * 2 * math.pi / MOTOR_COUNT     # 모터마다 위상차 → 7개 곡선 분리
+            goal_rad = 0.5 + 0.40 * math.sin(w * t + phase)
+            present_rad = 0.5 + 0.40 * math.sin(w * t + phase - 0.15)  # 목표 살짝 추종
+            velocity = 0.40 * w * math.cos(w * t + phase - 0.15)       # present 의 미분
+            current = 0.05 + 0.20 * abs(velocity)                      # 부하 ~ |속도|
+            voltage = 11.5 + 0.25 * math.sin(w * t + phase)
+            goal_raw = int(2048 + 1400 * math.sin(w * t + phase))
+            present_raw = int(2048 + 1400 * math.sin(w * t + phase - 0.15))
             lines.append(
                 f"{session_id},{sec},{nsec},{elapsed},base_link,{11 + m},"
-                f"{ACTUATORS[m]},2048,2050,0.00,0.01,0.00,0.05,11.9,32,0,0,"
-                "true,true,0"
+                f"{ACTUATORS[m]},{goal_raw},{present_raw},"
+                f"{goal_rad:.4f},{present_rad:.4f},{velocity:.4f},"
+                f"{current:.4f},{voltage:.3f},{temp},true,0,0,true,true,0"
             )
     return ("\n".join(lines) + "\n").encode("utf-8")
 

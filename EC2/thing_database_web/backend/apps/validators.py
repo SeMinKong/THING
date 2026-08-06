@@ -59,7 +59,7 @@ MOTOR_STATUS_HEADER = [
     "session_id", "stamp_sec", "stamp_nanosec", "elapsed_ms", "frame_id", "motor_id",
     "actuator_name", "goal_position_raw", "present_position_raw", "goal_position_rad",
     "present_position_rad", "velocity_rad_s", "current_ampere", "voltage_volt",
-    "temperature_celsius", "hardware_error", "communication_result",
+    "temperature_celsius", "torque_enabled", "hardware_error", "communication_result",
     "communication_ok", "bus_communication_ok", "failed_read_count",
 ]
 
@@ -166,7 +166,11 @@ def validate_metadata(meta):
     # ── 시각 ──
     started_at = parse_rfc3339_utc(meta.get("started_at"), "started_at")
     ended_at = parse_rfc3339_utc(meta.get("ended_at"), "ended_at")
-    parse_rfc3339_utc(meta.get("exported_at"), "exported_at")
+    # exported_at 은 선택이다. 로봇 exporter(thing_logger/export_schema.METADATA_FIELDS)는
+    # 이 필드를 내보내지 않는다. content_digest 계산에서도 제외되므로(digest.py) 없어도
+    # 안전하고, 있으면 형식만 검사한다.
+    if meta.get("exported_at") is not None:
+        parse_rfc3339_utc(meta.get("exported_at"), "exported_at")
     if ended_at <= started_at:
         raise ValidationFailed(details=["ended_at: started_at 보다 커야 한다"])
 

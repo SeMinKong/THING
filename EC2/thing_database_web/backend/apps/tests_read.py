@@ -64,7 +64,7 @@ class ReadBaseTest(TestCase):
             uploaded_at=start + timedelta(minutes=1, seconds=6),
             result=result,
             duration_ms=0,
-            interface_commit="70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec",
+            interface_commit="626c59e09f108e6e5eb6d2313efe28bf0e51ed03",
             time_sync=True,
             content_digest="sha256:" + "1" * 64,
             status=status,

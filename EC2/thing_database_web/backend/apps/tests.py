@@ -76,8 +76,8 @@ class UploadLimitTests(TestCase):
         """part 상한 합계가 Django 요청 상한 안에 들어가야 한다.
 
         이 관계가 깨지면 큰 업로드가 Django 에 닿기 전에 거부된다.
-        6.5절의 "합계 80.25MiB" 는 landmark 를 뺀 값이므로 숫자를 직접 비교하지
-        않고 관계만 검사한다.
+        V7.1 §6.5 의 "합계 200.25MiB"(landmark 포함)는 값이 바뀔 수 있으므로 숫자를
+        직접 비교하지 않고 관계만 검사한다.
         """
         from apps.validators import PART_MAX_BYTES, TOTAL_MAX_BYTES
 
