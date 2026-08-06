@@ -132,27 +132,38 @@ def test_service_and_action_requests_are_mutually_exclusive_in_both_directions()
     )
 
 
-def test_gesture_publishes_only_during_its_bounded_duration():
+def test_completed_gesture_keeps_last_pose_fresh_and_reopens_admission():
     core = make_core()
     started = core.start_gesture('fist', 0.6, now_ns=0)
 
     first = core.tick(now_ns=0)
     last = core.tick(now_ns=99 * NS_PER_MS)
     completed = core.tick(now_ns=100 * NS_PER_MS)
-    after = core.tick(now_ns=200 * NS_PER_MS)
+    retained = core.tick(now_ns=200 * NS_PER_MS)
 
     assert started.accepted is True
     assert first.command.axes == FIST
     assert first.command.source == ManualExecutorCore.SOURCE_GESTURE
     assert first.command.speed_limit == pytest.approx(0.6)
     assert last.command is not None
-    assert completed.command is None
+    # 완료 tick도 마지막 pose를 싣는다. 그렇지 않으면 20 Hz timer 한 주기를 건너뛰어
+    # 마지막 active frame과 첫 retained heartbeat 사이가 최대 100 ms가 된다.
+    assert completed.command.axes == FIST
     assert completed.outcome.generation == started.generation
     assert completed.outcome.success is True
     assert completed.outcome.reason == 'completed'
-    assert after.command is None
-    assert after.outcome is None
+    assert retained.command.axes == FIST
+    assert retained.command.source == ManualExecutorCore.SOURCE_GESTURE
+    assert retained.command.speed_limit == pytest.approx(0.6)
+    assert retained.outcome is None
     assert core.motion_active is False
+
+    replacement = core.start_gesture('open', 0.4, now_ns=201 * NS_PER_MS)
+    replaced = core.tick(now_ns=201 * NS_PER_MS)
+
+    assert replacement.accepted is True
+    assert replaced.command.axes == OPEN
+    assert replaced.command.speed_limit == pytest.approx(0.4)
 
 
 def test_sequence_progresses_steps_and_reports_one_based_feedback():
@@ -163,6 +174,7 @@ def test_sequence_progresses_steps_and_reports_one_based_feedback():
     step_2 = core.tick(now_ns=50 * NS_PER_MS)
     step_3 = core.tick(now_ns=125 * NS_PER_MS)
     done = core.tick(now_ns=225 * NS_PER_MS)
+    retained = core.tick(now_ns=226 * NS_PER_MS)
 
     assert started.accepted is True
     assert (step_1.current_step, step_1.total_steps) == (1, 3)
@@ -170,9 +182,12 @@ def test_sequence_progresses_steps_and_reports_one_based_feedback():
     assert step_1.command.source == ManualExecutorCore.SOURCE_SEQUENCE
     assert (step_2.current_step, step_2.command.gesture_name) == (2, 'pinch')
     assert (step_3.current_step, step_3.command.gesture_name) == (3, 'fist')
-    assert done.command is None
+    assert done.command.axes == FIST
     assert done.outcome.success is True
     assert done.outcome.reason == 'completed'
+    assert retained.command.gesture_name == 'fist'
+    assert retained.command.axes == FIST
+    assert retained.command.source == ManualExecutorCore.SOURCE_SEQUENCE
     assert core.is_sequence_running is False
 
 
@@ -211,6 +226,48 @@ def test_cancelled_sequence_never_emits_another_command():
     assert cancelled.reason == 'cancel_requested'
     assert after.command is None
     assert core.motion_active is False
+
+
+def test_stop_control_loss_and_unsafe_state_clear_a_retained_pose():
+    stopped = make_core()
+    stopped.start_gesture('fist', 1.0, now_ns=0)
+    stopped.tick(now_ns=100 * NS_PER_MS)
+    assert stopped.tick(now_ns=101 * NS_PER_MS).command is not None
+    assert stopped.cancel('stop_requested') is None
+    assert stopped.tick(now_ns=102 * NS_PER_MS).command is None
+
+    lost = make_core()
+    lost.start_gesture('fist', 1.0, now_ns=0)
+    lost.tick(now_ns=100 * NS_PER_MS)
+    lost.update_control_state(
+        active_mode=ManualExecutorCore.MODE_DISABLED,
+        active_owner=ManualExecutorCore.OWNER_NONE,
+        owner_alive=False,
+        now_ns=101 * NS_PER_MS,
+    )
+    assert lost.tick(now_ns=102 * NS_PER_MS).command is None
+
+    unsafe = make_core()
+    unsafe.start_gesture('fist', 1.0, now_ns=0)
+    unsafe.tick(now_ns=100 * NS_PER_MS)
+    unsafe.update_safety_state(
+        ManualExecutorCore.SAFETY_HOLD,
+        now_ns=101 * NS_PER_MS,
+    )
+    assert unsafe.tick(now_ns=102 * NS_PER_MS).command is None
+
+
+def test_stale_state_clears_a_retained_pose_fail_closed():
+    core = make_core(control_timeout_ms=100, safety_timeout_ms=300)
+    core.start_gesture('fist', 1.0, now_ns=0)
+    core.tick(now_ns=100 * NS_PER_MS)
+
+    stale = core.tick(now_ns=101 * NS_PER_MS)
+    after = core.tick(now_ns=102 * NS_PER_MS)
+
+    assert stale.command is None
+    assert stale.outcome is None
+    assert after.command is None
 
 
 @pytest.mark.parametrize(

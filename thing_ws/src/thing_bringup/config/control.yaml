@@ -127,6 +127,8 @@ safety_manager:
     estop_input_timeout_ms: 300
     tick_period_ms: 20
     state_publish_period_ms: 100
+    # ROBOTIS XL330-M288-T e-Manual: recommended 5.0 V stall current is 1.47 A.
+    # V7 still requires project-specific physical load validation of this trip.
     trip_limits_validated: true
-    max_current_ampere: 0.145
+    max_current_ampere: 1.47
     max_temperature_celsius: 70.0
