@@ -29,10 +29,10 @@ Hardware GPIO 접근과 DYNAMIXEL torque write, Web popup/token은 이 패키지
 | INIT | MotorStatus·E-Stop 최초 정상 확인 | READY | 명령 차단, torque OFF 확인 |
 | READY | 검증된 일반 명령 | RUN | 명령 실행 허용 |
 | READY | 정상 STOP event | RESET | motor 이동 없이 torque OFF 재확인 |
-| RUN | 명령 공백 300ms | HOLD | 현재 setpoint 유지, motor command 차단 |
+| RUN | 명령 공백 5000ms | HOLD | 현재 setpoint 유지, motor command 차단 |
 | RUN | 정상 STOP event | RESET | hardware torque OFF 대기 |
 | HOLD | valid activity가 gap 100ms 이하로 300ms 연속 | RUN | 복구 activity만 확인 후 실행 재개 |
-| HOLD | 마지막으로 hardware에 전달된 valid command 기준 총 1000ms 단절 | SAFE | 간헐 recovery activity로 총 timeout을 연장하지 않음 |
+| HOLD | 마지막으로 hardware에 전달된 valid command 기준 총 10000ms 단절 | SAFE | 간헐 recovery activity로 총 timeout을 연장하지 않음 |
 | RESET | 최소 500ms + fresh 7-motor torque OFF | READY | 정상 제어권 변경 완료 |
 | RESET | 3000ms timeout 또는 hardware fault | FAULT | fail-closed |
 | 모든 상태 | E-Stop active 또는 입력 stale | ESTOP | hardware torque OFF 전제, 명령 차단 |
@@ -80,8 +80,8 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 
 - watchdog, RESET, release window와 모든 ROS timer는 steady clock을 사용한다. system clock은 ROS stamp 생성 및 source header 비교에만 사용한다.
 - E-Stop과 MotorStatus callback은 이전 receipt를 덮어쓰기 전에 callback-to-callback gap을 검사한다. timer callback이 지연돼도 300ms 이상 gap은 각각 ESTOP/FAULT로 남고, 재개된 inactive E-Stop heartbeat 시점부터 500ms release window를 새로 센다.
-- Command Guard는 SafetyState보다 resumed command를 먼저 받아도 마지막 실제 hardware forward 후 300ms 이상이면 local HOLD barrier로 hardware forwarding을 막고 validation activity만 발행한다.
-- validation activity는 실제 hardware-forwarded command와 별도로 처리해 delayed Safety tick의 RUN watchdog baseline을 갱신하지 않는다. recovery와 1000ms SAFE deadline이 동시에 성립하면 SAFE가 우선한다.
+- Command Guard는 SafetyState보다 resumed command를 먼저 받아도 마지막 실제 hardware forward 후 5000ms 이상이면 local HOLD barrier로 hardware forwarding을 막고 validation activity만 발행한다.
+- validation activity는 실제 hardware-forwarded command와 별도로 처리해 delayed Safety tick의 RUN watchdog baseline을 갱신하지 않는다. recovery와 10000ms SAFE deadline이 동시에 성립하면 SAFE가 우선한다.
 - Guard의 HOLD activity(`true`)와 검증 실패(`false`)는 단일 ordered `/thing/command/validation_result`로 전달되어 서로 다른 DDS topic 재정렬 없이 recovery stable window를 갱신하거나 초기화한다.
 - SafetyState stamp는 같은 transition의 periodic heartbeat 동안 고정하고 상태 전이 때만 증가한다. Guard는 stamp가 역행한 지연 상태를 거부하고 `command_stream_recovered` 전이를 관측해 HOLD 표본을 놓친 경우에도 local forwarding 기준을 안전하게 다시 연다.
 - MotorStatus 유발 FAULT publication은 최대 한 20ms steady tick 동안 coalesce한다. 같은 ready set의 active E-Stop은 ESTOP으로 우선 publish하며, E-Stop이 없으면 deadline 직후 FAULT를 publish한다.
@@ -116,8 +116,8 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 
 | 항목 | 값 |
 | --- | ---: |
-| RUN→HOLD command timeout | 300ms |
-| RUN/HOLD→SAFE 총 timeout | 1000ms |
+| RUN→HOLD command timeout | 5000ms |
+| RUN/HOLD→SAFE 총 timeout | 10000ms |
 | HOLD recovery stable | 300ms |
 | HOLD recovery max gap | 100ms |
 | RESET 최소 유지 | 500ms |
@@ -134,15 +134,19 @@ Hardware는 `MotorStatus.header.stamp`를 실제 측정 시각으로 채워야 �
 
 ### 전류·온도 trip 검증 gate
 
-`control.yaml`의 기본값은 `trip_limits_validated: false`이다. 저장소 예제의
-`max_current_ampere: 0.145`와 `max_temperature_celsius: 70.0`은 실물 부하 시험으로
-확정된 값이 아니므로, 기본 launch는 정상 heartbeat가 들어와도
-`INIT/trip_limits_unvalidated`를 유지한다.
+운영 `control.yaml`은 현재 `trip_limits_validated: true`,
+`max_current_ampere: 1.47`, `max_temperature_celsius: 70.0`을 사용한다. 반면 YAML 없이
+`ros2 run thing_control safety_manager`로 단독 실행할 때의 코드 fallback은 의도적으로
+`trip_limits_validated: false`와 `max_current_ampere: 0.145`를 유지하므로
+`INIT/trip_limits_unvalidated`에서 열리지 않는다.
 
-Hardware 통합 담당자는 7개 XL330-M288-T 실물 부하 시험 후 제조사 범위 이하의 trip 값을
-YAML에 기록하고 리뷰를 받은 뒤에만 `trip_limits_validated: true`로 바꿔야 한다. 단순히
-READY 전이를 위해 이 flag를 켜면 안 된다. 자동화 테스트는 synthetic status를 검증하기
-위해 node parameter override로만 `true`를 사용한다.
+1.47 A는 ROBOTIS 공식 XL330-M288-T e-Manual의 권장 5.0 V stall current와 같다.
+제조사 사양 근거와 프로젝트 실물 부하 검증은 별개이며, 이 설정 설명이 실물 시험 완료를
+뜻하지 않는다: <https://emanual.robotis.com/docs/en/dxl/x/xl330-m288/>
+
+Hardware 통합 담당자는 7개 XL330-M288-T의 실물 부하·온도 시험과 제조사 범위를 근거로
+운영 trip 값을 리뷰해야 한다. 단순히 READY 전이를 위해 flag나 한계를 바꾸면 안 되며,
+자동화 테스트는 synthetic status를 검증할 때 node parameter override를 사용할 수 있다.
 
 ## 빌드와 실행
 

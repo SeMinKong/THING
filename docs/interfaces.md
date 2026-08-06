@@ -143,10 +143,10 @@ topic의 callback 순서와 무관하게 RESET 이후 늦게 도착한 selected 
 STOP 이후 `DISABLED/NONE → active` 경계를 새로 관측하기 전까지 Guard는 닫혀 있습니다.
 
 HOLD는 사용자가 요청하는 일시정지(Pause)가 아닙니다. RUN 중 마지막 유효
-`HandCommand`가 300ms 동안 들어오지 않을 때 안전 관리 경로가 진입하는 command-timeout
+`HandCommand`가 5000ms 동안 들어오지 않을 때 안전 관리 경로가 진입하는 command-timeout
 watchdog 상태입니다. timeout 시점에 hardware가 실제로 보간 중이던 현재 setpoint를
 고정하고 제한 토크로 자세를 유지하며, 마지막 목표까지 계속 이동하거나 중단된 동작을
-나중에 자동 재개하지 않습니다. 마지막 유효 명령 기준 총 1000ms 동안 단절이 계속되면
+나중에 자동 재개하지 않습니다. 마지막 유효 명령 기준 총 10000ms 동안 단절이 계속되면
 SAFE 정책으로 상승합니다.
 
 Safety Manager는 SAFE 진입 시 `safe_action_timeout_ms=3000` deadline을 시작합니다.
@@ -165,7 +165,7 @@ owner와 일치하는 source만 guard로 전달하고, guard는 stamp·source·s
 같은 채널의 `data=false`로 알려 연속 window를 초기화합니다. 서로 다른 DDS topic의
 callback 순서에 의존하지 않습니다. activity가 100ms를
 넘는 공백 없이 300ms 연속 유지되면 safety manager가 RUN으로 복귀합니다. 간헐 activity는
-총 timeout을 연장하지 않으며, 마지막 hardware-forwarded command 기준 1000ms에 SAFE로
+총 timeout을 연장하지 않으며, 마지막 hardware-forwarded command 기준 10000ms에 SAFE로
 전환합니다. HOLD에서는 `/thing/reset_safety`는 거부하지만 명시적 STOP은 허용하며,
 후속 상태는 RUN·RESET·SAFE 중 하나입니다.
 
@@ -218,17 +218,19 @@ Sequence Goal, Sequence 실행 중 Gesture 요청, 두 Sequence Goal의 동시 �
   수락을 뜻합니다.
 - Gesture는 YAML 유지시간 동안, Sequence는 YAML step별 유지시간 동안 최대 50ms
   주기로 fresh system stamp와 증가 uint32 sequence를 가진 `HandCommand`를 발행합니다.
-  유지시간 종료 뒤 마지막 자세를 무기한 재발행하지 않습니다. Executor timer가 지연돼도
-  Sequence의 중간 자세를 건너뛰지 않고, 다음 자세를 처음 발행한 시각부터 해당 유지시간을
-  새로 계산합니다.
-- 시작·종료 때 `/thing/control/motion_active`를 각각 `true`·`false`로 발행합니다.
-  `is_sequence_running`은 node 내부 단일 실행 슬롯의 Sequence 점유 상태입니다.
+  정상 완료 뒤에는 마지막 자세를 같은 주기로 계속 발행하며, 다음 Gesture/Sequence가
+  수락되면 새 pose로 교체합니다. Executor timer가 지연돼도 Sequence의 중간 자세를
+  건너뛰지 않고, 다음 자세를 처음 발행한 시각부터 해당 유지시간을 새로 계산합니다.
+- 시작·종료 때 `/thing/control/motion_active`를 각각 `true`·`false`로 발행합니다. 마지막
+  자세 heartbeat 중에는 `motion_active=false`이므로 다음 Gesture/Sequence admission은
+  열려 있습니다. `is_sequence_running`은 node 내부 단일 실행 슬롯의 Sequence 점유
+  상태이며 retained pose heartbeat는 포함하지 않습니다.
 - Action은 `current_step`, `total_steps`, `active_gesture` feedback을 보내고 완료 시
   `success=true, reason=completed`를 반환합니다. Action cancel은 `cancel_requested`로
   종료합니다.
 - `/thing/control/stop_requested`, owner/mode 상실, HOLD·SAFE·FAULT·ESTOP,
-  ControlState·SafetyState heartbeat timeout은 실행을 즉시 취소하며 이후 명령을
-  발행하지 않습니다. 기본 freshness는 ControlState 1500ms, SafetyState 300ms이고
+  ControlState·SafetyState heartbeat timeout은 실행과 retained pose를 즉시 취소하며
+  이후 명령을 발행하지 않습니다. 기본 freshness는 ControlState 1500ms, SafetyState 300ms이고
   YAML에서 더 느슨하게 확장할 수 없습니다. ControlState와 SafetyState는 positive source
   stamp와 단조 순서를 검증하므로 zero, 수신 system time보다 100ms 넘게 미래인
   stamp, older/conflicting replay는 freshness를 갱신하거나 admission을 다시 열 수

@@ -79,8 +79,8 @@ def test_control_yaml_defines_v6_3_guard_and_state_freshness_limits():
         'estop_input_timeout_ms': 300,
         'tick_period_ms': 20,
         'state_publish_period_ms': 100,
-        'trip_limits_validated': False,
-        'max_current_ampere': 0.145,
+        'trip_limits_validated': True,
+        'max_current_ampere': 1.47,
         'max_temperature_celsius': 70.0,
     }
 

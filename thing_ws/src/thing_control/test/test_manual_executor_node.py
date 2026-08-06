@@ -134,7 +134,7 @@ def publish_manual_ready(node, probe):
     return control_publisher, safety_publisher, heartbeat_timer
 
 
-def test_gesture_service_uses_the_single_manual_topic_and_finishes_bounded():
+def test_gesture_service_retains_last_pose_and_accepts_a_replacement():
     with running_manual_executor() as (node, probe):
         commands = []
         motion_states = []
@@ -169,8 +169,23 @@ def test_gesture_service_uses_the_single_manual_topic_and_finishes_bounded():
         assert wait_until(lambda: motion_states and motion_states[-1] is False)
         count_at_completion = len(commands)
         sleep(0.15)
-        assert len(commands) == count_at_completion
+        assert len(commands) >= count_at_completion + 2
+        assert all(message.thumb_flex == pytest.approx(0.0) for message in commands)
         assert motion_states[0] is True
+
+        replacement_start = len(commands)
+        request.gesture_name = 'fist'
+        request.speed_limit = 0.4
+        replacement = client.call_async(request)
+        assert wait_until(replacement.done)
+        assert replacement.result().accepted is True
+        assert wait_until(
+            lambda: any(
+                message.thumb_flex == pytest.approx(1.0)
+                and message.speed_limit == pytest.approx(0.4)
+                for message in commands[replacement_start:]
+            )
+        )
 
 
 def test_sequence_action_blocks_gesture_service_and_publishes_feedback():

@@ -12,14 +12,16 @@ Gesture service와 Sequence action을 하나의 MANUAL 명령 통로로 실행�
    나타내는 ``/thing/control_state``, Safety 상태, STOP 요청과 Guard barrier ACK, 그리고
    gesture pose·duration·sequence·상태 freshness 관련 파라미터를 입력으로 받는다.
 3. 출력
-   실행 중인 pose를 ``HandCommand``로 변환해 ``/thing/command/manual``에 주기적으로
-   발행하고, ``/thing/control/motion_active`` 상태, service 응답, action feedback/result를
-   출력한다. Sequence 실행이면 cancel·STOP·제어권 상실·Safety 이상도 Action 종료 결과로
-   알린다. Gesture service는 시작 승인만 응답하며 이후 중단은 명령·motion 상태를 닫는다.
+   실행 중 pose와 정상 완료 뒤 마지막 pose를 ``HandCommand``로 변환해
+   ``/thing/command/manual``에 주기적으로 발행한다. 동작 유지시간이 끝나면
+   ``/thing/control/motion_active``는 false가 되어 다음 요청을 받을 수 있지만 마지막
+   자세 heartbeat는 이어진다. Sequence 실행이면 cancel·STOP·제어권 상실·Safety 이상도
+   Action 종료 결과로 알린다. Gesture service는 시작 승인만 응답한다.
 4. 주요 실행 흐름
    요청 수신 → service/action 공통 admission 차선에서 상호 배제 → 코어가 이름·속도·최신
-   제어권·Safety를 검증 → timer가 현재 pose를 주기적으로(기본 20 Hz) 발행 → 완료 또는
-   중단 사유를 service/action 생명주기에 반영한다. STOP 뒤에는 ACK 뒤에 관측한
+   제어권·Safety를 검증 → timer가 현재 pose를 주기적으로(기본 20 Hz) 발행 → 정상 완료
+   뒤에는 마지막 pose heartbeat를 유지하면서 실행 슬롯만 비운다. 새 요청은 retained pose를
+   교체하고, STOP·제어권/Safety 상실은 출력을 닫는다. STOP 뒤에는 ACK 뒤에 관측한
    DISABLED와 RESET/INIT을 각각 확인하고, 그 뒤 READY와 MANUAL 재획득까지 모두 새
    상태 표본으로 확인할 때까지 새 동작을 받지 않는다.
 5. 사용/실행 방법

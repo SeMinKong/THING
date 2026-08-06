@@ -76,12 +76,15 @@ ack 왕복 상한:  ______ ms
 
 **질문** — `ExecuteSequence` 액션 실행 중에만 `true` 입니까, `ExecuteGesture` 실행 중에도 `true` 입니까?
 
-**확인한 것** — FR-22 가 "MANUAL Gesture 는 동작·초기 유지시간이 끝나면 종료하며 마지막 자세를 무기한 재발행하지 않는다", "실행 중 새 요청 거부" 로 바뀌었습니다. 그런데 `sequence_running` 이 Gesture 를 포함하는지는 여전히 6.3절 한 줄뿐입니다.
+**현재 계약** — Gesture와 Sequence의 유한한 실행 유지시간이 끝나면 `motion_active=false`로
+실행 슬롯을 비우되, 마지막 자세는 다음 MANUAL 요청 또는 STOP·lease 상실·Safety 이탈까지
+20Hz로 계속 발행합니다. `sequence_running`은 ExecuteSequence Action 실행 중에만 true이며,
+Gesture 실행과 retained pose heartbeat는 포함하지 않습니다.
 
 **틀리면** — "시퀀스 실행 중" 문구가 제스처 실행 중에도 뜨거나 그 반대입니다. 웹은 이 필드로 버튼을 잠그지 않으므로(ack 기반) 동작에는 영향이 없습니다.
 
 ```
-[ ] Sequence 액션 전용
+[x] Sequence 액션 전용
 [ ] Gesture 실행 중에도 true
 ```
 

@@ -17,7 +17,8 @@ Gesture와 Sequence를 하나의 MANUAL 실행 슬롯에서 관리하는 ROS 독
 4. 주요 실행 흐름
    시작 요청 → 이름·축·속도·단일 실행 여부 검사 → MANUAL/WEB 제어권과 READY/RUN 상태의
    freshness 확인 → generation을 부여해 실행 시작 → tick마다 현재 pose와 step을 반환 →
-   duration 완료 또는 STOP/cancel/제어권·Safety 상실 시 한 번의 종료 결과로 닫는다.
+   duration 완료 후 실행 슬롯은 비우되 마지막 pose를 다음 요청까지 계속 반환한다. 새 요청은
+   즉시 그 pose를 교체하고, STOP/cancel/제어권·Safety 상실 시 retained pose까지 닫는다.
 5. 사용/실행 방법
    pose·duration·sequence 설정으로 ``ManualExecutorCore``를 만들고, 상태 callback에서는
    ``update_*_state()``, 요청에서는 ``start_gesture()``/``start_sequence()``, 주기 실행에서는
@@ -223,6 +224,7 @@ class ManualExecutorCore:
         self._safety_state: Optional[int] = None
         self._safety_received_ns: Optional[int] = None
         self._active: Optional[_ActiveMotion] = None
+        self._retained_command: Optional[CommandFrame] = None
         self._next_generation = 1
 
     @property
@@ -264,7 +266,9 @@ class ManualExecutorCore:
         self._control_owner = int(active_owner)
         self._owner_alive = bool(owner_alive)
         self._control_received_ns = self._nonnegative_time(now_ns)
-        if self._active is not None and not self._has_manual_control():
+        if (
+            self._active is not None or self._retained_command is not None
+        ) and not self._has_manual_control():
             return self.cancel('control_lost')
         return None
 
@@ -277,7 +281,9 @@ class ManualExecutorCore:
         """최신 Safety와 수신 시각을 저장하고 READY/RUN 이탈 시 동작을 취소한다."""
         self._safety_state = int(state)
         self._safety_received_ns = self._nonnegative_time(now_ns)
-        if self._active is not None and state not in (
+        if (
+            self._active is not None or self._retained_command is not None
+        ) and state not in (
             self.SAFETY_READY,
             self.SAFETY_RUN,
         ):
@@ -356,7 +362,8 @@ class ManualExecutorCore:
         )
 
     def cancel(self, reason: str) -> Optional[MotionOutcome]:
-        """현재 슬롯을 먼저 비우고 그 generation의 실패 종료 결과를 한 번 반환한다."""
+        """active와 retained 출력을 닫고 active generation의 실패 결과만 한 번 반환한다."""
+        self._retained_command = None
         if self._active is None:
             return None
         active = self._active
@@ -378,7 +385,13 @@ class ManualExecutorCore:
         now_ns = self._nonnegative_time(now_ns)
         active = self._active
         if active is None:
-            return TickResult()
+            if self._retained_command is None:
+                return TickResult()
+            runtime_issue = self._runtime_issue(now_ns)
+            if runtime_issue is not None:
+                self.cancel(runtime_issue)
+                return TickResult()
+            return TickResult(command=self._retained_command)
 
         runtime_issue = self._runtime_issue(now_ns)
         if runtime_issue is not None:
@@ -389,7 +402,11 @@ class ManualExecutorCore:
                 active.started_ns + self._gesture_durations_ns[active.name]
             )
             if now_ns >= deadline_ns:
-                return TickResult(outcome=self._complete())
+                outcome = self._complete()
+                return TickResult(
+                    command=self._retained_command,
+                    outcome=outcome,
+                )
             return TickResult(
                 command=self._frame(active.name, active.speed_limit, active.kind),
                 current_step=1,
@@ -403,7 +420,11 @@ class ManualExecutorCore:
         if now_ns >= deadline_ns:
             active.step_index += 1
             if active.step_index >= len(steps):
-                return TickResult(outcome=self._complete())
+                outcome = self._complete()
+                return TickResult(
+                    command=self._retained_command,
+                    outcome=outcome,
+                )
             # 늦어진 tick은 현재 step을 길게 만들 수는 있어도 설정 pose를 건너뛰면 안 된다.
             # 다음 step은 처음 반환되는 바로 이 시각부터 전체 hold duration을 새로 받는다.
             active.step_started_ns = now_ns
@@ -431,6 +452,9 @@ class ManualExecutorCore:
         generation = self._next_generation
         self._next_generation += 1
         now_ns = self._nonnegative_time(now_ns)
+        # 새 동작이 수락되면 이전 idle heartbeat는 다시 살아나면 안 된다. 이후 cancel이나
+        # 실패가 발생해도 새 동작 이전 pose로 되돌아가지 않도록 시작 시점에 폐기한다.
+        self._retained_command = None
         self._active = _ActiveMotion(
             kind=kind,
             name=name,
@@ -498,9 +522,19 @@ class ManualExecutorCore:
         )
 
     def _complete(self) -> MotionOutcome:
-        """현재 슬롯을 비우고 성공한 generation의 단일 완료 결과를 만든다."""
+        """슬롯은 비우고 마지막 pose는 idle heartbeat용으로 보존한다."""
         active = self._active
         assert active is not None
+        final_gesture = (
+            active.name
+            if active.kind == 'gesture'
+            else self._sequences[active.name][-1].gesture_name
+        )
+        self._retained_command = self._frame(
+            final_gesture,
+            active.speed_limit,
+            active.kind,
+        )
         self._active = None
         return MotionOutcome(
             generation=active.generation,
