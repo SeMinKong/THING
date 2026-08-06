@@ -84,8 +84,11 @@ Pin the version in the Jetson container image as well.
 cd thing_ws
 colcon build --packages-select thing_web_bridge
 source install/setup.bash
-ros2 launch thing_bringup vision.launch.py
+ros2 launch thing_bringup web_bridge.launch.py
 ```
+
+This starts `mjpeg_streamer` and `web_bridge_node` together. The vision
+pipeline runs separately via `vision.launch.py`.
 
 To run only the bridge:
 
