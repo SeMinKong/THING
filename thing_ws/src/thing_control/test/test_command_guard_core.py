@@ -37,6 +37,9 @@ def make_limits(**overrides):
         'axis_min': {name: 0.0 for name in AXIS_NAMES},
         'axis_max': {name: 1.0 for name in AXIS_NAMES},
         'max_axis_delta_per_second': {name: 10.0 for name in AXIS_NAMES},
+        'mimic_max_axis_delta_per_second': {
+            name: 10.0 for name in AXIS_NAMES
+        },
     }
     values.update(overrides)
     return GuardLimits(**values)
@@ -580,6 +583,9 @@ def test_manual_sources_have_independent_sequence_baselines():
 def test_axis_rate_uses_monotonic_elapsed_time_and_speed_limit_ratio():
     limits = make_limits(
         max_axis_delta_per_second={name: 1.0 for name in AXIS_NAMES},
+        mimic_max_axis_delta_per_second={
+            name: 1.0 for name in AXIS_NAMES
+        },
     )
     core = CommandGuardCore(limits)
     activate_mimic(core)
@@ -607,6 +613,55 @@ def test_axis_rate_uses_monotonic_elapsed_time_and_speed_limit_ratio():
         now_monotonic_ns=1_100_000_000,
     )
     assert accepted.accepted is True
+
+
+def test_mimic_rate_profile_accepts_vision_delta_without_weakening_manual():
+    normal_rates = {name: 1.5 for name in AXIS_NAMES}
+    mimic_rates = {name: 10.0 for name in AXIS_NAMES}
+    limits = make_limits(
+        max_axis_delta_per_second=normal_rates,
+        mimic_max_axis_delta_per_second=mimic_rates,
+    )
+
+    mimic = CommandGuardCore(limits)
+    activate_mimic(mimic)
+    assert mimic.validate(
+        make_command(sequence=1),
+        now_ros_ns=10_000_000_000,
+        now_monotonic_ns=1_000_000_000,
+    ).accepted
+    vision_axes = {name: 0.5 for name in AXIS_NAMES}
+    vision_axes['index_flex'] = 0.58
+    mimic_decision = mimic.validate(
+        make_command(sequence=2, axes=vision_axes, speed_limit=0.25),
+        now_ros_ns=10_050_000_000,
+        now_monotonic_ns=1_050_000_000,
+    )
+    assert mimic_decision.accepted is True
+
+    manual = CommandGuardCore(limits)
+    manual.update_safety_state(SAFETY_READY, 1_000_000_000)
+    manual.update_control_state(
+        MODE_DISABLED, OWNER_NONE, False, 1_000_000_000
+    )
+    manual.update_control_state(MODE_MANUAL, OWNER_WEB, True, 1_000_000_000)
+    assert manual.validate(
+        make_command(sequence=1, source=SOURCE_GESTURE),
+        now_ros_ns=10_000_000_000,
+        now_monotonic_ns=1_000_000_000,
+    ).accepted
+    manual_decision = manual.validate(
+        make_command(
+            sequence=2,
+            source=SOURCE_GESTURE,
+            axes=vision_axes,
+            speed_limit=0.25,
+        ),
+        now_ros_ns=10_050_000_000,
+        now_monotonic_ns=1_050_000_000,
+    )
+    assert manual_decision.accepted is False
+    assert manual_decision.reason == 'axis_rate_exceeded'
 
 
 def test_new_activation_clears_axis_rate_baseline():
@@ -643,6 +698,60 @@ def test_guard_limits_reject_missing_axes_and_non_positive_thresholds():
     invalid_rate['thumb_flex'] = 0.0
     with pytest.raises(ValueError, match='max_axis_delta_per_second'):
         make_limits(max_axis_delta_per_second=invalid_rate)
+
+    missing_mimic_axis = {name: 10.0 for name in AXIS_NAMES[:-1]}
+    with pytest.raises(ValueError, match='mimic_max_axis_delta_per_second'):
+        make_limits(
+            mimic_max_axis_delta_per_second=missing_mimic_axis,
+        )
+
+    unsafe_mimic_rate = {name: 10.0 for name in AXIS_NAMES}
+    unsafe_mimic_rate['index_flex'] = 10.000001
+    with pytest.raises(ValueError, match='mimic_max_axis_delta_per_second'):
+        make_limits(mimic_max_axis_delta_per_second=unsafe_mimic_rate)
+
+
+def test_guard_local_hold_starts_at_configured_five_second_boundary():
+    def decision_after(delay_ms):
+        core = CommandGuardCore(make_limits(command_hold_ms=5000))
+        activate_mimic(core)
+        first = core.validate(
+            make_command(sequence=1),
+            now_ros_ns=10_000_000_000,
+            now_monotonic_ns=1_000_000_000,
+        )
+        assert first.forward_to_hardware is True
+
+        now_monotonic_ns = 1_000_000_000 + delay_ms * 1_000_000
+        core.update_safety_state(SAFETY_READY, now_monotonic_ns)
+        core.update_control_state(
+            MODE_MIMIC,
+            OWNER_WEB,
+            True,
+            now_monotonic_ns,
+        )
+        return core.validate(
+            make_command(
+                sequence=2,
+                stamp_ns=10_000_000_000 + delay_ms * 1_000_000,
+            ),
+            now_ros_ns=10_000_000_000 + delay_ms * 1_000_000,
+            now_monotonic_ns=now_monotonic_ns,
+        )
+
+    before_boundary = decision_after(4999)
+    assert before_boundary.reason == 'accepted'
+    assert before_boundary.forward_to_hardware is True
+
+    at_boundary = decision_after(5000)
+    assert at_boundary.reason == 'hold_activity'
+    assert at_boundary.forward_to_hardware is False
+
+
+def test_guard_limits_allow_five_second_local_hold_but_no_more():
+    assert make_limits(command_hold_ms=5000).command_hold_ms == 5000
+    with pytest.raises(ValueError, match='command_hold_ms'):
+        make_limits(command_hold_ms=5001)
 
 
 def test_guard_limits_cannot_weaken_v6_3_safety_contract():
