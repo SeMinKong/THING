@@ -25,7 +25,7 @@ Safety Manager의 8상태 전이, RESET 완료 조건과 실행법은
 | 토픽 | 타입 | 발행자 | 구독자 | 권장 주기/QoS |
 | --- | --- | --- | --- | --- |
 | `/thing/landmarks` | `HandLandmarks` | MediaPipe | target, web, logger | 센서 데이터, best effort |
-| `/thing/command/mimic` | `HandCommand` | vision | manager, logger | 20Hz 이상 |
+| `/thing/command/mimic` | `HandCommand` | vision | manager | 20Hz 이상 |
 | `/thing/command/teleop` | `HandCommand` | teleop | manager | 사용자 입력 시 |
 | `/thing/command/manual` | `HandCommand` | manual_executor | manager | 20Hz, Gesture·Sequence 단일 publisher |
 | `/thing/command/selected` | `HandCommand` | manager | guard | 20Hz 이상 |
