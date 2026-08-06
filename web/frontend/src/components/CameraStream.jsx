@@ -12,7 +12,7 @@
 // ============================================================================
 import { useEffect, useState } from "react";
 import { useHandSocket } from "../context/HandSocketContext";
-import { HAND_DETECTION, isDeviceUsable } from "../config/messageProtocol";
+import { HAND_DETECTION, TIMING, isDeviceUsable } from "../config/messageProtocol";
 import { THRESHOLD } from "../config/pending";
 import { diag, OWNER } from "../config/diagnostics";
 import { motion, AnimatePresence } from "motion/react";
@@ -23,9 +23,9 @@ import { Panel, Head, Body, Tag } from "../ui/Sheet";
 const OVERLAY_STREAM_URL = import.meta.env.VITE_MJPEG_STREAM_URL || "";
 const RAW_STREAM_URL = import.meta.env.VITE_MJPEG_RAW_STREAM_URL || "";
 
-export default function CameraStream() {
+export default function CameraStream({ showHandLoss = false }) {
   const {
-    connectionState, connectionStatus, landmarksUpdatedAt, handDetection,
+    connectionState, connectionStatus, landmarksUpdatedAt, handDetection,handLossLatched, reacquireElapsedMs, reacquireStableMs,
   } = useHandSocket();
 
   const [streamMode, setStreamMode] = useState("overlay");
@@ -65,6 +65,7 @@ export default function CameraStream() {
     && landmarksUpdatedAt !== null
     && staleSince > THRESHOLD.CAMERA_STATE_STALE_MS;
 
+  // const confidencePct = Math.round((landmarks?.confidence ?? 0) * 100);
   const detectTone = handDetection === HAND_DETECTION.DETECTED ? "ok"
     : handDetection === HAND_DETECTION.LOW_CONFIDENCE ? "weak"
       : handDetection === HAND_DETECTION.NOT_DETECTED ? "none" : "idle";
@@ -203,6 +204,40 @@ export default function CameraStream() {
               </motion.span>
             </div>
           )}
+          {/* FR-27: hand-loss·유효 재검출 안내. 흐름에 두면 형제로서 카메라 높이를
+     다퉈 검출/미검출 반복 시 카메라가 커졌다 작아졌다 하므로, 영상 안
+     absolute 오버레이로 두어 카메라 크기를 고정한다. */}
+ <AnimatePresence>
+   {showHandLoss && handLossLatched && (
+     <motion.div
+       initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}
+       exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.16 }}
+       className="absolute inset-x-3 top-3 rounded-card bg-ink-900/85 px-3 py-2 backdrop-blur"
+     >
+       <div className="flex items-center gap-2">
+         <span className="size-1.5 rounded-full bg-st-hold" aria-hidden="true" />
+         <span className="text-[11px] font-semibold tracking-[0.12em] text-st-hold">재개 필요</span>
+       </div>
+       <p className="mt-1 text-[12px] leading-snug text-ink-200">
+         손 미검출이 확정되어 명령 발행이 중단됐습니다.
+         손을 다시 인식해도 제어는 자동으로 재개되지 않습니다.
+       </p>
+       {reacquireStableMs > 0 && (
+         <div className="mt-2">
+           <div className="mb-1 flex items-baseline justify-between">
+             <span className="text-[10px] text-ink-300">유효 재검출</span>
+             <span className="font-mono text-[10px] text-ink-200">{reacquireElapsedMs} / {reacquireStableMs}ms</span>
+           </div>
+           <div className="h-1 overflow-hidden rounded-full bg-ink-200">
+             <motion.div className="h-full rounded-full bg-st-hold"
+               animate={{ width: `${Math.min(100, (reacquireElapsedMs / reacquireStableMs) * 100)}%` }}
+               transition={{ duration: 0.2, ease: "linear" }} />
+           </div>
+         </div>
+       )}
+     </motion.div>
+   )}
+ </AnimatePresence>
         </motion.div>
       </Body>
     </Panel>
