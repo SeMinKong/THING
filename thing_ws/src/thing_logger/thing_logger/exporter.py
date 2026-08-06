@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -29,6 +30,8 @@ from thing_logger.export_schema import MOTOR_STATUS_HEADER
 from thing_logger.export_schema import SCHEMA_VERSION
 
 
+log = logging.getLogger('thing_logger.exporter')
+
 ALLOWED_RESULTS = frozenset({'SUCCESS', 'FAILURE'})
 HAND_COMMAND_AXES = (
     'thumb_flex',
@@ -49,6 +52,18 @@ class ExportError(RuntimeError):
 
 class ExportValidationError(ExportError):
     """export 입력 또는 출력 계약 위반을 나타낸다."""
+
+
+class _PreSessionRecordError(ExportValidationError):
+    """
+    stamp가 세션 시작보다 이전인 레코드를 나타낸다.
+
+    기록 시작 직전에 생성된 프레임·모터 상태가 파이프라인 지연으로 기록
+    시작 이후에 도착하면 stamp는 세션 시작보다 이전이 된다. 파일의 선두
+    레코드에서는 정상 상황이므로 건너뛰고, 정상 행이 나온 뒤 다시 나타나면
+    시계 이상이므로 기존처럼 export를 중단한다. ExportValidationError의
+    하위 타입이라 skip 처리를 빠뜨려도 기존과 같이 안전하게 실패한다.
+    """
 
 
 @dataclass(frozen=True)
@@ -493,6 +508,7 @@ class SessionExporter:
         landmark_path = directory / (filenames['landmark'] + '.part')
         lifecycle = _SessionLifecycle(session_id)
         counts = {'hand_command': 0, 'motor_status': 0, 'landmark': 0}
+        skipped = {'hand_command': 0, 'motor_status': 0, 'landmark': 0}
         last_csv_timestamps = {
             'hand_command': None,
             'motor_status': None,
@@ -523,11 +539,19 @@ class SessionExporter:
                         'data appeared before RecordingState.RECORDING'
                     )
                 if record.topic_name == '/thing/command':
-                    row = _hand_command_row(
-                        session_id,
-                        lifecycle.started_at_ns,
-                        record.message,
-                    )
+                    try:
+                        row = _hand_command_row(
+                            session_id,
+                            lifecycle.started_at_ns,
+                            record.message,
+                        )
+                    except _PreSessionRecordError:
+                        # 기록 시작 직전에 생성돼 늦게 도착한 선두
+                        # 레코드만 건너뛴다. 정상 행 이후는 시계 이상이다.
+                        if counts['hand_command'] == 0:
+                            skipped['hand_command'] += 1
+                            continue
+                        raise
                     last_csv_timestamps['hand_command'] = (
                         _require_nondecreasing_csv_timestamp(
                             row[1],
@@ -539,11 +563,17 @@ class SessionExporter:
                     hand_writer.writerow(row)
                     counts['hand_command'] += 1
                 elif record.topic_name == '/thing/motor_status':
-                    rows = _motor_status_rows(
-                        session_id,
-                        lifecycle.started_at_ns,
-                        record.message,
-                    )
+                    try:
+                        rows = _motor_status_rows(
+                            session_id,
+                            lifecycle.started_at_ns,
+                            record.message,
+                        )
+                    except _PreSessionRecordError:
+                        if counts['motor_status'] == 0:
+                            skipped['motor_status'] += 1
+                            continue
+                        raise
                     last_csv_timestamps['motor_status'] = (
                         _require_nondecreasing_csv_timestamp(
                             rows[0][1],
@@ -555,14 +585,21 @@ class SessionExporter:
                     motor_writer.writerows(rows)
                     counts['motor_status'] += len(rows)
                 elif record.topic_name == '/thing/landmarks':
-                    if counts['landmark']:
-                        landmark_output.write(',\n')
-                    landmark_output.write(json.dumps(
-                        _landmark_record(
+                    try:
+                        landmark_record = _landmark_record(
                             session_id,
                             lifecycle.started_at_ns,
                             record.message,
-                        ),
+                        )
+                    except _PreSessionRecordError:
+                        if counts['landmark'] == 0:
+                            skipped['landmark'] += 1
+                            continue
+                        raise
+                    if counts['landmark']:
+                        landmark_output.write(',\n')
+                    landmark_output.write(json.dumps(
+                        landmark_record,
                         ensure_ascii=False,
                         separators=(',', ':'),
                     ))
@@ -570,6 +607,14 @@ class SessionExporter:
             landmark_output.write(
                 '\n]\n' if counts['landmark'] else ']\n'
             )
+
+        for file_kind, skip_count in skipped.items():
+            if skip_count:
+                log.warning(
+                    '%s: 세션 시작 이전 선두 레코드 %d건을 제외했다',
+                    file_kind,
+                    skip_count,
+                )
 
         for path in (hand_path, motor_path, landmark_path):
             self._sync_file(path)
@@ -784,17 +829,26 @@ def write_hand_command_csv(
 ) -> int:
     """명령 메시지를 canonical CSV로 쓰고 행 수를 반환한다."""
     row_count = 0
+    skipped_count = 0
     last_timestamp_ns = None
     try:
         with path.open('w', encoding='utf-8', newline='') as output:
             writer = csv.writer(output, lineterminator='\n')
             writer.writerow(HAND_COMMAND_HEADER)
             for message in messages:
-                row = _hand_command_row(
-                    session_id,
-                    started_at_ns,
-                    message,
-                )
+                try:
+                    row = _hand_command_row(
+                        session_id,
+                        started_at_ns,
+                        message,
+                    )
+                except _PreSessionRecordError:
+                    # 기록 시작 직전에 생성돼 늦게 도착한 선두 레코드만
+                    # 건너뛴다. 정상 행 이후의 과거 stamp는 시계 이상이다.
+                    if row_count == 0:
+                        skipped_count += 1
+                        continue
+                    raise
                 last_timestamp_ns = _require_nondecreasing_csv_timestamp(
                     row[1],
                     row[2],
@@ -810,6 +864,11 @@ def write_hand_command_csv(
             f'failed to write HandCommand CSV: {error}'
         ) from error
 
+    if skipped_count:
+        log.warning(
+            'HandCommand: 세션 시작 이전 선두 레코드 %d건을 제외했다',
+            skipped_count,
+        )
     return row_count
 
 
@@ -819,20 +878,11 @@ def _hand_command_row(
     message: Any,
 ) -> tuple:
     """명령 하나를 검증해 canonical CSV 행으로 변환한다."""
-    stamp_sec = _require_integer(message.stamp.sec, 'stamp.sec')
-    stamp_nanosec = _require_integer(
-        message.stamp.nanosec,
-        'stamp.nanosec',
+    stamp_sec, stamp_nanosec, elapsed_ms = _timestamp_parts(
+        message.stamp,
+        started_at_ns,
+        'HandCommand',
     )
-    if stamp_sec < 0 or not 0 <= stamp_nanosec < 1_000_000_000:
-        raise ExportValidationError('HandCommand timestamp is invalid')
-
-    timestamp_ns = stamp_sec * 1_000_000_000 + stamp_nanosec
-    elapsed_ns = timestamp_ns - started_at_ns
-    if elapsed_ns < 0:
-        raise ExportValidationError(
-            'HandCommand timestamp precedes session start'
-        )
 
     sequence = _require_integer(message.sequence, 'sequence')
     if not 0 <= sequence < 2**32:
@@ -866,7 +916,7 @@ def _hand_command_row(
         str(session_id),
         stamp_sec,
         stamp_nanosec,
-        elapsed_ns // 1_000_000,
+        elapsed_ms,
         sequence,
         source,
         *axis_values,
@@ -910,17 +960,26 @@ def write_motor_status_csv(
 ) -> int:
     """모터 상태를 모터별 canonical CSV 행으로 쓰고 행 수를 반환한다."""
     row_count = 0
+    skipped_count = 0
     last_timestamp_ns = None
     try:
         with path.open('w', encoding='utf-8', newline='') as output:
             writer = csv.writer(output, lineterminator='\n')
             writer.writerow(MOTOR_STATUS_HEADER)
             for message in messages:
-                rows = _motor_status_rows(
-                    session_id,
-                    started_at_ns,
-                    message,
-                )
+                try:
+                    rows = _motor_status_rows(
+                        session_id,
+                        started_at_ns,
+                        message,
+                    )
+                except _PreSessionRecordError:
+                    # 기록 시작 직전에 측정돼 늦게 도착한 선두 상태만
+                    # 건너뛴다. 정상 행 이후의 과거 stamp는 시계 이상이다.
+                    if row_count == 0:
+                        skipped_count += 1
+                        continue
+                    raise
                 last_timestamp_ns = _require_nondecreasing_csv_timestamp(
                     rows[0][1],
                     rows[0][2],
@@ -936,6 +995,11 @@ def write_motor_status_csv(
             f'failed to write MotorStatus CSV: {error}'
         ) from error
 
+    if skipped_count:
+        log.warning(
+            'MotorStatus: 세션 시작 이전 선두 메시지 %d건을 제외했다',
+            skipped_count,
+        )
     return row_count
 
 
@@ -1055,17 +1119,26 @@ def write_landmark_json(
 ) -> int:
     """손 좌표 메시지를 canonical JSON 배열로 쓰고 행 수를 반환한다."""
     row_count = 0
+    skipped_count = 0
     try:
         with path.open('w', encoding='utf-8', newline='') as output:
             output.write('[\n')
             for message in messages:
+                try:
+                    record = _landmark_record(
+                        session_id,
+                        started_at_ns,
+                        message,
+                    )
+                except _PreSessionRecordError:
+                    # 기록 시작 직전에 촬영돼 늦게 도착한 선두 프레임만
+                    # 건너뛴다. 정상 행 이후의 과거 stamp는 시계 이상이다.
+                    if row_count == 0:
+                        skipped_count += 1
+                        continue
+                    raise
                 if row_count:
                     output.write(',\n')
-                record = _landmark_record(
-                    session_id,
-                    started_at_ns,
-                    message,
-                )
                 output.write(json.dumps(
                     record,
                     ensure_ascii=False,
@@ -1080,6 +1153,11 @@ def write_landmark_json(
             f'failed to write LandMark JSON: {error}'
         ) from error
 
+    if skipped_count:
+        log.warning(
+            'HandLandmarks: 세션 시작 이전 선두 프레임 %d건을 제외했다',
+            skipped_count,
+        )
     return row_count
 
 
@@ -1180,7 +1258,7 @@ def _timestamp_parts(
     timestamp_ns = stamp_sec * 1_000_000_000 + stamp_nanosec
     elapsed_ns = timestamp_ns - started_at_ns
     if elapsed_ns < 0:
-        raise ExportValidationError(
+        raise _PreSessionRecordError(
             f'{message_name} timestamp precedes session start'
         )
     return stamp_sec, stamp_nanosec, elapsed_ns // 1_000_000

@@ -414,10 +414,6 @@ def test_hand_command_csv_allows_empty_data(tmp_path):
         ({'confidence': -0.1}, 'between 0 and 1'),
         ({'source': 9}, 'source is invalid'),
         ({'sequence': -1}, 'sequence is invalid'),
-        (
-            {'stamp': SimpleNamespace(sec=9, nanosec=0)},
-            'precedes session start',
-        ),
     ],
 )
 def test_hand_command_csv_rejects_invalid_values(
@@ -435,6 +431,70 @@ def test_hand_command_csv_rejects_invalid_values(
             started_at_ns=10_000_000_000,
             messages=[make_hand_command(**overrides)],
         )
+
+
+def test_hand_command_csv_skips_leading_pre_session_records(tmp_path):
+    """세션 시작 이전 stamp의 선두 명령은 건너뛰고 정상 행부터 쓴다."""
+    output_path = tmp_path / 'hand_command.csv.part'
+    messages = [
+        make_hand_command(
+            stamp=SimpleNamespace(sec=9, nanosec=999_000_000),
+        ),
+        make_hand_command(),
+    ]
+
+    row_count = write_hand_command_csv(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=messages,
+    )
+
+    assert row_count == 1
+    with output_path.open(encoding='utf-8', newline='') as output:
+        rows = list(csv.reader(output))
+    assert len(rows) == 2
+    assert rows[1][1] == '10'
+
+
+def test_hand_command_csv_rejects_pre_session_after_valid_rows(tmp_path):
+    """정상 행 이후의 세션 이전 stamp는 시계 이상이므로 거부한다."""
+    output_path = tmp_path / 'hand_command.csv.part'
+    messages = [
+        make_hand_command(),
+        make_hand_command(stamp=SimpleNamespace(sec=9, nanosec=0)),
+    ]
+
+    with pytest.raises(
+        ExportValidationError,
+        match='precedes session start',
+    ):
+        write_hand_command_csv(
+            output_path,
+            session_id=123,
+            started_at_ns=10_000_000_000,
+            messages=messages,
+        )
+
+
+def test_hand_command_csv_all_pre_session_records_yield_empty(tmp_path):
+    """모든 명령이 세션 시작 이전이면 헤더만 가진 CSV가 된다."""
+    output_path = tmp_path / 'hand_command.csv.part'
+    messages = [
+        make_hand_command(stamp=SimpleNamespace(sec=9, nanosec=0)),
+    ]
+
+    row_count = write_hand_command_csv(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=messages,
+    )
+
+    assert row_count == 0
+    assert output_path.read_text(encoding='utf-8') == (
+        ','.join(HAND_COMMAND_HEADER) + '\n'
+    )
 
 
 def test_hand_command_csv_rejects_decreasing_timestamps(tmp_path):
@@ -497,6 +557,33 @@ def test_motor_status_csv_allows_empty_data(tmp_path):
     assert output_path.read_text(encoding='utf-8') == (
         ','.join(MOTOR_STATUS_HEADER) + '\n'
     )
+
+
+def test_motor_status_csv_skips_leading_pre_session_records(tmp_path):
+    """세션 시작 이전 stamp의 선두 모터 상태는 건너뛴다."""
+    output_path = tmp_path / 'motor_status.csv.part'
+    messages = [
+        make_motor_status(
+            header=SimpleNamespace(
+                stamp=SimpleNamespace(sec=9, nanosec=0),
+                frame_id='motor_bus',
+            ),
+        ),
+        make_motor_status(),
+    ]
+
+    row_count = write_motor_status_csv(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=messages,
+    )
+
+    assert row_count == 7
+    with output_path.open(encoding='utf-8', newline='') as output:
+        rows = list(csv.reader(output))
+    assert len(rows) == 8
+    assert rows[1][1] == '10'
 
 
 def test_motor_status_csv_rejects_wrong_motor_count(tmp_path):
@@ -608,6 +695,31 @@ def test_landmark_json_allows_empty_data(tmp_path):
 
     assert row_count == 0
     assert output_path.read_text(encoding='utf-8') == '[\n]\n'
+
+
+def test_landmark_json_skips_leading_pre_session_records(tmp_path):
+    """세션 시작 이전 stamp의 선두 프레임은 건너뛴다."""
+    output_path = tmp_path / 'landmark.json.part'
+    messages = [
+        make_landmarks(
+            header=SimpleNamespace(
+                stamp=SimpleNamespace(sec=9, nanosec=0),
+            ),
+        ),
+        make_landmarks(),
+    ]
+
+    row_count = write_landmark_json(
+        output_path,
+        session_id=123,
+        started_at_ns=10_000_000_000,
+        messages=messages,
+    )
+
+    assert row_count == 1
+    records = json.loads(output_path.read_text(encoding='utf-8'))
+    assert len(records) == 1
+    assert records[0]['stamp_sec'] == 10
 
 
 @pytest.mark.parametrize(
@@ -732,6 +844,70 @@ def test_write_metadata_json_preserves_schema_order(tmp_path):
     parsed = json.loads(path.read_text(encoding='utf-8'))
     assert tuple(parsed) == tuple(metadata)
     assert parsed == metadata
+
+
+def test_session_exporter_skips_leading_pre_session_records(tmp_path):
+    """세션 시작 이전에 생성돼 늦게 도착한 선두 데이터를 건너뛴다."""
+    bag_path = tmp_path / 'bags' / '123'
+    bag_path.mkdir(parents=True)
+    export_root = tmp_path / 'tmp-upload'
+    records = [
+        BagRecord(
+            '/thing/recording_state',
+            make_recording_state(2),
+            10_000_000_000,
+        ),
+        BagRecord(
+            '/thing/landmarks',
+            make_landmarks(
+                header=SimpleNamespace(
+                    stamp=SimpleNamespace(sec=9, nanosec=700_000_000),
+                ),
+            ),
+            10_020_000_000,
+        ),
+        BagRecord(
+            '/thing/motor_status',
+            make_motor_status(
+                header=SimpleNamespace(
+                    stamp=SimpleNamespace(sec=9, nanosec=900_000_000),
+                    frame_id='motor_bus',
+                ),
+            ),
+            10_030_000_000,
+        ),
+        BagRecord('/thing/command', make_hand_command(), 10_250_000_000),
+        BagRecord(
+            '/thing/motor_status',
+            make_motor_status(),
+            10_500_000_000,
+        ),
+        BagRecord('/thing/landmarks', make_landmarks(), 10_750_000_000),
+        BagRecord(
+            '/thing/recording_state',
+            make_recording_state(3),
+            20_000_000_000,
+        ),
+    ]
+    exporter = SessionExporter(
+        'THING-001',
+        str(export_root),
+        reader=FakeSessionReader(records),
+    )
+
+    result = exporter.export(ExportJob(str(bag_path), 'SUCCESS'))
+
+    metadata = json.loads(
+        Path(result.files['metadata'].path).read_text(encoding='utf-8')
+    )
+    assert metadata['files']['hand_command']['row_count'] == 1
+    assert metadata['files']['motor_status']['row_count'] == 7
+    assert metadata['files']['landmark']['row_count'] == 1
+    landmark_records = json.loads(
+        Path(result.files['landmark'].path).read_text(encoding='utf-8')
+    )
+    assert len(landmark_records) == 1
+    assert landmark_records[0]['stamp_sec'] == 10
 
 
 def test_session_exporter_atomically_exposes_four_valid_files(tmp_path):
