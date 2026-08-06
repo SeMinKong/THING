@@ -84,8 +84,8 @@ export default function HomeView() {
             <dd>7<small>축</small></dd>
           </div>
           <div className="hero-fact">
-            <dt>세션당 파일</dt>
-            <dd>4<small>개</small></dd>
+            <dt>다운로드 가능한 데이터</dt>
+            <dd>4<small>종류</small></dd>
           </div>
           <div className="hero-fact">
             <dt>시각 기준</dt>
