@@ -47,8 +47,8 @@ def test_thing_bringup_starts_motor_driver_with_config_argument():
     assert not nodes[0]._Node__ros_arguments
 
 
-def test_controlled_motors_use_open_home_as_safe_start_reference():
-    """Only calibrated IDs may use the measured open-hand home targets."""
+def test_integrated_motors_use_calibrated_safe_start_references():
+    """All seven calibrated axes use measured endpoints and safe targets."""
     parameters = yaml.safe_load(MOTORS_PATH.read_text())[
         'motor_driver_node'
     ]['ros__parameters']
@@ -68,21 +68,12 @@ def test_controlled_motors_use_open_home_as_safe_start_reference():
         'profile_accelerations_raw',
         'profile_velocities_raw',
     )
-    unsupported_parameters = {
-        'model',
-        'encoder_resolution_raw',
-        'current_limit_ma',
-        'max_consecutive_read_failures',
-        'bus_failure_timeout_ms',
-    }
-
     assert motor_ids == sorted(set(motor_ids))
     assert len(motor_ids) == 7
-    assert controlled_ids == {1, 3, 4, 7}
+    assert controlled_ids == set(motor_ids)
     assert all(len(parameters[field]) == len(motor_ids) for field in axis_fields)
-    assert unsupported_parameters.isdisjoint(parameters)
     assert parameters['operating_mode'] == 5
-    assert parameters['integration_test_mode'] is True
+    assert parameters['integration_test_mode'] is False
     assert 0.0 < parameters['safe_velocity_limit'] <= 1.0
 
     rows = zip(
@@ -93,17 +84,44 @@ def test_controlled_motors_use_open_home_as_safe_start_reference():
         parameters['position_tolerances_raw'],
     )
     for motor_id, home, closed, safe, tolerance in rows:
-        if motor_id in controlled_ids:
-            assert 0 <= home <= 4095
-            assert 0 <= closed <= 4095
-            assert 0 <= safe <= 4095
-            assert safe == home
-            assert tolerance >= 0
-        else:
-            assert home == -1
-            assert closed == -1
-            assert safe == -1
-            assert tolerance == -1
+        assert motor_id in controlled_ids
+        assert home >= 0
+        assert closed >= 0
+        assert safe >= 0
+        assert safe == home
+        assert tolerance >= 0
+
+
+def test_thumb_functional_pose_arrays_share_one_valid_shape():
+    """Thumb pose maps and reversal matrices stay index-compatible."""
+    parameters = yaml.safe_load(MOTORS_PATH.read_text())[
+        'motor_driver_node'
+    ]['ros__parameters']
+    pose_count = len(parameters['thumb_functional_pose_names'])
+    pose_fields = (
+        'thumb_functional_opposition',
+        'thumb_functional_abduction',
+        'thumb_opposition_positions_raw',
+        'thumb_opposition_approach_directions',
+        'thumb_opposition_approach_start_positions_raw',
+        'thumb_abduction_positions_raw',
+        'thumb_abduction_approach_directions',
+        'thumb_abduction_approach_start_positions_raw',
+        'thumb_flex_home_positions_raw',
+        'thumb_flex_closed_positions_raw',
+    )
+
+    assert parameters['thumb_functional_pose_names'] == [
+        'neutral', 'open', 'grasp', 'folded'
+    ]
+    assert all(len(parameters[field]) == pose_count for field in pose_fields)
+    assert len(parameters['thumb_opposition_reversal_positions_raw']) == (
+        pose_count * pose_count
+    )
+    assert len(parameters['thumb_abduction_reversal_positions_raw']) == (
+        pose_count * pose_count
+    )
+    assert parameters['thumb_finger_collision_boundary'] == 0.4
 
 
 def test_open_gesture_is_the_normalized_home_pose():

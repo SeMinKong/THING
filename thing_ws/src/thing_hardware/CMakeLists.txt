@@ -50,6 +50,26 @@ add_executable(
   src/dynamixel_bus.cpp
 )
 
+add_executable(
+  thumb_motion_test_node
+  src/thumb_motion_test_node.cpp
+  src/thumb_motion_controller.cpp
+  src/dynamixel_bus.cpp
+)
+
+add_executable(
+  motor_status_node
+  src/motor_status_node.cpp
+  src/dynamixel_bus.cpp
+)
+
+add_executable(
+  motor_driver_node
+  src/motor_driver_node.cpp
+  src/thumb_motion_controller.cpp
+  src/dynamixel_bus.cpp
+)
+
 target_include_directories(
   motor_validation_node
   PRIVATE
@@ -68,6 +88,24 @@ target_include_directories(
     include
 )
 
+target_include_directories(
+  thumb_motion_test_node
+  PRIVATE
+    include
+)
+
+target_include_directories(
+  motor_status_node
+  PRIVATE
+    include
+)
+
+target_include_directories(
+  motor_driver_node
+  PRIVATE
+    include
+)
+
 ament_target_dependencies(
   motor_validation_node
   rclcpp
@@ -84,13 +122,38 @@ ament_target_dependencies(
   thumb_calibration_node
   rclcpp
   dynamixel_sdk
+)
+
+ament_target_dependencies(
+  thumb_motion_test_node
+  rclcpp
+  dynamixel_sdk
+)
+
+ament_target_dependencies(
+  motor_status_node
+  rclcpp
+  dynamixel_sdk
+  thing_interfaces
+  diagnostic_msgs
+)
+
+ament_target_dependencies(
+  motor_driver_node
+  rclcpp
+  dynamixel_sdk
+  thing_interfaces
+  diagnostic_msgs
 )
 
 install(
   TARGETS
+    motor_driver_node
+    motor_status_node
     motor_home_calibration_node
     motor_validation_node
     thumb_calibration_node
+    thumb_motion_test_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
