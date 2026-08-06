@@ -49,10 +49,10 @@ manual_executor:
     gestures.scissors.axes: [1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0]
     gestures.count_1.axes: [1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0]
 
-    sequences.countdown.steps: [open, count_4, count_3, scissors, count_1]
-    sequences.countdown.step_durations_ms: [800, 800, 800, 800, 800]
+    sequences.countdown.steps: [open, count_4, count_3, scissors, count_1, fist, open]
+    sequences.countdown.step_durations_ms: [5000, 5000, 5000, 5000, 5000, 5000, 5000]
     sequences.scissors_rock_paper.steps: [scissors, fist, open]
-    sequences.scissors_rock_paper.step_durations_ms: [1000, 1000, 1000]
+    sequences.scissors_rock_paper.step_durations_ms: [5000, 5000, 5000]
 
 command_guard:
   ros__parameters:
