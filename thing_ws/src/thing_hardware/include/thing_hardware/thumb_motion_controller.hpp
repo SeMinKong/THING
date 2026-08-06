@@ -68,6 +68,8 @@ public:
 
   ThumbMotionPhase phase() const;
   ThumbPhaseTarget phase_target() const;
+  double phase_elapsed_seconds(std::chrono::steady_clock::time_point now) const;
+  double phase_timeout_seconds() const;
   const std::string & source_pose_name() const;
   const std::string & target_pose_name() const;
   const std::string & error_message() const;

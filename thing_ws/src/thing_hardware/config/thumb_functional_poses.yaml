@@ -24,7 +24,7 @@
     # raw 1650 while abduction pulls from the back at raw 400. This mechanically
     # braces the thumb so it remains stable while the flexion axis moves.
     thumb_functional_opposition: [0.2, 0.0, 0.6, 1.0]
-    thumb_functional_abduction: [0.0, 0.0, 1.0, 1.0]
+    thumb_functional_abduction: [0.0, 1.0, 0.2, 1.0]
 
     # Final raw target and required approach direction for each pose. A direction
     # of 1 means approaching while raw position increases; -1 means approaching
@@ -95,6 +95,6 @@
     thumb_position_p_gain: 400
     thumb_position_i_gain: 0
     thumb_position_d_gain: 600
-    thumb_goal_current_ma: 200
+    thumb_goal_current_ma: 500
     thumb_profile_acceleration_raw: 20
     thumb_profile_velocity_raw: 50

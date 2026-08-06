@@ -89,6 +89,16 @@ bool ThumbMotionController::update(
 
 ThumbMotionPhase ThumbMotionController::phase() const { return phase_; }
 
+double ThumbMotionController::phase_elapsed_seconds(std::chrono::steady_clock::time_point now) const
+{
+  if (phase_ == ThumbMotionPhase::IDLE) {
+    return 0.0;
+  }
+  return std::chrono::duration<double>(now - phase_started_at_).count();
+}
+
+double ThumbMotionController::phase_timeout_seconds() const { return phase_timeout_.count(); }
+
 ThumbPhaseTarget ThumbMotionController::phase_target() const
 {
   const auto & target = poses_.at(target_pose_index_);
