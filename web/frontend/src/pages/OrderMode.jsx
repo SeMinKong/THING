@@ -8,13 +8,14 @@
 // FR-25: 모터 상태 확인
 // FR-27: 위험 상태에서 새 명령 비활성화
 // ============================================================================
+import { useState } from "react";
 import { useHandSocket } from "../context/HandSocketContext";
 import { BASIC_GESTURES, SEQUENCE_ACTIONS } from "../config/commandPresets";
 import { CONTROL_MODE, CONTROL_OWNER } from "../config/messageProtocol";
 import MotorStatusPanel from "../components/MotorStatusPanel";
 import { motion } from "motion/react";
 import { Panel, Head, Body, Tag } from "../ui/Sheet";
-import GesturePreview from "../components/GesturePreview";
+import HandPoseView from "../components/HandPoseView";
 
 export default function OrderMode() {
   const {
@@ -42,6 +43,10 @@ export default function OrderMode() {
   //  그 필드는 이름 그대로 ExecuteSequence 액션용일 수 있고 — FR-31 은 Gesture 와
   //  Action 을 구분한다 — 브릿지가 Gesture 실행 중에 세워 주지 않으면 제스처를
   //  한 번 보낸 뒤 패널이 영구히 잠겼다. 브릿지 구현에 대한 의존을 끊었다.)
+
+  // hover 한 명령의 자세를 우측 미리보기 슬롯에 그린다. disabled 버튼은 mouseenter 를
+  // 쏘지 않으므로 잠겼을 때는 자연히 표시되지 않고, 렌더에서도 command=null 로 한 번 더 막는다.
+  const [hoveredCommand, setHoveredCommand] = useState(null);
 
   const isManualActive = controlState.active_mode === CONTROL_MODE.MANUAL;
   const isConnected = connectionState === "open";
@@ -89,7 +94,7 @@ export default function OrderMode() {
             <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         <Panel className="flex min-h-0 flex-1 flex-col">
           <div aria-label="명령" className="flex min-h-0 flex-1 flex-col">
-            <Head title="명령" afterTitle={<GesturePreview />}>
+            <Head title="명령">
               <Tag tone={commandsDisabled ? "idle" : "live"}>
                 {commandsDisabled ? "잠김" : "전송 가능"}
               </Tag>
@@ -99,7 +104,12 @@ export default function OrderMode() {
               {reason && <p className="text-xl leading-relaxed text-ink-500">{reason}</p>}
 
               {/* FR-22 기본 명령 (Gesture) 및 추가 명령 (Sequence) — 동일한 2열 그리드에서 6개 버튼이 남는 높이를 나눠 갖는다 */}
-              <div className="grid min-h-0 flex-1 grid-cols-2 gap-2">
+              {/* leave 는 버튼이 아니라 그리드 전체에 건다. 버튼 사이 gap 은 그리드 안쪽이라
+                  버튼을 옮기는 동안 프리뷰가 사라지지 않고 자세 morph 가 이어진다. */}
+              <div
+                className="grid min-h-0 flex-1 grid-cols-2 gap-2"
+                onMouseLeave={() => setHoveredCommand(null)}
+              >
                 {[...BASIC_GESTURES, ...SEQUENCE_ACTIONS].map((command) => {
                   const isSequence = SEQUENCE_ACTIONS.some((action) => action.id === command.id);
 
@@ -108,6 +118,7 @@ export default function OrderMode() {
                       key={command.id}
                       type="button"
                       onClick={() => (isSequence ? runSequence(command) : runGesture(command))}
+                      onMouseEnter={() => setHoveredCommand(command)}
                       disabled={commandsDisabled}
                       aria-label={command.label}
                       title={command.label}
@@ -130,14 +141,21 @@ export default function OrderMode() {
         </Panel>
       </div>
       {/* FR-25: 조작 모드에서는 영상보다 모터 상태가 중요하다.
-          보낸 명령이 실제로 반영됐는지를 여기서 확인한다 */}
-      <div className="flex min-h-0 flex-col">
+          보낸 명령이 실제로 반영됐는지를 여기서 확인한다.
+          모터 표는 내용 높이로 두고, 그 아래 남는 공간을 동작 미리보기 슬롯으로 쓴다. */}
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         <MotorStatusPanel
           motorStatus={motorStatus}
           motorUpdatedAt={sectionUpdatedAt.motor_state ?? null}
           receivedAt={snapshotReceivedAt}
-          fill
         />
+        <Panel className="flex min-h-0 flex-1 flex-col" delay={0.05}>
+          <Head title="동작 미리보기" />
+          <Body className="flex min-h-0 flex-1 flex-col">
+            {/* 잠김(조작 모드 아님·제어권 없음 등)이면 command=null → 미리보기 안 뜸 */}
+            <HandPoseView command={commandsDisabled ? null : hoveredCommand} />
+          </Body>
+        </Panel>
       </div>
 
 

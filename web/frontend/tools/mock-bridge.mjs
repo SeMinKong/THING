@@ -203,7 +203,7 @@ const robot = {
   resultPending: false,
   lastResult: 'UNSET',
   handDetected: true,
-  handConfidence: 0.93,
+  handConfidence: 0.95,
   lowConfidence: false,
   handLost: false,
   motionUntil: null,
