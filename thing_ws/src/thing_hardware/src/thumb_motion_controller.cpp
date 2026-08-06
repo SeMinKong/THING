@@ -52,6 +52,12 @@ void ThumbMotionController::start(
     now);
 }
 
+void ThumbMotionController::reset()
+{
+  phase_ = ThumbMotionPhase::IDLE;
+  error_message_.clear();
+}
+
 bool ThumbMotionController::update(
   const std::array<int32_t, 3> & present_positions, std::chrono::steady_clock::time_point now)
 {

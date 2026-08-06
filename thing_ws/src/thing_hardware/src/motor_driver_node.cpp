@@ -591,6 +591,19 @@ private:
         command.source == thing_interfaces::msg::HandCommand::SOURCE_GESTURE ||
         command.source == thing_interfaces::msg::HandCommand::SOURCE_SEQUENCE;
       update_thumb_pose_candidate(command.thumb_opp, command.thumb_abd, discrete_manual_command);
+      if (thumb_failure_latched_) {
+        const bool repeats_failed_target =
+          thumb_requested_pose_index_ == thumb_failed_pose_index_ &&
+          std::abs(latest_thumb_flex_ - thumb_failed_flex_) <= 0.001;
+        if (repeats_failed_target) {
+          return;
+        }
+        thumb_failure_latched_ = false;
+        thumb_controller_->reset();
+        thumb_pose_initialized_ = false;
+        thumb_candidate_samples_ = 0;
+        RCLCPP_INFO(get_logger(), "New thumb target cleared the previous transition failure");
+      }
     }
     command_speed_limit_ = command.speed_limit;
     last_command_time_ = std::chrono::steady_clock::now();
@@ -605,6 +618,11 @@ private:
       previous == thing_interfaces::msg::SafetyState::RUN) {
       std::lock_guard<std::mutex> lock(command_mutex_);
       command_available_ = false;
+      if (thumb_control_enabled_ && thumb_controller_) {
+        thumb_controller_->reset();
+        thumb_pose_initialized_ = false;
+        thumb_candidate_samples_ = 0;
+      }
     }
 
     if (message.state == thing_interfaces::msg::SafetyState::SAFE) {
@@ -824,6 +842,8 @@ private:
       }
     }
 
+    ThumbMotionPhase active_phase = ThumbMotionPhase::IDLE;
+    ThumbPhaseTarget active_target;
     if (thumb_motion_active()) {
       const std::string & source = thumb_poses_[thumb_transition_source_index_].name;
       const std::string & target = thumb_poses_[thumb_transition_target_index_].name;
@@ -835,13 +855,32 @@ private:
         latest_present_positions_[thumb_flex_index_],
         latest_present_positions_[thumb_abduction_index_],
         latest_present_positions_[thumb_opposition_index_]};
+      active_phase = thumb_controller_->phase();
+      active_target = thumb_controller_->phase_target();
       thumb_controller_->update(present, now);
     }
 
     if (thumb_controller_->phase() == ThumbMotionPhase::ERROR) {
+      const std::array<std::size_t, 3> indices = {
+        thumb_flex_index_, thumb_abduction_index_, thumb_opposition_index_};
+      const std::size_t failed_axis_index = indices[static_cast<std::size_t>(active_target.axis)];
+      const int32_t present = latest_present_positions_[failed_axis_index];
       RCLCPP_ERROR(
-        get_logger(), "Thumb transition failed: %s; disabling torque",
-        thumb_controller_->error_message().c_str());
+        get_logger(),
+        "Thumb transition failed: reason=%s, source=%s, target_pose=%s, target_flex=%.3f, "
+        "phase=%s, axis=%s, target=%d, present=%d, error=%d; disabling torque",
+        thumb_controller_->error_message().c_str(),
+        thumb_poses_[thumb_transition_source_index_].name.c_str(),
+        thumb_poses_[thumb_transition_target_index_].name.c_str(), thumb_active_target_flex_,
+        ThumbMotionController::phase_name(active_phase),
+        ThumbMotionController::axis_name(active_target.axis), active_target.position, present,
+        active_target.position - present);
+      thumb_failure_latched_ = true;
+      thumb_failed_pose_index_ = thumb_transition_target_index_;
+      thumb_failed_flex_ = thumb_active_target_flex_;
+      thumb_controller_->reset();
+      thumb_pose_initialized_ = false;
+      thumb_candidate_samples_ = 0;
       return false;
     }
     if (thumb_controller_->phase() == ThumbMotionPhase::COMPLETE) {
@@ -886,14 +925,26 @@ private:
     double speed_limit = 1.0;
     {
       std::lock_guard<std::mutex> lock(command_mutex_);
-      if (!command_available_) {
+      const bool thumb_transition_in_progress = thumb_motion_active();
+      if (!command_available_ && !thumb_transition_in_progress) {
         return;
       }
-      const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - last_command_time_);
-      if (age.count() > hardware_command_watchdog_ms_) {
+      if (command_available_) {
+        const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - last_command_time_);
+        if (age.count() > hardware_command_watchdog_ms_) {
+          command_available_ = false;
+          if (!thumb_transition_in_progress) {
+            RCLCPP_WARN(get_logger(), "Hardware command watchdog expired; holding last setpoint");
+            return;
+          }
+          RCLCPP_INFO(
+            get_logger(),
+            "Hardware command watchdog expired; completing the accepted thumb transition");
+        }
+      }
+      if (!command_available_ && !thumb_transition_in_progress) {
         command_available_ = false;
-        RCLCPP_WARN(get_logger(), "Hardware command watchdog expired; holding last setpoint");
         return;
       }
       desired = desired_positions_;
@@ -1256,6 +1307,9 @@ private:
   double thumb_completed_flex_{0.0};
   bool thumb_control_enabled_{false};
   bool thumb_pose_initialized_{false};
+  bool thumb_failure_latched_{false};
+  std::size_t thumb_failed_pose_index_{0};
+  double thumb_failed_flex_{0.0};
   double command_speed_limit_{1.0};
   std::chrono::steady_clock::time_point last_command_time_;
   std::chrono::steady_clock::time_point last_motion_update_time_;
