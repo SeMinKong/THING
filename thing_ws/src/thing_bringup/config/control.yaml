@@ -123,6 +123,6 @@ safety_manager:
     estop_input_timeout_ms: 300
     tick_period_ms: 20
     state_publish_period_ms: 100
-    trip_limits_validated: false
+    trip_limits_validated: true
     max_current_ampere: 0.145
     max_temperature_celsius: 70.0

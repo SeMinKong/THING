@@ -336,6 +336,7 @@ class HandTargetNode(Node):
         super().__init__('hand_target_node')
 
         self.declare_parameter('publish_rate_hz', 20.0)
+        self.declare_parameter('publish_without_control_state', False)
         self.declare_parameter('deadband', 0.02)
         self.declare_parameter('low_pass_alpha', 0.25)
         self.declare_parameter('max_axis_delta_per_frame', 0.08)
@@ -344,10 +345,25 @@ class HandTargetNode(Node):
         self.declare_parameter('hand_reacquire_stable_ms', 300)
         self.declare_parameter('speed_limit', 0.25)
         self.declare_parameter('diagnostics_rate_hz', 1.0)
+        self.declare_parameter('index_flex_open', 0.0)
+        self.declare_parameter('index_flex_closed', 1.0)
+        self.declare_parameter('middle_flex_open', 0.0)
+        self.declare_parameter('middle_flex_closed', 1.0)
+        self.declare_parameter('ring_flex_open', 0.0)
+        self.declare_parameter('ring_flex_closed', 1.0)
+        self.declare_parameter('little_flex_open', 0.0)
+        self.declare_parameter('little_flex_closed', 1.0)
 
         self._publish_rate_hz = float(
             self.get_parameter('publish_rate_hz').value,
         )
+        self._publish_without_control_state = self.get_parameter(
+            'publish_without_control_state',
+        ).value
+        if not isinstance(self._publish_without_control_state, bool):
+            raise ValueError(
+                'publish_without_control_state must be a boolean',
+            )
         self._deadband = float(self.get_parameter('deadband').value)
         self._low_pass_alpha = float(
             self.get_parameter('low_pass_alpha').value,
@@ -370,6 +386,24 @@ class HandTargetNode(Node):
         diagnostics_rate_hz = float(
             self.get_parameter('diagnostics_rate_hz').value,
         )
+        self._finger_calibration = {
+            'index_flex': (
+                float(self.get_parameter('index_flex_open').value),
+                float(self.get_parameter('index_flex_closed').value),
+            ),
+            'middle_flex': (
+                float(self.get_parameter('middle_flex_open').value),
+                float(self.get_parameter('middle_flex_closed').value),
+            ),
+            'ring_flex': (
+                float(self.get_parameter('ring_flex_open').value),
+                float(self.get_parameter('ring_flex_closed').value),
+            ),
+            'little_flex': (
+                float(self.get_parameter('little_flex_open').value),
+                float(self.get_parameter('little_flex_closed').value),
+            ),
+        }
         self._validate_parameters(diagnostics_rate_hz)
 
         self._sequence = 0
@@ -383,6 +417,7 @@ class HandTargetNode(Node):
         self._valid_since: Optional[float] = None
         self._invalid_since: Optional[float] = None
         self._latest_targets: Optional[HandTargets] = None
+        self._latest_target_at: Optional[float] = None
         self._filtered_targets = ZERO_TARGETS
         self._latest_confidence = 0.0
         self._last_invalid_reason = 'no landmark received'
@@ -419,6 +454,11 @@ class HandTargetNode(Node):
             1.0 / diagnostics_rate_hz,
             self._publish_diagnostics,
         )
+        if self._publish_without_control_state:
+            self.get_logger().warning(
+                'Control-state-independent MIMIC publication is enabled; '
+                'only valid, fresh right-hand targets will be published',
+            )
 
     def _validate_parameters(self, diagnostics_rate_hz: float) -> None:
         if not math.isfinite(self._publish_rate_hz):
@@ -458,6 +498,24 @@ class HandTargetNode(Node):
             raise ValueError('diagnostics_rate_hz must be finite')
         if diagnostics_rate_hz <= 0.0:
             raise ValueError('diagnostics_rate_hz must be positive')
+        calibration_items = self._finger_calibration.items()
+        for axis_name, (open_value, closed_value) in calibration_items:
+            self._require_range(
+                f'{axis_name}_open',
+                open_value,
+                0.0,
+                1.0,
+            )
+            self._require_range(
+                f'{axis_name}_closed',
+                closed_value,
+                0.0,
+                1.0,
+            )
+            if closed_value - open_value <= _EPSILON:
+                raise ValueError(
+                    f'{axis_name}_closed must exceed {axis_name}_open',
+                )
 
     @staticmethod
     def _require_range(
@@ -485,6 +543,7 @@ class HandTargetNode(Node):
             self._calculation_failures += 1
             self._mark_input_invalid(now, str(error))
             return
+        calibrated_targets = self._calibrate_finger_targets(raw_targets)
 
         self._last_input_valid = True
         self._last_invalid_reason = ''
@@ -492,17 +551,52 @@ class HandTargetNode(Node):
         if self._valid_since is None:
             self._valid_since = now
 
-        if self._hand_loss_latched:
-            if now - self._valid_since >= self._hand_reacquire_stable_s:
-                self._reacquired_stable = True
-            return
+        if not self._publish_without_control_state:
+            if self._hand_loss_latched:
+                if now - self._valid_since >= self._hand_reacquire_stable_s:
+                    self._reacquired_stable = True
+                return
 
-        self._reacquired_stable = False
-        if not self._mimic_active:
-            return
+            self._reacquired_stable = False
+            if not self._mimic_active:
+                return
 
-        self._latest_targets = self._filter_targets(raw_targets)
+        if (
+            self._publish_without_control_state
+            and self._latest_target_at is None
+        ):
+            # A target received after a loss starts a new preview session. Do
+            # not blend it with a pose cached before the input gap.
+            self._filtered_targets = calibrated_targets
+            self._latest_targets = calibrated_targets
+        else:
+            self._latest_targets = self._filter_targets(calibrated_targets)
+        self._latest_target_at = now
         self._latest_confidence = _clamp01(float(message.confidence))
+
+    def _calibrate_finger_targets(self, raw: HandTargets) -> HandTargets:
+        """Map this user's four open/fist endpoints onto the 0..1 range."""
+        return HandTargets(
+            thumb_flex=raw.thumb_flex,
+            thumb_opp=raw.thumb_opp,
+            thumb_abd=raw.thumb_abd,
+            index_flex=_normalize(
+                raw.index_flex,
+                *self._finger_calibration['index_flex'],
+            ),
+            middle_flex=_normalize(
+                raw.middle_flex,
+                *self._finger_calibration['middle_flex'],
+            ),
+            ring_flex=_normalize(
+                raw.ring_flex,
+                *self._finger_calibration['ring_flex'],
+            ),
+            little_flex=_normalize(
+                raw.little_flex,
+                *self._finger_calibration['little_flex'],
+            ),
+        )
 
     def _invalid_landmark_reason(
         self,
@@ -534,6 +628,14 @@ class HandTargetNode(Node):
         self._evaluate_hand_loss(now)
 
     def _evaluate_hand_loss(self, now: float) -> None:
+        if self._publish_without_control_state:
+            if self._invalid_since is None:
+                return
+            if now - self._invalid_since < self._hand_loss_debounce_s:
+                return
+            self._clear_target_cache()
+            return
+
         if not self._mimic_active or self._hand_loss_latched:
             return
         if self._invalid_since is None:
@@ -543,8 +645,7 @@ class HandTargetNode(Node):
 
         self._hand_loss_latched = True
         self._disabled_seen_since_latch = False
-        self._latest_targets = None
-        self._latest_confidence = 0.0
+        self._clear_target_cache(reset_filter=False)
         self.get_logger().error(
             'hand-loss latch set; explicit STOP and new MIMIC acquisition '
             'are required',
@@ -575,6 +676,12 @@ class HandTargetNode(Node):
         self._mimic_active = new_mimic_active
         self._active_owner = int(message.active_owner)
 
+        # Debug publication deliberately ignores ownership changes.  Keep the
+        # observed state for diagnostics, but never clear a fresh hand target
+        # because the control manager is disabled or unavailable.
+        if self._publish_without_control_state:
+            return
+
         if entering_mimic and self._hand_loss_latched:
             if (
                 self._disabled_seen_since_latch
@@ -586,15 +693,13 @@ class HandTargetNode(Node):
                     'MIMIC acquired before hand-loss recovery conditions; '
                     'command publication remains blocked',
                 )
-                self._latest_targets = None
+                self._clear_target_cache(reset_filter=False)
             return
 
         if entering_mimic:
             self._begin_mimic_session(now)
         elif not new_mimic_active:
-            self._latest_targets = None
-            self._latest_confidence = 0.0
-            self._filtered_targets = ZERO_TARGETS
+            self._clear_target_cache()
 
     def _clear_hand_loss_latch(self, now: float) -> None:
         self._hand_loss_latched = False
@@ -607,14 +712,20 @@ class HandTargetNode(Node):
     def _begin_mimic_session(self, now: float) -> None:
         # Require a landmark received after this activation. This prevents a
         # target cached before STOP or recovery from being replayed.
-        self._latest_targets = None
-        self._latest_confidence = 0.0
-        self._filtered_targets = ZERO_TARGETS
+        self._clear_target_cache()
         self._last_input_valid = False
         self._valid_since = None
         self._reacquired_stable = False
         self._invalid_since = now
         self._last_invalid_reason = 'waiting for post-activation landmark'
+
+    def _clear_target_cache(self, *, reset_filter: bool = True) -> None:
+        """Forget the publishable target so an old pose cannot be replayed."""
+        self._latest_targets = None
+        self._latest_target_at = None
+        self._latest_confidence = 0.0
+        if reset_filter:
+            self._filtered_targets = ZERO_TARGETS
 
     def _filter_targets(self, raw: HandTargets) -> HandTargets:
         filtered_values = []
@@ -642,11 +753,7 @@ class HandTargetNode(Node):
         now = time.monotonic()
         self._check_landmark_timeout(now)
         self._evaluate_hand_loss(now)
-        if (
-            not self._mimic_active
-            or self._hand_loss_latched
-            or self._latest_targets is None
-        ):
+        if not self._can_publish(now):
             return
 
         command = HandCommand()
@@ -666,8 +773,22 @@ class HandTargetNode(Node):
         self._command_publisher.publish(command)
         self._commands_published += 1
 
+    def _can_publish(self, now: float) -> bool:
+        """Return whether the cached target is fresh and currently allowed."""
+        if self._latest_targets is None or self._latest_target_at is None:
+            return False
+        if now - self._latest_target_at >= self._hand_loss_debounce_s:
+            self._clear_target_cache()
+            return False
+        if self._publish_without_control_state:
+            return True
+        return self._mimic_active and not self._hand_loss_latched
+
     def _check_landmark_timeout(self, now: float) -> None:
-        if not self._mimic_active:
+        if (
+            not self._publish_without_control_state
+            and not self._mimic_active
+        ):
             return
         if self._last_landmark_at is None:
             self._mark_input_invalid(
@@ -689,11 +810,24 @@ class HandTargetNode(Node):
             input_age = 'unavailable'
         else:
             input_age = f'{(now - self._last_landmark_at) * 1000.0:.3f}'
+        if self._latest_target_at is None:
+            target_age = 'unavailable'
+        else:
+            target_age = f'{(now - self._latest_target_at) * 1000.0:.3f}'
 
         status = DiagnosticStatus()
         status.name = 'thing_vision/hand_target_node'
         status.hardware_id = 'jetson'
-        if self._hand_loss_latched:
+        if self._publish_without_control_state:
+            if self._latest_targets is None or not self._last_input_valid:
+                status.level = DiagnosticStatus.WARN
+                status.message = self._last_invalid_reason
+            else:
+                status.level = DiagnosticStatus.OK
+                status.message = (
+                    'publishing MIMIC hand targets without control state'
+                )
+        elif self._hand_loss_latched:
             status.level = DiagnosticStatus.ERROR
             status.message = 'hand-loss latch active; explicit recovery needed'
         elif self._mimic_active and not self._last_input_valid:
@@ -709,6 +843,12 @@ class HandTargetNode(Node):
         status.values = [
             KeyValue(key='input_topic', value=LANDMARKS_TOPIC),
             KeyValue(key='output_topic', value=MIMIC_COMMAND_TOPIC),
+            KeyValue(
+                key='publish_without_control_state',
+                value=str(
+                    self._publish_without_control_state,
+                ).lower(),
+            ),
             KeyValue(
                 key='mimic_active',
                 value=str(self._mimic_active).lower(),
@@ -726,6 +866,7 @@ class HandTargetNode(Node):
                 value=str(self._reacquired_stable).lower(),
             ),
             KeyValue(key='input_age_ms', value=input_age),
+            KeyValue(key='target_age_ms', value=target_age),
             KeyValue(
                 key='commands_published',
                 value=str(self._commands_published),
