@@ -34,11 +34,11 @@ manual_executor:
     gestures.open.axes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     gestures.open.duration_ms: 1000
     # A normal fist uses the validated grasp thumb pose.
-    gestures.fist.axes: [1.0, 0.6, 1.0, 1.0, 1.0, 1.0, 1.0]
+    gestures.fist.axes: [1.0, 0.6, 0.2, 1.0, 1.0, 1.0, 1.0]
     gestures.fist.duration_ms: 1000
-    gestures.pinch.axes: [1.0, 1.0, 0.5, 1.0, 0.0, 0.0, 0.0]
+    gestures.pinch.axes: [1.0, 0.6, 0.2, 1.0, 0.0, 0.0, 0.0]
     gestures.pinch.duration_ms: 3000
-    gestures.cylindrical_grasp.axes: [0.8, 0.8, 0.3, 0.85, 0.85, 0.85, 0.85]
+    gestures.cylindrical_grasp.axes: [0.8, 0.6, 0.2, 0.85, 0.85, 0.85, 0.85]
     gestures.cylindrical_grasp.duration_ms: 3000
 
     # Sequence-only presets. ExecuteGesture still accepts only the four
