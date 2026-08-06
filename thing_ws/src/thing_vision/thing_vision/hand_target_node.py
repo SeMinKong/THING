@@ -422,9 +422,16 @@ class HandTargetNode(Node):
         self.declare_parameter('speed_limit', 0.25)
         self.declare_parameter('diagnostics_rate_hz', 1.0)
 
-        # 사용자별 캘리브레이션 끝점이다. 펼친 손에서 얻은 raw 값을 open,
-        # 주먹에서 얻은 raw 값을 closed로 넣으면 해당 구간을 다시 0..1로 만든다.
-        # 엄지 세 축은 자세가 서로 얽혀 있어 현재 이 개인 보정 대상에서 제외한다.
+        # 사용자별 캘리브레이션 끝점이다. 엄지 굽힘/맞섬은 펼침에서 얻은 raw
+        # 값을 min, 주먹에서 얻은 raw 값을 max로 사용한다. 엄지 벌림의 원본
+        # 값은 주먹에서 작고 펼침에서 크므로 역정규화해 펼침=0, 주먹=1로 맞춘다.
+        # 나머지 네 손가락도 open..closed 구간을 0..1로 만든다.
+        self.declare_parameter('thumb_flex_min', 0.0)
+        self.declare_parameter('thumb_flex_max', 1.0)
+        self.declare_parameter('thumb_opp_min', 0.0)
+        self.declare_parameter('thumb_opp_max', 1.0)
+        self.declare_parameter('thumb_abd_min', 0.0)
+        self.declare_parameter('thumb_abd_max', 1.0)
         self.declare_parameter('index_flex_open', 0.0)
         self.declare_parameter('index_flex_closed', 1.0)
         self.declare_parameter('middle_flex_open', 0.0)
@@ -466,9 +473,20 @@ class HandTargetNode(Node):
         diagnostics_rate_hz = float(
             self.get_parameter('diagnostics_rate_hz').value,
         )
-        # 축 이름으로 open/closed를 묶어 두면 네 손가락에 같은 정규화 공식을
-        # 적용하고 파라미터 검증도 반복 없이 수행할 수 있다.
-        self._finger_calibration = {
+        # 모든 축의 측정 최소/최대를 한 곳에 묶어 같은 정규화와 검증을 쓴다.
+        self._axis_calibration = {
+            'thumb_flex': (
+                float(self.get_parameter('thumb_flex_min').value),
+                float(self.get_parameter('thumb_flex_max').value),
+            ),
+            'thumb_opp': (
+                float(self.get_parameter('thumb_opp_min').value),
+                float(self.get_parameter('thumb_opp_max').value),
+            ),
+            'thumb_abd': (
+                float(self.get_parameter('thumb_abd_min').value),
+                float(self.get_parameter('thumb_abd_max').value),
+            ),
             'index_flex': (
                 float(self.get_parameter('index_flex_open').value),
                 float(self.get_parameter('index_flex_closed').value),
@@ -584,23 +602,23 @@ class HandTargetNode(Node):
             raise ValueError('diagnostics_rate_hz must be finite')
         if diagnostics_rate_hz <= 0.0:
             raise ValueError('diagnostics_rate_hz must be positive')
-        calibration_items = self._finger_calibration.items()
-        for axis_name, (open_value, closed_value) in calibration_items:
+        calibration_items = self._axis_calibration.items()
+        for axis_name, (minimum, maximum) in calibration_items:
             self._require_range(
-                f'{axis_name}_open',
-                open_value,
+                f'{axis_name}_minimum',
+                minimum,
                 0.0,
                 1.0,
             )
             self._require_range(
-                f'{axis_name}_closed',
-                closed_value,
+                f'{axis_name}_maximum',
+                maximum,
                 0.0,
                 1.0,
             )
-            if closed_value - open_value <= _EPSILON:
+            if maximum - minimum <= _EPSILON:
                 raise ValueError(
-                    f'{axis_name}_closed must exceed {axis_name}_open',
+                    f'{axis_name} calibration maximum must exceed minimum',
                 )
 
     @staticmethod
@@ -640,7 +658,7 @@ class HandTargetNode(Node):
             self._calculation_failures += 1
             self._mark_input_invalid(now, str(error))
             return
-        calibrated_targets = self._calibrate_finger_targets(raw_targets)
+        calibrated_targets = self._calibrate_targets(raw_targets)
 
         self._last_input_valid = True
         self._last_invalid_reason = ''
@@ -673,31 +691,41 @@ class HandTargetNode(Node):
         self._latest_target_at = now
         self._latest_confidence = _clamp01(float(message.confidence))
 
-    def _calibrate_finger_targets(self, raw: HandTargets) -> HandTargets:
-        """Map this user's four open/fist endpoints onto the 0..1 range.
+    def _calibrate_targets(self, raw: HandTargets) -> HandTargets:
+        """Map this user's seven measured axis ranges onto the 0..1 range.
 
-        계산식은 ``(raw - open) / (closed - open)``이며 범위를 벗어나면 0 또는
-        1로 제한한다. 엄지 값은 별도의 자세 캘리브레이션이 없어 그대로 통과한다.
+        기본 계산식은 ``(raw - minimum) / (maximum - minimum)``이며 범위를
+        벗어나면 0 또는 1로 제한한다. 엄지 벌림만 역정규화하여 펼침을 0,
+        주먹을 1로 출력한다.
         """
         return HandTargets(
-            thumb_flex=raw.thumb_flex,
-            thumb_opp=raw.thumb_opp,
-            thumb_abd=raw.thumb_abd,
+            thumb_flex=_normalize(
+                raw.thumb_flex,
+                *self._axis_calibration['thumb_flex'],
+            ),
+            thumb_opp=_normalize(
+                raw.thumb_opp,
+                *self._axis_calibration['thumb_opp'],
+            ),
+            thumb_abd=_inverse_normalize(
+                raw.thumb_abd,
+                *self._axis_calibration['thumb_abd'],
+            ),
             index_flex=_normalize(
                 raw.index_flex,
-                *self._finger_calibration['index_flex'],
+                *self._axis_calibration['index_flex'],
             ),
             middle_flex=_normalize(
                 raw.middle_flex,
-                *self._finger_calibration['middle_flex'],
+                *self._axis_calibration['middle_flex'],
             ),
             ring_flex=_normalize(
                 raw.ring_flex,
-                *self._finger_calibration['ring_flex'],
+                *self._axis_calibration['ring_flex'],
             ),
             little_flex=_normalize(
                 raw.little_flex,
-                *self._finger_calibration['little_flex'],
+                *self._axis_calibration['little_flex'],
             ),
         )
 

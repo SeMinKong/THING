@@ -22,7 +22,7 @@ def generate_launch_description():
         ),
         Node(
             package='thing_vision',
-            executable='mediapipe_node',
+            executable='world_mediapipe_node',
             name='mediapipe_node',
             parameters=[vision_config],
             output='screen',
@@ -32,6 +32,8 @@ def generate_launch_description():
             executable='hand_target_node',
             name='hand_target_node',
             parameters=[vision_config],
+            remappings=[
+                ('/thing/landmarks', '/thing/world_landmarks'),
+            ],
             output='screen',
         ),
-    ])
