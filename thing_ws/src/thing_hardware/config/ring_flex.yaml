@@ -12,7 +12,7 @@
     position_p_gain: 1200
     position_i_gain: 20
     position_d_gain: 600
-    goal_current: 200
+    goal_current: 500
     profile_acceleration: 50
     profile_velocity: 200
 
