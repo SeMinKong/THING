@@ -36,9 +36,6 @@ export default function VisionMode() {
   const {
     connectionState,
     controlState,
-    handLossLatched,
-    reacquireElapsedMs,
-    reacquireStableMs,
     handCommand,
     recordingState,
     recordingStateKnown,
@@ -100,60 +97,12 @@ export default function VisionMode() {
 
   return (
     <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
-      {/* 영상이 남는 높이를 전부 받는다. hand-loss 안내는 필요할 때만 자리를 갖고,
-          그만큼 영상이 줄어든다 */}
-      <div className="flex min-h-0 flex-col gap-3">
-        <CameraStream />
-
-        {/* FR-27: 손 미검출과 유효 재검출을 표시하되, 재검출만으로 제어가
-            재개된 것처럼 보이면 안 된다 */}
-        <AnimatePresence initial={false}>
-          {handLossLatched && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.22 }}
-              className="overflow-hidden"
-            >
-              <Panel className="border-st-hold/40">
-                <Head title="hand-loss">
-                  <Tag tone="warn">재개 필요</Tag>
-                </Head>
-                <Body className="flex flex-col gap-3">
-                  <p className="text-[13px] leading-relaxed">
-                    손 미검출이 확정되어 명령 발행이 중단됐습니다.
-                    손을 다시 인식해도 제어는 자동으로 재개되지 않습니다.
-                  </p>
-                  {reacquireStableMs > 0 && (
-                    <div>
-                      <div className="mb-1 flex items-baseline justify-between">
-                        <span className="text-xs text-ink-400">
-                          유효 재검출
-                        </span>
-                        <span className="font-mono text-xs">
-                          {reacquireElapsedMs} / {reacquireStableMs}ms
-                        </span>
-                      </div>
-                      <div className="h-1 overflow-hidden rounded-full bg-ink-200">
-                        <motion.div
-                          className="h-full rounded-full bg-st-hold"
-                          animate={{
-                            width: `${Math.min(100,
-                              (reacquireElapsedMs / reacquireStableMs) * 100)}%`,
-                          }}
-                          transition={{ duration: 0.2, ease: "linear" }}
-                        />
-                      </div>
-                    </div>
-                  )}
-                </Body>
-              </Panel>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-      </div>
+  {/* 카메라는 남는 높이를 전부 받는다. hand-loss 안내는 흐름에 두면 형제로서
+     카메라 높이를 다투므로(검출/미검출 반복 시 카메라가 커졌다 작아졌다 함)
+     CameraStream 내부에 오버레이로 겹친다 — showHandLoss 로 켠다 (FR-27). */}
+ <div className="flex min-h-0 flex-col gap-3">
+   <CameraStream showHandLoss />
+ </div>
 
       <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
         {/* FR-21 Should: 7논리축 목표와 confidence */}

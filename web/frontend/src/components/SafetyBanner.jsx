@@ -3,7 +3,7 @@
 // timeout/과전류/과온/비상정지 등을 사용자가 이해할 수 있는 문구로 안내한다.
 import { motion, AnimatePresence } from "motion/react";
 import { useHandSocket } from "../context/HandSocketContext";
-import { HAND_DETECTION, RESET_ALLOWED_STATES, isDeviceDown } from "../config/messageProtocol";
+import { RESET_ALLOWED_STATES, isDeviceDown } from "../config/messageProtocol";
 import { SPEC } from "../config/pending";
 
 const SKIN = {
@@ -22,7 +22,7 @@ function Row({ level, children }) {
 
 function buildMessages({
   connectionState, connectionStatus, safetyState, safetyStateKnown,
-  controlStateKnown, sessionIdProtocolError, handDetection, mode,
+  controlStateKnown, sessionIdProtocolError, mode,
 }) {
   const messages = [];
   const online = connectionState === "open";
@@ -65,21 +65,10 @@ function buildMessages({
     });
   }
 
-  if (mode === "MIMIC" && !isDeviceDown(connectionStatus.camera)
-      && (handDetection === HAND_DETECTION.NOT_DETECTED
-          || handDetection === HAND_DETECTION.LOW_CONFIDENCE)) {
-    messages.push({
-      level: "warning",
-      text: handDetection === HAND_DETECTION.LOW_CONFIDENCE
-        ? "손 인식 신뢰도가 기준(70%)에 미달합니다. 미검출로 처리되어 명령 발행이 중단됩니다."
-        : "손이 검출되지 않았습니다. 카메라 앞에 손을 위치시켜 주세요.",
-    });
-    messages.push({
-      level: "warning",
-      text: "손을 다시 인식해도 제어는 자동으로 재개되지 않습니다. "
-        + "정지(STOP) 후 모방 모드와 제어권을 다시 획득해야 합니다.",
-    });
-  }
+  // 손 미검출 안내는 CameraStream 이 담당한다 — 좌하단 검출 배지(순간 상태)와
+  // 상단 오버레이("재개 필요", 래치). 여기(in-flow 배너)에 중복으로 두면
+  // handDetection 이 순간 토글될 때 배너가 떴다 사라지며 아래 카메라가 커졌다
+  // 작아졌다 하므로 제거했다. 같은 정보를 오버레이로만 제공한다 (FR-27).
 
   // 6.4절 {} 규칙: SafetyState 를 아직 받지 못했으면 기본값은 관측값이 아니다.
   // 이 구간에서 개별 플래그를 읽으면 motor_communication_ok=false 때문에
@@ -187,7 +176,7 @@ function buildMessages({
 
 export default function SafetyBanner() {
   const {
-    connectionState, connectionStatus, safetyState, safetyStateKnown, handDetection,
+    connectionState, connectionStatus, safetyState, safetyStateKnown,
     controlState, controlStateKnown, sessionIdProtocolError,
     lastError, sendStop, resetSafety,
   } = useHandSocket();
@@ -199,7 +188,6 @@ export default function SafetyBanner() {
     safetyStateKnown,
     controlStateKnown,
     sessionIdProtocolError,
-    handDetection,
     mode: controlState.active_mode,
   });
 
