@@ -257,6 +257,13 @@ DriverResult DynamixelBus::write_one_byte(uint8_t motor_id, uint16_t address, ui
   return check_result(communication_result, dynamixel_error);
 }
 
+DriverResult DynamixelBus::write_one_byte_tx_only(uint8_t motor_id, uint16_t address, uint8_t value)
+{
+  const std::lock_guard<std::mutex> lock(port_mutex_);
+  return check_result(
+    packet_handler_->write1ByteTxOnly(port_handler_.get(), motor_id, address, value), 0);
+}
+
 DriverResult DynamixelBus::write_two_bytes(uint8_t motor_id, uint16_t address, uint16_t value)
 {
   const std::lock_guard<std::mutex> lock(port_mutex_);

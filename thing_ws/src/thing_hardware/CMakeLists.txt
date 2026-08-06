@@ -45,6 +45,12 @@ add_executable(
 )
 
 add_executable(
+  dynamixel_baud_config_node
+  src/dynamixel_baud_config_node.cpp
+  src/dynamixel_bus.cpp
+)
+
+add_executable(
   thumb_calibration_node
   src/thumb_calibration_node.cpp
   src/dynamixel_bus.cpp
@@ -83,6 +89,12 @@ target_include_directories(
 )
 
 target_include_directories(
+  dynamixel_baud_config_node
+  PRIVATE
+    include
+)
+
+target_include_directories(
   thumb_calibration_node
   PRIVATE
     include
@@ -119,6 +131,12 @@ ament_target_dependencies(
 )
 
 ament_target_dependencies(
+  dynamixel_baud_config_node
+  rclcpp
+  dynamixel_sdk
+)
+
+ament_target_dependencies(
   thumb_calibration_node
   rclcpp
   dynamixel_sdk
@@ -148,6 +166,7 @@ ament_target_dependencies(
 
 install(
   TARGETS
+    dynamixel_baud_config_node
     motor_driver_node
     motor_status_node
     motor_home_calibration_node
