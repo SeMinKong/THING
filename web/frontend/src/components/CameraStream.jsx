@@ -12,7 +12,7 @@
 // ============================================================================
 import { useEffect, useState } from "react";
 import { useHandSocket } from "../context/HandSocketContext";
-import { HAND_DETECTION, TIMING, isDeviceUsable } from "../config/messageProtocol";
+import { HAND_DETECTION, isDeviceUsable } from "../config/messageProtocol";
 import { THRESHOLD } from "../config/pending";
 import { diag, OWNER } from "../config/diagnostics";
 import { motion, AnimatePresence } from "motion/react";
@@ -25,7 +25,7 @@ const RAW_STREAM_URL = import.meta.env.VITE_MJPEG_RAW_STREAM_URL || "";
 
 export default function CameraStream() {
   const {
-    connectionState, connectionStatus, landmarks, landmarksUpdatedAt, handDetection,
+    connectionState, connectionStatus, landmarksUpdatedAt, handDetection,
   } = useHandSocket();
 
   const [streamMode, setStreamMode] = useState("overlay");
@@ -65,15 +65,13 @@ export default function CameraStream() {
     && landmarksUpdatedAt !== null
     && staleSince > THRESHOLD.CAMERA_STATE_STALE_MS;
 
-  const confidencePct = Math.round((landmarks?.confidence ?? 0) * 100);
   const detectTone = handDetection === HAND_DETECTION.DETECTED ? "ok"
     : handDetection === HAND_DETECTION.LOW_CONFIDENCE ? "weak"
       : handDetection === HAND_DETECTION.NOT_DETECTED ? "none" : "idle";
   const detectText = handDetection === HAND_DETECTION.DETECTED
-    ? `손 검출됨 (신뢰도 ${confidencePct}%)`
+    ? "손 검출됨"
     : handDetection === HAND_DETECTION.LOW_CONFIDENCE
-      ? `신뢰도 부족 (${confidencePct}% < ${Math.round(TIMING.HAND_CONFIDENCE_MIN * 100)}%)`
-        + " — 미검출로 처리됩니다"
+      ? "신뢰도 부족 — 미검출로 처리됩니다"
       : handDetection === HAND_DETECTION.NOT_DETECTED
         ? "손이 검출되지 않았습니다"
         : "손 검출 정보 수신 대기";
