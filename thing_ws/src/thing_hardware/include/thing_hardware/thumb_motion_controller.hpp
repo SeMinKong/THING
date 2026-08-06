@@ -61,6 +61,8 @@ public:
     const std::string & source_pose, const std::string & target_pose, double target_flex,
     std::chrono::steady_clock::time_point now);
 
+  void reset();
+
   bool update(
     const std::array<int32_t, 3> & present_positions, std::chrono::steady_clock::time_point now);
 
