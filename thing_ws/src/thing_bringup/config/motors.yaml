@@ -1,6 +1,6 @@
 motor_driver_node:
   ros__parameters:
-    # Integrated seven-axis hand control with collision-aware thumb motion.
+    # Integrated seven-axis hand control with tendon-aware thumb motion.
     integration_test_mode: false
 
     # Common DYNAMIXEL configuration
@@ -14,6 +14,8 @@ motor_driver_node:
     read_rate_hz: 20.0
     write_rate_hz: 50.0
     safe_velocity_limit: 0.5
+    # Finish before Safety Manager's fixed 3000 ms SAFE action deadline.
+    safe_motion_timeout_seconds: 2.5
     diagnostic_rate_hz: 1.0
     hardware_command_watchdog_ms: 500
 
@@ -49,7 +51,7 @@ motor_driver_node:
     position_p_gains: [1200, 800, 1000, 1000, 800, 800, 1200]
     position_i_gains: [20, 10, 30, 40, 10, 10, 20]
     position_d_gains: [600, 600, 600, 600, 600, 600, 600]
-    goal_currents_ma: [500, 200, 500, 500, 200, 200, 500]
+    goal_currents_ma: [500, 500, 500, 500, 500, 500, 500]
     profile_accelerations_raw: [50, 75, 50, 50, 75, 75, 50]
     profile_velocities_raw: [200, 300, 200, 200, 300, 300, 200]
 
@@ -57,7 +59,7 @@ motor_driver_node:
     # matrices are row-major source-to-target tables in the same order.
     thumb_functional_pose_names: ["neutral", "open", "grasp", "folded"]
     thumb_functional_opposition: [0.2, 0.0, 0.6, 1.0]
-    thumb_functional_abduction: [0.0, 0.0, 1.0, 1.0]
+    thumb_functional_abduction: [0.0, 1.0, 0.2, 1.0]
     thumb_opposition_positions_raw: [1650, -250, 100, 2500]
     thumb_opposition_approach_directions: [1, -1, -1, 1]
     thumb_opposition_approach_start_positions_raw: [300, -250, 1000, 2000]
@@ -67,25 +69,52 @@ motor_driver_node:
     thumb_flex_home_positions_raw: [3700, 3300, 3900, 4300]
     thumb_flex_closed_positions_raw: [4900, 4900, 4800, 5200]
     thumb_opposition_reversal_positions_raw:
-      [1650, 700, 875, 2075,
-       700, -250, -75, 1125,
-       875, -75, 100, 1300,
-       2075, 1125, 1300, 2500]
+      [
+        1650,
+        700,
+        875,
+        2075,
+        700,
+        -250,
+        -75,
+        1125,
+        875,
+        -75,
+        100,
+        1300,
+        2075,
+        1125,
+        1300,
+        2500,
+      ]
     thumb_abduction_reversal_positions_raw:
-      [400, 200, 1425, 1700,
-       200, 0, 1225, 1500,
-       1425, 1225, 2450, 2725,
-       1700, 1500, 2725, 3000]
+      [
+        400,
+        200,
+        1425,
+        1700,
+        200,
+        0,
+        1225,
+        1500,
+        1425,
+        1225,
+        2450,
+        2725,
+        1700,
+        1500,
+        2725,
+        3000,
+      ]
     thumb_flex_clearance_position_raw: 3200
     thumb_position_tolerance_raw: 50
     thumb_approach_tolerance_raw: 75
     thumb_motion_timeout_seconds: 6.0
 
-    # Pose selection is debounced for streamed mimic input. Finger/thumb
-    # collision coordination only constrains motion inside the 0.4 boundary.
+    # Pose selection is debounced for streamed mimic input. The thumb and the
+    # four finger flexion axes move independently.
     thumb_pose_switch_margin: 0.1
     thumb_pose_stable_samples: 3
-    thumb_finger_collision_boundary: 0.4
 
     # Hardware limits and communication fault thresholds
     current_limit_ma: 1470

@@ -137,6 +137,7 @@ private:
     read_rate_hz_ = declare_parameter<double>("read_rate_hz", 20.0);
     write_rate_hz_ = declare_parameter<double>("write_rate_hz", 50.0);
     safe_velocity_limit_ = declare_parameter<double>("safe_velocity_limit", 0.5);
+    safe_motion_timeout_seconds_ = declare_parameter<double>("safe_motion_timeout_seconds", 2.5);
     const double diagnostic_rate_hz = declare_parameter<double>("diagnostic_rate_hz", 1.0);
     hardware_command_watchdog_ms_ = declare_parameter<int>("hardware_command_watchdog_ms", 500);
 
@@ -193,8 +194,6 @@ private:
       declare_parameter<double>("thumb_motion_timeout_seconds", 6.0);
     thumb_pose_switch_margin_ = declare_parameter<double>("thumb_pose_switch_margin", 0.1);
     thumb_pose_stable_samples_ = declare_parameter<int>("thumb_pose_stable_samples", 3);
-    thumb_finger_collision_boundary_ =
-      declare_parameter<double>("thumb_finger_collision_boundary", 0.4);
 
     if (baud_rate <= 0 || protocol_version <= 0.0 || operating_mode_ < 0 || operating_mode_ > 16) {
       throw std::invalid_argument("invalid DYNAMIXEL communication or operating mode parameter");
@@ -204,8 +203,12 @@ private:
       hardware_command_watchdog_ms_ <= 0) {
       throw std::invalid_argument("rates and hardware watchdog must be positive");
     }
-    if (safe_velocity_limit_ <= 0.0 || safe_velocity_limit_ > 1.0) {
-      throw std::invalid_argument("safe_velocity_limit must be in (0.0, 1.0]");
+    if (
+      safe_velocity_limit_ <= 0.0 || safe_velocity_limit_ > 1.0 ||
+      safe_motion_timeout_seconds_ <= 0.0 || safe_motion_timeout_seconds_ > 3.0) {
+      throw std::invalid_argument(
+        "safe_velocity_limit must be in (0.0, 1.0] and "
+        "safe_motion_timeout_seconds must be in (0.0, 3.0]");
     }
     if (bus_names.empty() || bus_names.size() != bus_devices.size()) {
       throw std::invalid_argument("bus_names and bus_devices must have the same non-zero size");
@@ -291,9 +294,6 @@ private:
     thumb_flex_index_ = axis_index("thumb_flex");
     thumb_abduction_index_ = axis_index("thumb_abduction");
     thumb_opposition_index_ = axis_index("thumb_opposition");
-    finger_indices_ = {
-      axis_index("index_flex"), axis_index("middle_flex"), axis_index("ring_flex"),
-      axis_index("little_flex")};
     thumb_control_enabled_ = axes_[thumb_flex_index_].control_enabled &&
                              axes_[thumb_abduction_index_].control_enabled &&
                              axes_[thumb_opposition_index_].control_enabled;
@@ -317,9 +317,8 @@ private:
     }
     if (
       thumb_pose_switch_margin_ < 0.0 || thumb_pose_stable_samples_ <= 0 ||
-      thumb_finger_collision_boundary_ < 0.0 || thumb_finger_collision_boundary_ > 1.0 ||
       thumb_motion_timeout <= 0.0) {
-      throw std::invalid_argument("thumb coordination parameters are invalid");
+      throw std::invalid_argument("thumb motion parameters are invalid");
     }
 
     thumb_poses_.reserve(thumb_pose_count);
@@ -355,8 +354,10 @@ private:
     commanded_positions_.resize(axes_.size());
     desired_positions_.resize(axes_.size());
     latest_present_positions_.resize(axes_.size());
+    latest_goal_positions_.resize(axes_.size());
+    latest_present_currents_ampere_.resize(axes_.size());
+    latest_torque_enabled_.resize(axes_.size());
     latest_position_valid_.resize(axes_.size(), false);
-    requested_normalized_.resize(axes_.size(), 0.0);
   }
 
   std::size_t axis_index(const std::string & name) const
@@ -508,6 +509,36 @@ private:
     return nearest;
   }
 
+  void infer_thumb_state_from_present()
+  {
+    if (!thumb_control_enabled_ || !thumb_positions_valid()) {
+      thumb_pose_initialized_ = false;
+      return;
+    }
+    thumb_current_pose_index_ = nearest_thumb_pose_from_raw();
+    thumb_requested_pose_index_ = thumb_current_pose_index_;
+    thumb_candidate_pose_index_ = thumb_current_pose_index_;
+    thumb_candidate_samples_ = 0;
+    thumb_pose_initialized_ = true;
+    const auto & pose = thumb_poses_[thumb_current_pose_index_];
+    thumb_completed_flex_ = clamp(
+      static_cast<double>(latest_present_positions_[thumb_flex_index_] - pose.flex_home) /
+        static_cast<double>(pose.flex_closed - pose.flex_home),
+      0.0, 1.0);
+    thumb_active_target_flex_ = thumb_completed_flex_;
+  }
+
+  std::size_t neutral_thumb_pose_index() const
+  {
+    const auto neutral = std::find_if(
+      thumb_poses_.begin(), thumb_poses_.end(),
+      [](const auto & pose) { return pose.name == "neutral"; });
+    if (neutral == thumb_poses_.end()) {
+      throw std::runtime_error("thumb safe motion requires a neutral functional pose");
+    }
+    return static_cast<std::size_t>(std::distance(thumb_poses_.begin(), neutral));
+  }
+
   void update_thumb_pose_candidate(double opposition, double abduction, bool immediate)
   {
     const std::size_t candidate = nearest_thumb_pose(opposition, abduction);
@@ -541,15 +572,6 @@ private:
       std::lround(axis.home_position + normalized * (axis.closed_position - axis.home_position)));
   }
 
-  double normalized_present(std::size_t axis_index) const
-  {
-    const auto & axis = axes_[axis_index];
-    return clamp(
-      static_cast<double>(latest_present_positions_[axis_index] - axis.home_position) /
-        static_cast<double>(axis.closed_position - axis.home_position),
-      0.0, 1.0);
-  }
-
   void receive_command(const thing_interfaces::msg::HandCommand & command)
   {
     if (safety_state_.load() != thing_interfaces::msg::SafetyState::RUN) {
@@ -563,7 +585,6 @@ private:
     }
 
     std::vector<int32_t> validated_positions(axes_.size());
-    std::vector<double> normalized_values(axes_.size());
     for (std::size_t index = 0; index < axes_.size(); ++index) {
       if (!axes_[index].control_enabled) {
         validated_positions[index] = desired_positions_[index];
@@ -574,7 +595,6 @@ private:
         RCLCPP_WARN(get_logger(), "Rejected command with invalid axis value");
         return;
       }
-      normalized_values[index] = normalized;
       validated_positions[index] =
         thumb_control_enabled_ && (index == thumb_flex_index_ || index == thumb_abduction_index_ ||
                                    index == thumb_opposition_index_)
@@ -584,7 +604,6 @@ private:
 
     std::lock_guard<std::mutex> lock(command_mutex_);
     desired_positions_ = std::move(validated_positions);
-    requested_normalized_ = std::move(normalized_values);
     if (thumb_control_enabled_) {
       latest_thumb_flex_ = command.thumb_flex;
       const bool discrete_manual_command =
@@ -592,9 +611,7 @@ private:
         command.source == thing_interfaces::msg::HandCommand::SOURCE_SEQUENCE;
       update_thumb_pose_candidate(command.thumb_opp, command.thumb_abd, discrete_manual_command);
       if (thumb_failure_latched_) {
-        const bool repeats_failed_target =
-          thumb_requested_pose_index_ == thumb_failed_pose_index_ &&
-          std::abs(latest_thumb_flex_ - thumb_failed_flex_) <= 0.001;
+        const bool repeats_failed_target = thumb_requested_pose_index_ == thumb_failed_pose_index_;
         if (repeats_failed_target) {
           return;
         }
@@ -628,6 +645,21 @@ private:
     if (message.state == thing_interfaces::msg::SafetyState::SAFE) {
       if (previous != thing_interfaces::msg::SafetyState::SAFE) {
         safe_action_active_ = true;
+        safe_action_started_at_ = std::chrono::steady_clock::now();
+        if (thumb_control_enabled_ && thumb_controller_) {
+          thumb_controller_->reset();
+          thumb_failure_latched_ = false;
+          infer_thumb_state_from_present();
+          try {
+            thumb_requested_pose_index_ = neutral_thumb_pose_index();
+            latest_thumb_flex_ = 0.0;
+          } catch (const std::exception & exception) {
+            RCLCPP_ERROR(get_logger(), "%s", exception.what());
+            safe_action_active_ = false;
+            disable_torque();
+            return;
+          }
+        }
         reset_motion_clock();
         RCLCPP_WARN(
           get_logger(),
@@ -753,32 +785,6 @@ private:
            phase != ThumbMotionPhase::ERROR;
   }
 
-  bool fingers_at_or_below_boundary() const
-  {
-    return std::all_of(finger_indices_.begin(), finger_indices_.end(), [this](std::size_t index) {
-      return latest_position_valid_[index] &&
-             normalized_present(index) <= thumb_finger_collision_boundary_ + 0.02;
-    });
-  }
-
-  bool fingers_reached_grasp_entry() const
-  {
-    return std::all_of(finger_indices_.begin(), finger_indices_.end(), [this](std::size_t index) {
-      const double required =
-        std::min(requested_normalized_[index], thumb_finger_collision_boundary_);
-      return latest_position_valid_[index] && normalized_present(index) + 0.02 >= required;
-    });
-  }
-
-  void clamp_fingers_to_boundary(std::vector<int32_t> & desired) const
-  {
-    for (const std::size_t index : finger_indices_) {
-      const double limited =
-        std::min(requested_normalized_[index], thumb_finger_collision_boundary_);
-      desired[index] = normalized_position(axes_[index], limited);
-    }
-  }
-
   void start_thumb_motion(std::chrono::steady_clock::time_point now)
   {
     thumb_transition_source_index_ = thumb_current_pose_index_;
@@ -791,25 +797,23 @@ private:
       get_logger(), "Thumb transition started: source=%s, target=%s, flex=%.3f",
       thumb_poses_[thumb_transition_source_index_].name.c_str(),
       thumb_poses_[thumb_transition_target_index_].name.c_str(), latest_thumb_flex_);
+    log_thumb_phase_started();
   }
 
-  bool can_start_thumb_motion(std::vector<int32_t> & desired) const
+  void log_thumb_phase_started() const
   {
-    const std::string & current = thumb_poses_[thumb_current_pose_index_].name;
-    const std::string & target = thumb_poses_[thumb_requested_pose_index_].name;
-    if (target == "folded" && current != "folded") {
-      clamp_fingers_to_boundary(desired);
-      return fingers_at_or_below_boundary();
+    if (!thumb_motion_active()) {
+      return;
     }
-    if (current == "folded" && target != "folded") {
-      clamp_fingers_to_boundary(desired);
-      return fingers_at_or_below_boundary();
-    }
-    if (target == "grasp" && current != "grasp") {
-      clamp_fingers_to_boundary(desired);
-      return fingers_reached_grasp_entry();
-    }
-    return true;
+    const auto target = thumb_controller_->phase_target();
+    const std::array<std::size_t, 3> indices = {
+      thumb_flex_index_, thumb_abduction_index_, thumb_opposition_index_};
+    const std::size_t axis_index = indices[static_cast<std::size_t>(target.axis)];
+    RCLCPP_INFO(
+      get_logger(), "Thumb phase started: phase=%s, axis=%s, target=%d, present=%d",
+      ThumbMotionController::phase_name(thumb_controller_->phase()),
+      ThumbMotionController::axis_name(target.axis), target.position,
+      latest_present_positions_[axis_index]);
   }
 
   bool update_thumb_motion(
@@ -834,23 +838,9 @@ private:
         thumb_poses_[thumb_current_pose_index_].name.c_str());
     }
 
-    if (thumb_candidate_samples_ > 0 && thumb_candidate_pose_index_ != thumb_current_pose_index_) {
-      const std::string & current = thumb_poses_[thumb_current_pose_index_].name;
-      const std::string & candidate = thumb_poses_[thumb_candidate_pose_index_].name;
-      if (candidate == "folded" || candidate == "grasp" || current == "folded") {
-        clamp_fingers_to_boundary(desired);
-      }
-    }
-
     ThumbMotionPhase active_phase = ThumbMotionPhase::IDLE;
     ThumbPhaseTarget active_target;
     if (thumb_motion_active()) {
-      const std::string & source = thumb_poses_[thumb_transition_source_index_].name;
-      const std::string & target = thumb_poses_[thumb_transition_target_index_].name;
-      if (
-        (target == "folded" && source != "folded") || (source == "folded" && target != "folded")) {
-        clamp_fingers_to_boundary(desired);
-      }
       const std::array<int32_t, 3> present = {
         latest_present_positions_[thumb_flex_index_],
         latest_present_positions_[thumb_abduction_index_],
@@ -858,26 +848,35 @@ private:
       active_phase = thumb_controller_->phase();
       active_target = thumb_controller_->phase_target();
       thumb_controller_->update(present, now);
+      if (thumb_motion_active() && thumb_controller_->phase() != active_phase) {
+        log_thumb_phase_started();
+      }
     }
 
     if (thumb_controller_->phase() == ThumbMotionPhase::ERROR) {
       const std::array<std::size_t, 3> indices = {
         thumb_flex_index_, thumb_abduction_index_, thumb_opposition_index_};
       const std::size_t failed_axis_index = indices[static_cast<std::size_t>(active_target.axis)];
+      const auto & failed_axis = axes_[failed_axis_index];
       const int32_t present = latest_present_positions_[failed_axis_index];
       RCLCPP_ERROR(
         get_logger(),
         "Thumb transition failed: reason=%s, source=%s, target_pose=%s, target_flex=%.3f, "
-        "phase=%s, axis=%s, target=%d, present=%d, error=%d; disabling torque",
+        "phase=%s, phase_elapsed=%.3f s, phase_timeout=%.3f s, axis=%s, target=%d, present=%d, "
+        "error=%d, motor_id=%u, commanded=%d, dynamixel_goal=%d, current=%.1f mA, torque=%s, "
+        "speed_limit=%.3f; disabling torque",
         thumb_controller_->error_message().c_str(),
         thumb_poses_[thumb_transition_source_index_].name.c_str(),
         thumb_poses_[thumb_transition_target_index_].name.c_str(), thumb_active_target_flex_,
         ThumbMotionController::phase_name(active_phase),
+        thumb_controller_->phase_elapsed_seconds(now), thumb_controller_->phase_timeout_seconds(),
         ThumbMotionController::axis_name(active_target.axis), active_target.position, present,
-        active_target.position - present);
+        active_target.position - present, static_cast<unsigned int>(failed_axis.motor_id),
+        commanded_positions_[failed_axis_index], latest_goal_positions_[failed_axis_index],
+        latest_present_currents_ampere_[failed_axis_index] * 1000.0,
+        latest_torque_enabled_[failed_axis_index] ? "enabled" : "disabled", command_speed_limit_);
       thumb_failure_latched_ = true;
       thumb_failed_pose_index_ = thumb_transition_target_index_;
-      thumb_failed_flex_ = thumb_active_target_flex_;
       thumb_controller_->reset();
       thumb_pose_initialized_ = false;
       thumb_candidate_samples_ = 0;
@@ -890,8 +889,7 @@ private:
 
     const bool pose_changed = thumb_requested_pose_index_ != thumb_current_pose_index_;
     const bool flex_changed = std::abs(latest_thumb_flex_ - thumb_completed_flex_) > 0.001;
-    if (
-      !thumb_motion_active() && (pose_changed || flex_changed) && can_start_thumb_motion(desired)) {
+    if (!thumb_motion_active() && (pose_changed || flex_changed)) {
       start_thumb_motion(now);
     }
 
@@ -983,34 +981,59 @@ private:
     if (!safe_action_active_) {
       return;
     }
-    if (!torque_enabled_) {
-      safe_action_active_ = false;
+    const auto now = std::chrono::steady_clock::now();
+    if (
+      std::chrono::duration<double>(now - safe_action_started_at_).count() >
+      safe_motion_timeout_seconds_) {
+      if (thumb_control_enabled_ && thumb_motion_active()) {
+        const auto target = thumb_controller_->phase_target();
+        const std::array<std::size_t, 3> indices = {
+          thumb_flex_index_, thumb_abduction_index_, thumb_opposition_index_};
+        const std::size_t axis_index = indices[static_cast<std::size_t>(target.axis)];
+        RCLCPP_ERROR(
+          get_logger(),
+          "SAFE position recovery timed out after %.2f seconds: phase=%s, axis=%s, target=%d, "
+          "motor_id=%u, commanded=%d, dynamixel_goal=%d, present=%d, current=%.1f mA, torque=%s, "
+          "speed_limit=%.3f; disabling torque",
+          safe_motion_timeout_seconds_,
+          ThumbMotionController::phase_name(thumb_controller_->phase()),
+          ThumbMotionController::axis_name(target.axis), target.position,
+          static_cast<unsigned int>(axes_[axis_index].motor_id), commanded_positions_[axis_index],
+          latest_goal_positions_[axis_index], latest_present_positions_[axis_index],
+          latest_present_currents_ampere_[axis_index] * 1000.0,
+          latest_torque_enabled_[axis_index] ? "enabled" : "disabled", safe_velocity_limit_);
+      } else {
+        RCLCPP_ERROR(
+          get_logger(), "SAFE position recovery timed out after %.2f seconds; disabling torque",
+          safe_motion_timeout_seconds_);
+      }
+      finish_safe_action(false);
       return;
+    }
+
+    if (!torque_enabled_) {
+      for (std::size_t index = 0; index < axes_.size(); ++index) {
+        if (axes_[index].control_enabled && latest_position_valid_[index]) {
+          commanded_positions_[index] = latest_present_positions_[index];
+        }
+      }
+      enable_torque();
+      if (!torque_enabled_) {
+        RCLCPP_ERROR(get_logger(), "SAFE position recovery could not enable motor torque");
+        finish_safe_action(false);
+        return;
+      }
     }
 
     std::vector<int32_t> desired(axes_.size());
     for (std::size_t index = 0; index < axes_.size(); ++index) {
       desired[index] = axes_[index].safe_position;
     }
-    for (const std::size_t index : finger_indices_) {
-      requested_normalized_[index] = 0.0;
-    }
     if (thumb_control_enabled_) {
-      const auto neutral = std::find_if(
-        thumb_poses_.begin(), thumb_poses_.end(),
-        [](const auto & pose) { return pose.name == "neutral"; });
-      if (neutral == thumb_poses_.end()) {
-        RCLCPP_ERROR(get_logger(), "Thumb safe motion requires a neutral functional pose");
-        disable_torque();
-        safe_action_active_ = false;
-        return;
-      }
-      thumb_requested_pose_index_ =
-        static_cast<std::size_t>(std::distance(thumb_poses_.begin(), neutral));
+      thumb_requested_pose_index_ = neutral_thumb_pose_index();
       latest_thumb_flex_ = 0.0;
-      if (!update_thumb_motion(desired, std::chrono::steady_clock::now())) {
-        disable_torque();
-        safe_action_active_ = false;
+      if (!update_thumb_motion(desired, now)) {
+        finish_safe_action(false);
         return;
       }
     }
@@ -1038,10 +1061,30 @@ private:
     }
 
     RCLCPP_INFO(get_logger(), "SAFE positions reached; disabling torque for all motors");
-    disable_torque();
-    if (!torque_enabled_) {
-      safe_action_active_ = false;
+    finish_safe_action(true);
+  }
+
+  void finish_safe_action(bool positions_reached)
+  {
+    if (thumb_control_enabled_ && thumb_controller_) {
+      thumb_controller_->reset();
+      thumb_failure_latched_ = false;
+      thumb_candidate_samples_ = 0;
+      if (positions_reached) {
+        const std::size_t neutral = neutral_thumb_pose_index();
+        thumb_current_pose_index_ = neutral;
+        thumb_requested_pose_index_ = neutral;
+        thumb_candidate_pose_index_ = neutral;
+        thumb_completed_flex_ = 0.0;
+        thumb_active_target_flex_ = 0.0;
+        latest_thumb_flex_ = 0.0;
+        thumb_pose_initialized_ = true;
+      } else {
+        thumb_pose_initialized_ = false;
+      }
     }
+    disable_torque();
+    safe_action_active_ = false;
   }
 
   bool controlled_motors_at_safe_positions() const
@@ -1183,6 +1226,9 @@ private:
         }
       } else {
         latest_present_positions_[index] = state.present_position_raw;
+        latest_goal_positions_[index] = state.goal_position_raw;
+        latest_present_currents_ampere_[index] = state.current_ampere;
+        latest_torque_enabled_[index] = state.torque_enabled;
         latest_position_valid_[index] = true;
         if (axes_[index].control_enabled) {
           all_controlled_torque_enabled = all_controlled_torque_enabled && state.torque_enabled;
@@ -1273,6 +1319,7 @@ private:
   double read_rate_hz_{20.0};
   double write_rate_hz_{50.0};
   double safe_velocity_limit_{0.5};
+  double safe_motion_timeout_seconds_{2.5};
   int hardware_command_watchdog_ms_{500};
   std::chrono::nanoseconds read_period_;
   std::chrono::nanoseconds write_period_;
@@ -1285,11 +1332,12 @@ private:
   std::vector<int32_t> commanded_positions_;
   std::vector<int32_t> desired_positions_;
   std::vector<int32_t> latest_present_positions_;
+  std::vector<int32_t> latest_goal_positions_;
+  std::vector<double> latest_present_currents_ampere_;
+  std::vector<bool> latest_torque_enabled_;
   std::vector<bool> latest_position_valid_;
-  std::vector<double> requested_normalized_;
   std::vector<ThumbPoseConfig> thumb_poses_;
   std::unique_ptr<ThumbMotionController> thumb_controller_;
-  std::array<std::size_t, 4> finger_indices_{};
   std::size_t thumb_flex_index_{0};
   std::size_t thumb_abduction_index_{0};
   std::size_t thumb_opposition_index_{0};
@@ -1301,7 +1349,6 @@ private:
   int thumb_candidate_samples_{0};
   int thumb_pose_stable_samples_{3};
   double thumb_pose_switch_margin_{0.1};
-  double thumb_finger_collision_boundary_{0.4};
   double latest_thumb_flex_{0.0};
   double thumb_active_target_flex_{0.0};
   double thumb_completed_flex_{0.0};
@@ -1309,11 +1356,11 @@ private:
   bool thumb_pose_initialized_{false};
   bool thumb_failure_latched_{false};
   std::size_t thumb_failed_pose_index_{0};
-  double thumb_failed_flex_{0.0};
   double command_speed_limit_{1.0};
   std::chrono::steady_clock::time_point last_command_time_;
   std::chrono::steady_clock::time_point last_motion_update_time_;
   std::chrono::steady_clock::time_point last_status_callback_start_;
+  std::chrono::steady_clock::time_point safe_action_started_at_;
   bool status_callback_started_{false};
   bool command_available_{false};
   bool hardware_initialized_positions_{false};

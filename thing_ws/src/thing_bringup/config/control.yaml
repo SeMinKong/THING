@@ -33,8 +33,7 @@ manual_executor:
     # limits and Command Guard remain the final safety boundary.
     gestures.open.axes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     gestures.open.duration_ms: 1000
-    # A normal fist uses the validated grasp thumb pose so the thumb wraps
-    # outside after the four fingers reach the collision boundary.
+    # A normal fist uses the validated grasp thumb pose.
     gestures.fist.axes: [1.0, 0.6, 1.0, 1.0, 1.0, 1.0, 1.0]
     gestures.fist.duration_ms: 1000
     gestures.pinch.axes: [1.0, 1.0, 0.5, 1.0, 0.0, 0.0, 0.0]
@@ -44,8 +43,7 @@ manual_executor:
 
     # Sequence-only presets. ExecuteGesture still accepts only the four
     # canonical gestures plus home|paper|rock aliases.
-    # Countdown tucks the thumb inside first; the remaining fingers may close
-    # only after the folded transition completes.
+    # Countdown uses the folded thumb pose.
     gestures.count_4.axes: [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
     gestures.count_3.axes: [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0]
     gestures.scissors.axes: [1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0]

@@ -75,6 +75,7 @@ def test_integrated_motors_use_calibrated_safe_start_references():
     assert parameters['operating_mode'] == 5
     assert parameters['integration_test_mode'] is False
     assert 0.0 < parameters['safe_velocity_limit'] <= 1.0
+    assert 0.0 < parameters['safe_motion_timeout_seconds'] <= 3.0
 
     rows = zip(
         motor_ids,
@@ -121,7 +122,6 @@ def test_thumb_functional_pose_arrays_share_one_valid_shape():
     assert len(parameters['thumb_abduction_reversal_positions_raw']) == (
         pose_count * pose_count
     )
-    assert parameters['thumb_finger_collision_boundary'] == 0.4
 
 
 def test_open_gesture_is_the_normalized_home_pose():

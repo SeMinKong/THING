@@ -12,6 +12,7 @@ motor_driver_node:
     read_rate_hz: 20.0
     write_rate_hz: 50.0
     safe_velocity_limit: 0.5
+    safe_motion_timeout_seconds: 2.5
     diagnostic_rate_hz: 1.0
     hardware_command_watchdog_ms: 500
 
