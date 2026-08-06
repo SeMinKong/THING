@@ -241,12 +241,27 @@ def compute_hand_targets(landmarks: Sequence[Any]) -> HandTargets:
     # 손바닥 중심에 가까울수록 1, 멀수록 0이 되도록 역정규화한다.
     thumb_opp = _inverse_normalize(opposition_ratio, 0.20, 1.25)
 
-    # 엄지 벌림은 손목->엄지 MCP 벡터와 손목->검지 MCP 벡터 사이의 각도로
-    # 근사한다. 10도는 닫힌 상태, 65도는 넓게 벌린 상태로 매핑한다.
-    thumb_spread = _angle(
-        _subtract(points[THUMB_MCP], points[WRIST]),
+    # 엄지 벌림은 CMC를 회전 중심으로 보아 CMC->엄지 끝 방향과 CMC->검지
+    # MCP 방향 사이의 각도로 계산한다. 엄지 끝은 MCP보다 이동량이 커서 실제
+    # 벌림을 더 잘 반영한다. 두 방향을 손바닥 평면에 먼저 투영해 손바닥 앞뒤로
+    # 움직이는 opposition 성분이 abduction 값에 섞이는 것도 줄인다.
+    palm_normal = _cross(
         _subtract(points[INDEX_MCP], points[WRIST]),
+        _subtract(points[LITTLE_MCP], points[WRIST]),
     )
+    thumb_direction = _project_onto_plane(
+        _subtract(points[THUMB_TIP], points[THUMB_CMC]),
+        palm_normal,
+    )
+    index_direction = _project_onto_plane(
+        _subtract(points[INDEX_MCP], points[THUMB_CMC]),
+        palm_normal,
+    )
+    thumb_spread = _angle(
+        thumb_direction,
+        index_direction,
+    )
+    # 투영된 두 방향이 10도 이하면 붙임, 65도 이상이면 최대 벌림으로 본다.
     thumb_abd = _normalize(
         thumb_spread,
         math.radians(10.0),
@@ -354,6 +369,36 @@ def _subtract(left: Vector3, right: Vector3) -> Vector3:
     )
 
 
+def _dot(left: Vector3, right: Vector3) -> float:
+    return sum(a * b for a, b in zip(left, right))
+
+
+def _cross(left: Vector3, right: Vector3) -> Vector3:
+    return (
+        left[1] * right[2] - left[2] * right[1],
+        left[2] * right[0] - left[0] * right[2],
+        left[0] * right[1] - left[1] * right[0],
+    )
+
+
+def _project_onto_plane(vector: Vector3, normal: Vector3) -> Vector3:
+    """Project a vector onto a plane described by its normal vector."""
+    normal_squared = _dot(normal, normal)
+    if normal_squared <= _EPSILON:
+        raise InvalidLandmarks('palm plane is degenerate')
+
+    normal_scale = _dot(vector, normal) / normal_squared
+    projected = tuple(
+        component - normal_scale * normal_component
+        for component, normal_component in zip(vector, normal)
+    )
+    if _norm(projected) <= _EPSILON:
+        raise InvalidLandmarks(
+            'thumb direction cannot be projected onto palm plane',
+        )
+    return projected  # type: ignore[return-value]
+
+
 def _distance(left: Vector3, right: Vector3) -> float:
     return _norm(_subtract(left, right))
 
@@ -423,8 +468,8 @@ class HandTargetNode(Node):
         self.declare_parameter('diagnostics_rate_hz', 1.0)
 
         # 사용자별 캘리브레이션 끝점이다. 엄지 굽힘/맞섬은 펼침에서 얻은 raw
-        # 값을 min, 주먹에서 얻은 raw 값을 max로 사용한다. 엄지 벌림의 원본
-        # 값은 주먹에서 작고 펼침에서 크므로 역정규화해 펼침=0, 주먹=1로 맞춘다.
+        # 값을 min, 최대 동작에서 얻은 raw 값을 max로 사용한다. 엄지 벌림도
+        # 붙인 상태를 min, 최대 벌림을 max로 사용해 붙임=0, 벌림=1로 만든다.
         # 나머지 네 손가락도 open..closed 구간을 0..1로 만든다.
         self.declare_parameter('thumb_flex_min', 0.0)
         self.declare_parameter('thumb_flex_max', 1.0)
@@ -695,8 +740,8 @@ class HandTargetNode(Node):
         """Map this user's seven measured axis ranges onto the 0..1 range.
 
         기본 계산식은 ``(raw - minimum) / (maximum - minimum)``이며 범위를
-        벗어나면 0 또는 1로 제한한다. 엄지 벌림만 역정규화하여 펼침을 0,
-        주먹을 1로 출력한다.
+        벗어나면 0 또는 1로 제한한다. 엄지 벌림도 같은 방향으로 정규화하여
+        손바닥에 붙인 상태를 0, 최대한 벌린 상태를 1로 출력한다.
         """
         return HandTargets(
             thumb_flex=_normalize(
@@ -707,7 +752,7 @@ class HandTargetNode(Node):
                 raw.thumb_opp,
                 *self._axis_calibration['thumb_opp'],
             ),
-            thumb_abd=_inverse_normalize(
+            thumb_abd=_normalize(
                 raw.thumb_abd,
                 *self._axis_calibration['thumb_abd'],
             ),

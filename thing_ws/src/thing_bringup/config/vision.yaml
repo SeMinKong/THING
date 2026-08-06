@@ -31,15 +31,20 @@ hand_target_node:
     speed_limit: 1.0
     diagnostics_rate_hz: 1.0
     # User calibration measured from the world-landmark pipeline. Thumb flex
-    # and opposition increase from open to fist. Raw thumb abduction is lower
-    # in a fist and higher when open, so hand_target_node reverses this range
-    # to publish open=0 and fist=1 like the other MIMIC axes.
-    thumb_flex_min: 0.1465
-    thumb_flex_max: 0.3330
-    thumb_opp_min: 0.0195
-    thumb_opp_max: 0.5800
-    thumb_abd_min: 0.2887
-    thumb_abd_max: 0.3909
+    # and opposition increase toward their maximum poses. Raw thumb abduction
+    # also increases from attached to spread, so it publishes attached=0 and
+    # fully spread=1.
+    # 2026-08-06 user calibration.  The limits are placed slightly inside
+    # the measured stable endpoints so relaxed/maximum poses reliably clamp
+    # to 0/1 despite landmark jitter.
+    thumb_flex_min: 0.1100
+    thumb_flex_max: 0.1750
+    thumb_opp_min: 0.0300
+    thumb_opp_max: 0.4600
+    # ABD now uses the palm-plane-projected CMC-to-tip direction. Keep its
+    # first run uncalibrated; replace these with new attached/spread samples.
+    thumb_abd_min: 0.0000
+    thumb_abd_max: 1.0000
     index_flex_open: 0.174
     index_flex_closed: 0.711
 
