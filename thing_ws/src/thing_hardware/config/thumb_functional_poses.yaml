@@ -3,7 +3,7 @@
     # Thumb hardware shared by the standalone test node and motor driver.
     thumb_bus_a_device: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
     thumb_bus_b_device: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0"
-    thumb_baud_rate: 57600
+    thumb_baud_rate: 1000000
     thumb_protocol_version: 2.0
     thumb_flex_motor_id: 2
     thumb_abduction_motor_id: 5

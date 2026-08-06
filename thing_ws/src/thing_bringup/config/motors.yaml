@@ -5,7 +5,7 @@ motor_driver_node:
 
     # Common DYNAMIXEL configuration
     model: "XL330-M288-T"
-    baud_rate: 57600
+    baud_rate: 1000000
     protocol_version: 2.0
     operating_mode: 5
     encoder_resolution_raw: 4096

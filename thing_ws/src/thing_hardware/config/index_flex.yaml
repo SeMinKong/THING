@@ -2,7 +2,7 @@
   ros__parameters:
     # BUS_B / index finger flexion (ID 4)
     device_name: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0"
-    baud_rate: 57600
+    baud_rate: 1000000
     protocol_version: 2.0
 
     motor_id: 4
