@@ -810,20 +810,6 @@ class MjpegStreamer(Node):
                 cv2.LINE_AA,
             )
 
-        cv2.putText(
-            frame,
-            (
-                f'confidence: '
-                f'{float(message.confidence):.2f}'
-            ),
-            (20, 35),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
-            2,
-            cv2.LINE_AA,
-        )
-
     def _publish_diagnostics(self) -> None:
         """Publish HTTP and encoding status at low rate."""
         now = time.monotonic()
