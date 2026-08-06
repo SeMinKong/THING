@@ -55,7 +55,7 @@ manual_executor:
 command_guard:
   ros__parameters:
     command_timeout_ms: 300
-    command_hold_ms: 300
+    command_hold_ms: 5000
     command_future_tolerance_ms: 100
     safety_state_timeout_ms: 1500
     control_state_timeout_ms: 1500
@@ -89,6 +89,24 @@ command_guard:
         min: 0.0
         max: 1.0
         max_delta_per_second: 1.5
+    # Vision keeps each landmark-frame change within 0.08 at up to 30 Hz.
+    # At MIMIC speed_limit 0.25 this requires 9.6/s; 10.0/s includes rounding.
+    # This profile applies only to SOURCE_MIMIC. Other sources use axis_limits.
+    mimic_axis_limits:
+      thumb_flex:
+        max_delta_per_second: 10.0
+      thumb_opp:
+        max_delta_per_second: 10.0
+      thumb_abd:
+        max_delta_per_second: 10.0
+      index_flex:
+        max_delta_per_second: 10.0
+      middle_flex:
+        max_delta_per_second: 10.0
+      ring_flex:
+        max_delta_per_second: 10.0
+      little_flex:
+        max_delta_per_second: 10.0
 
 safety_manager:
   ros__parameters:

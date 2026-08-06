@@ -83,7 +83,7 @@ class GuardLimits:
     """
     외부 설정이 안전 범위를 넓히지 못하도록 생성 시 검증되는 명령 한계.
 
-    mapping 세 개는 일곱 축을 정확히 한 번씩 포함해야 한다. timeout과 normalized 축
+    mapping 네 개는 일곱 축을 정확히 한 번씩 포함해야 한다. timeout과 normalized 축
     범위에는 hard envelope가 있어 parameter가 더 보수적으로 줄일 수는 있지만 상한을
     넘겨 완화할 수는 없다. 객체를 frozen으로 두어 실행 중 검증 기준 변경도 막는다.
     """
@@ -96,6 +96,7 @@ class GuardLimits:
     axis_min: Mapping[str, float]
     axis_max: Mapping[str, float]
     max_axis_delta_per_second: Mapping[str, float]
+    mimic_max_axis_delta_per_second: Mapping[str, float]
 
     def __post_init__(self) -> None:
         """타입·hard timeout·축 집합·normalized 범위를 시작 시 한 번에 검증한다."""
@@ -117,7 +118,7 @@ class GuardLimits:
             'command_future_tolerance_ms': 100,
             'safety_state_timeout_ms': 1500,
             'control_state_timeout_ms': 1500,
-            'command_hold_ms': 300,
+            'command_hold_ms': 5000,
         }
         # parameter는 hard envelope를 더 엄격하게 만들 수만 있고 넓힐 수는 없다.
         for name, maximum in maximum_timeouts.items():
@@ -126,7 +127,12 @@ class GuardLimits:
 
         expected_axes = set(AXIS_NAMES)
         # 누락 축은 무검증 통로가 되고 추가 축은 message 계약 불일치이므로 둘 다 거부한다.
-        for name in ('axis_min', 'axis_max', 'max_axis_delta_per_second'):
+        for name in (
+            'axis_min',
+            'axis_max',
+            'max_axis_delta_per_second',
+            'mimic_max_axis_delta_per_second',
+        ):
             values = getattr(self, name)
             if set(values) != expected_axes:
                 raise ValueError(f'{name} must define exactly seven axes')
@@ -148,6 +154,12 @@ class GuardLimits:
             if self.max_axis_delta_per_second[axis_name] <= 0.0:
                 raise ValueError(
                     'max_axis_delta_per_second values must be positive'
+                )
+            mimic_rate = self.mimic_max_axis_delta_per_second[axis_name]
+            if not 0.0 < mimic_rate <= 10.0:
+                raise ValueError(
+                    'mimic_max_axis_delta_per_second values must be in '
+                    '(0, 10.0]'
                 )
 
 
@@ -416,9 +428,14 @@ class CommandGuardCore:
             if elapsed_ns < 0:
                 return GuardDecision(False, 'monotonic_time_regressed')
             elapsed_seconds = elapsed_ns / 1_000_000_000.0
+            rate_limits = (
+                self._limits.mimic_max_axis_delta_per_second
+                if command.source == SOURCE_MIMIC
+                else self._limits.max_axis_delta_per_second
+            )
             for axis_name in AXIS_NAMES:
                 allowed_delta = (
-                    self._limits.max_axis_delta_per_second[axis_name]
+                    rate_limits[axis_name]
                     * command.speed_limit
                     * elapsed_seconds
                 )

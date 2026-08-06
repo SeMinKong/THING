@@ -35,6 +35,7 @@ def test_control_yaml_defines_v6_3_guard_and_state_freshness_limits():
     guard = config['command_guard']['ros__parameters']
 
     assert guard['command_timeout_ms'] == 300
+    assert guard['command_hold_ms'] == 5000
     assert guard['command_future_tolerance_ms'] == 100
     assert guard['safety_state_timeout_ms'] == 1500
     assert guard['control_state_timeout_ms'] == 1500
@@ -55,6 +56,10 @@ def test_control_yaml_defines_v6_3_guard_and_state_freshness_limits():
         assert limits['min'] == 0.0
         assert limits['max'] == 1.0
         assert limits['max_delta_per_second'] > 0.0
+
+    assert set(guard['mimic_axis_limits']) == expected_axes
+    for limits in guard['mimic_axis_limits'].values():
+        assert limits['max_delta_per_second'] == 10.0
 
     manager = config['command_manager']['ros__parameters']
     assert manager['state_publish_period_ms'] < guard['control_state_timeout_ms']

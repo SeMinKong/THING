@@ -212,12 +212,13 @@ class CommandGuardNode(Node):
         ).value
         command_hold_ms = self.declare_parameter(
             'command_hold_ms',
-            300,
+            5000,
         ).value
 
         axis_min = {}
         axis_max = {}
         max_delta = {}
+        mimic_max_delta = {}
         for axis_name in AXIS_NAMES:
             prefix = f'axis_limits.{axis_name}'
             axis_min[axis_name] = self.declare_parameter(
@@ -232,6 +233,10 @@ class CommandGuardNode(Node):
                 f'{prefix}.max_delta_per_second',
                 1.5,
             ).value
+            mimic_max_delta[axis_name] = self.declare_parameter(
+                f'mimic_axis_limits.{axis_name}.max_delta_per_second',
+                10.0,
+            ).value
 
         return GuardLimits(
             command_stale_timeout_ms=command_timeout_ms,
@@ -242,6 +247,7 @@ class CommandGuardNode(Node):
             axis_min=axis_min,
             axis_max=axis_max,
             max_axis_delta_per_second=max_delta,
+            mimic_max_axis_delta_per_second=mimic_max_delta,
         )
 
     def _on_safety_state(self, message: SafetyState) -> None:

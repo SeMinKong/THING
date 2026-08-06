@@ -21,6 +21,7 @@ from std_msgs.msg import Bool
 
 import thing_control.command_guard as command_guard_module
 from thing_control.command_guard import CommandGuardNode
+from thing_control.command_guard_core import AXIS_NAMES
 from thing_control.command_guard_core import GuardDecision
 from thing_interfaces.msg import ControlState, HandCommand, SafetyState
 
@@ -128,6 +129,17 @@ def publish_ready_activation(safety_pub, control_pub):
     active.active_owner = ControlState.OWNER_WEB
     active.owner_alive = True
     control_pub.publish(active)
+
+
+def test_node_defaults_match_safety_watchdog_and_mimic_producer():
+    with running_nodes() as (guard, _):
+        limits = guard._core._limits
+        assert limits.command_hold_ms == 5000
+        assert set(limits.mimic_max_axis_delta_per_second) == set(AXIS_NAMES)
+        assert all(
+            rate == 10.0
+            for rate in limits.mimic_max_axis_delta_per_second.values()
+        )
 
 
 def test_guard_subscribes_to_stop_and_publishes_barrier_ack():
