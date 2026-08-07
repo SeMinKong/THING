@@ -24,6 +24,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'keyboard_teleop_node = '
+            'thing_teleop.keyboard_teleop_node:main',
+            'keyboard_teleop_preview = thing_teleop.teleop_ui:main',
         ],
     },
 )
