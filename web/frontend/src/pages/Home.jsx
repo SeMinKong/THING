@@ -29,14 +29,13 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.3, ease: [0.2, 0, 0.1, 1] }}
         >
-          <p className="font-mono text-[13px] font-semibold tracking-tight">THING</p>
-          <h1 className="mt-2 text-[30px] font-bold leading-tight tracking-[-0.02em]">
+          <p className="font-mono text-[24px] font-semibold tracking-tight">THING</p>
+          <h1 className="mt-2 text-[36px] font-bold leading-tight tracking-[-0.02em]">
             로봇 손 관제
           </h1>
 <p className="mt-2 text-[15px] leading-relaxed text-ink-600">
   <strong className="text-lg">T</strong>endon-driven robot <strong className="text-lg">H</strong>and with <strong className="text-lg">I</strong>ntelligent <strong className="text-lg">N</strong>eural <strong className="text-lg">G</strong>rasp
 </p>
-
         </motion.div>
 
         <div className="mt-8 grid gap-4 sm:grid-cols-2">
@@ -59,8 +58,8 @@ export default function Home() {
                               ? "bg-[var(--signal,var(--color-st-run))]/10"
                               : "bg-ink-50 hover:bg-ink-100"}`}
               >
-                <span className="text-[28px] font-bold tracking-[-0.02em]">{entry.name}</span>
-                <span className="text-[13px] text-ink-600">{entry.line}</span>
+                <span className="text-[48px] font-bold tracking-[-0.02em]">{entry.name}</span>
+                <span className="text-[23px] text-ink-600">{entry.line}</span>
                 {active && (
                   <span className="absolute right-5 top-5 rounded-full
                                    bg-[var(--signal,var(--color-st-run))] px-2.5 py-0.5

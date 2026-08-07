@@ -11,7 +11,7 @@
 import { Outlet, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "motion/react";
 import Header from "../components/Header";
-import SafetyBanner from "../components/SafetyBanner";
+// import SafetyBanner from "../components/SafetyBanner";
 import { useHandSocket } from "../context/HandSocketContext";
 
 export default function Layout() {
@@ -28,7 +28,7 @@ export default function Layout() {
       <main className="mx-auto flex min-h-0 w-full max-w-[1400px] flex-1 flex-col
                        gap-3 px-6 py-4">
         {/* 알림은 있을 때만 자리를 차지한다. 없으면 높이 0 이다 */}
-        <SafetyBanner />
+        {/* <SafetyBanner /> */}
 
         <AnimatePresence mode="popLayout" initial={false}>
           <motion.div

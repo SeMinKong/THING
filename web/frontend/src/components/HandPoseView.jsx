@@ -95,28 +95,9 @@ export default function HandPoseView({ command }) {
   const isSequence = steps.length > 1;
 
   return (
-    <div className="flex h-full min-h-0 flex-col items-center justify-center gap-2">
-      <div className="flex min-h-0 flex-1 items-center justify-center">
+    <div className="flex h-full min-h-0 items-center justify-center py-1">
+      <div className="w-full max-w-[170px]">
         <HandFigure pts={step.pts} label={step.name} />
-      </div>
-
-      <div className="shrink-0 text-center">
-        <p className="text-sm font-medium text-ink-600">
-          {command.label}
-          {isSequence && (
-            <span className="text-ink-400">
-              {" · "}
-              {step.name}{" "}
-              <span className="font-mono text-xs">
-                ({index + 1}/{steps.length})
-              </span>
-            </span>
-          )}
-        </p>
-        <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
-          자세는 설명용 개략도입니다. 실제 동작·수치는 로봇(FR-41) 기준이며 이 화면은
-          아무것도 보내지 않습니다.
-        </p>
       </div>
     </div>
   );

@@ -179,7 +179,7 @@ web/
       │  ├─ diagnostics.js       통합 시험용 진단
       │  └─ commandPresets.js    FR-22 버튼 정의
       ├─ context/HandSocketContext.jsx
-      ├─ components/             Header, StatusBar, SafetyBanner, CameraStream,
+      ├─ components/             Header, StatusBar, ~~SafetyBanner~~, CameraStream,
       │                          MotorStatusPanel, ModeGate, GesturePreview
       ├─ pages/                  Home, VisionMode, OrderMode
       ├─ ui/                     Sheet, Num

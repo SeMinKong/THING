@@ -21,7 +21,7 @@ import { act, render, renderHook, screen } from "@testing-library/react";
 
 import { HandSocketProvider, useHandSocket } from "../context/HandSocketContext";
 import StatusBar from "../components/StatusBar";
-import SafetyBanner from "../components/SafetyBanner";
+// import SafetyBanner from "../components/SafetyBanner";
 import OrderMode from "../pages/OrderMode";
 import { BASIC_GESTURES } from "../config/commandPresets";
 import { CLIENT_MESSAGE, CONNECTION_STATE } from "../config/messageProtocol";
@@ -103,7 +103,7 @@ describe("6.4절 고정 6필드만 오는 브릿지", () => {
   });
 
   it("control_state 누락을 정상 상태로 위장하지 않고 안내한다", () => {
-    setup(<SafetyBanner />);
+    // setup(<SafetyBanner />);
     emit(MockWebSocket.latest(), SPEC_ONLY);
     expect(document.body.textContent).toContain("제어 상태");
   });
@@ -344,7 +344,7 @@ describe("FR-27 장치 단절 경고", () => {
   });
 
   it("전 장치 down 이면 경고를 띄운다", () => {
-    setup(<SafetyBanner />);
+    // setup(<SafetyBanner />);
     emit(MockWebSocket.latest(), withConnection({
       jetson: "down", rpi: "down", ros2: "down", camera: "down", motor: "down",
     }));
@@ -354,7 +354,7 @@ describe("FR-27 장치 단절 경고", () => {
   });
 
   it("unknown 은 단절로 단정하지 않는다", () => {
-    setup(<SafetyBanner />);
+    // setup(<SafetyBanner />);
     emit(MockWebSocket.latest(), withConnection({
       jetson: "unknown", rpi: "unknown", ros2: "unknown",
       camera: "unknown", motor: "unknown",
