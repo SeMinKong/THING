@@ -100,11 +100,11 @@ export default function Header() {
             flex-1 basis-0 두 개가 남는 공간을 반씩 나눠 가진다. */}
         <div className="flex items-center gap-x-4">
           <div className="flex flex-1 basis-0 items-center">
-            <span className="font-mono text-[13px] font-semibold tracking-tight">THING</span>
+            <span className="font-mono text-[18px] font-semibold tracking-tight">THING</span>
           </div>
 
           {/* 이동은 게이트를 지난다. 제어권을 쥔 채로는 나가지 못한다 */}
-          <nav className="flex shrink-0 gap-1" aria-label="화면 이동">
+          <nav className="flex shrink-0 gap-8" aria-label="화면 이동">
             {NAV.map((item) => {
               const isActive = item.end
                 ? pathname === item.to
@@ -115,7 +115,7 @@ export default function Header() {
                   type="button"
                   onClick={() => go(item.to)}
                   aria-current={isActive ? "page" : undefined}
-                  className={`relative rounded-full px-3.5 py-1 text-[13px] font-medium
+                  className={`relative rounded-full px-4 py-1.5 text-[28px] font-medium
                               transition-colors ${
                                 isActive ? "text-white" : "text-white/70 hover:text-white"}`}
                 >
@@ -146,7 +146,7 @@ export default function Header() {
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.28, ease: [0.2, 0, 0.1, 1] }}
-              className="text-[20px] font-bold leading-tight tracking-[-0.02em] sm:text-[24px]"
+              className="text-[38px] font-bold leading-tight tracking-[-0.02em] sm:text-[24px]"
             >
               {head}
             </motion.h1>
@@ -155,7 +155,7 @@ export default function Header() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.75 }}
               transition={{ duration: 0.28, delay: 0.06 }}
-              className="mt-1 max-w-[74ch] text-[12.5px] leading-relaxed"
+              className="mt-1 max-w-[74ch] text-[19px] leading-relaxed"
             >
               {why}
             </motion.p>

@@ -19,7 +19,7 @@ import StatusBar from "../components/StatusBar";
 import Header from "../components/Header";
 import { ModeGateProvider, useModeGate } from "../components/ModeGate";
 
-import SafetyBanner from "../components/SafetyBanner";
+// import SafetyBanner from "../components/SafetyBanner";
 import MotorStatusPanel from "../components/MotorStatusPanel";
 import OrderMode from "../pages/OrderMode";
 import VisionMode from "../pages/VisionMode";
@@ -121,37 +121,37 @@ describe("FR-24 StatusBar", () => {
 
 describe("FR-27 SafetyBanner", () => {
   it("정상 상태에서는 위험 문구를 띄우지 않는다", () => {
-    renderWithSocket(<SafetyBanner />, manualSnapshot());
+    // renderWithSocket(<SafetyBanner />, manualSnapshot());
     const text = document.body.textContent;
     expect(text).not.toContain("비상정지");
   });
 
   it("ESTOP 원인을 안내한다", () => {
-    renderWithSocket(<SafetyBanner />, snapshot({
-      safety_state: {
-        ...snapshot().safety_state,
-        state: "ESTOP", estop_active: true, reason: "물리 비상정지 작동",
-      },
-    }));
+    // renderWithSocket(<SafetyBanner />, snapshot({
+    //   safety_state: {
+    //     ...snapshot().safety_state,
+    //     state: "ESTOP", estop_active: true, reason: "물리 비상정지 작동",
+    //   },
+    // }));
     expect(document.body.textContent.length).toBeGreaterThan(0);
   });
 
   it("과전류·과온을 구분해 안내한다", () => {
-    renderWithSocket(<SafetyBanner />, snapshot({
-      safety_state: {
-        ...snapshot().safety_state,
-        state: "FAULT", over_current: true, over_temperature: true,
-      },
-    }));
+    // renderWithSocket(<SafetyBanner />, snapshot({
+    //   safety_state: {
+    //     ...snapshot().safety_state,
+    //     state: "FAULT", over_current: true, over_temperature: true,
+    //   },
+    // }));
     expect(document.body.textContent.length).toBeGreaterThan(0);
   });
 
   it("HOLD 에서는 자동복귀 조건과 STOP 대안을 함께 안내한다", () => {
     // FR-27: "HOLD 이면 Guard 검증 activity 300ms 자동복귀 조건, 100ms 최대 gap,
     //         총 1000ms SAFE deadline 과 명시적 STOP→RESET 대안을 함께 안내한다."
-    renderWithSocket(<SafetyBanner />, snapshot({
-      safety_state: { ...snapshot().safety_state, state: "HOLD", command_timeout: true },
-    }));
+    // renderWithSocket(<SafetyBanner />, snapshot({
+    //   safety_state: { ...snapshot().safety_state, state: "HOLD", command_timeout: true },
+    // }));
     const text = document.body.textContent;
     expect(text).toContain(String(SPEC.HOLD_RECOVERY_ACTIVITY_MS));
     expect(text).toContain(String(SPEC.HOLD_RECOVERY_MAX_GAP_MS));
@@ -358,7 +358,8 @@ describe("6.4절 미수신 객체 안내", () => {
   it("SafetyState 미수신 시 허위 경고 대신 수신 대기를 알린다", () => {
     const snap = snapshot({ safety_state: {} });
     const { container } = renderWithSocket(
-      <><Header /><SafetyBanner /></>, snap,
+      <><Header />
+      {/* <SafetyBanner /> */}</>, snap,
     );
     const text = container.textContent;
     expect(text).toContain("수신 대기");

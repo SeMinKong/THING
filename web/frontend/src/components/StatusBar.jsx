@@ -57,7 +57,7 @@ export default function StatusBar() {
 
   return (
     <div className="ml-auto flex flex-wrap items-center gap-2 text-white">
-      <span className="font-mono text-xs opacity-80">
+      <span className="font-mono text-lg opacity-80">
         현재 모드: {MODE_LABEL[controlState.active_mode] ?? controlState.active_mode}
       </span>
 
@@ -96,7 +96,7 @@ export default function StatusBar() {
         )}
       </AnimatePresence>
 
-      <span className="flex items-center gap-1.5 font-mono text-xs opacity-80">
+      <span className="flex items-center gap-1.5 font-mono text-lg opacity-80">
         <span className={`size-1.5 rounded-full ${live ? "bg-white" : "bg-white/40"}`}
               aria-hidden="true" />
         {LINK_LABEL[connectionState] ?? "연결 끊김"}

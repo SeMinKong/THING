@@ -150,7 +150,12 @@ export default function OrderMode() {
           receivedAt={snapshotReceivedAt}
         />
         <Panel className="flex min-h-0 flex-1 flex-col" delay={0.05}>
-          <Head title="동작 미리보기" />
+          <Head
+            title="동작 미리보기"
+            afterTitle={hoveredCommand ? (
+              <span className="text-ink-400 text-sm">{hoveredCommand.label}</span>
+            ) : null}
+          />
           <Body className="flex min-h-0 flex-1 flex-col">
             {/* 잠김(조작 모드 아님·제어권 없음 등)이면 command=null → 미리보기 안 뜸 */}
             <HandPoseView command={commandsDisabled ? null : hoveredCommand} />
