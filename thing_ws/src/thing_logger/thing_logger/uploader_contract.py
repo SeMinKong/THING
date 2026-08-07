@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
 import re
 from typing import Mapping
 
@@ -67,9 +68,12 @@ ENV_TOKEN = "THING_UPLOADER_TOKEN"
 ENV_CONNECT_TIMEOUT = "THING_UPLOADER_CONNECT_TIMEOUT_S"
 ENV_READ_TIMEOUT = "THING_UPLOADER_READ_TIMEOUT_S"
 ENV_TLS_VERIFY = "THING_UPLOADER_TLS_VERIFY"
+ENV_CONFIG_FILE = "THING_UPLOADER_ENV_FILE"
 
 DEFAULT_SOCKET_PATH = "/run/thing-uploader/uploader.sock"
 DEFAULT_SOCKET_MODE = "0660"  # 배포 선택값(명세 고정 아님) — exporter가 connect 가능해야
+DEFAULT_CONFIG_FILE = "/etc/thing-uploader.env"
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
@@ -95,9 +99,69 @@ class Config:
         }
 
 
-def load_config(env: dict | None = None) -> Config:
-    """환경변수에서 설정을 읽는다. 필수값이 없으면 ConfigError로 기동을 중단한다."""
-    env = os.environ if env is None else env
+def _read_env_file(path: str, *, required: bool) -> dict:
+    """Read a simple KEY=VALUE file without executing it as shell code."""
+    try:
+        lines = Path(path).read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        if required:
+            raise ConfigError("uploader env 파일을 찾을 수 없다") from None
+        return {}
+    except OSError as exc:
+        raise ConfigError("uploader env 파일을 읽을 수 없다") from exc
+
+    values = {}
+    for line_number, original in enumerate(lines, start=1):
+        line = original.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            raise ConfigError(
+                f"uploader env 파일 {line_number}행 형식이 잘못됐다"
+            )
+        key, value = (part.strip() for part in line.split("=", 1))
+        if not ENV_NAME_RE.fullmatch(key):
+            raise ConfigError(
+                f"uploader env 파일 {line_number}행 이름이 잘못됐다"
+            )
+        if value[:1] in {'"', "'"}:
+            if len(value) < 2 or value[-1] != value[0]:
+                raise ConfigError(
+                    f"uploader env 파일 {line_number}행 따옴표가 잘못됐다"
+                )
+            value = value[1:-1]
+        values[key] = value
+    return values
+
+
+def load_config(
+    env: dict | None = None,
+    *,
+    env_file_path: str | None = None,
+) -> Config:
+    """환경변수와 선택된 env 파일에서 uploader 설정을 읽는다."""
+    process_environment = env is None
+    environment = dict(os.environ if process_environment else env)
+
+    if env_file_path is not None:
+        file_environment = _read_env_file(env_file_path, required=True)
+    elif process_environment:
+        configured_path = environment.get(
+            ENV_CONFIG_FILE,
+            DEFAULT_CONFIG_FILE,
+        ).strip()
+        file_environment = _read_env_file(
+            configured_path,
+            required=ENV_CONFIG_FILE in environment,
+        )
+    else:
+        file_environment = {}
+
+    # 컨테이너가 직접 주입한 환경변수가 파일보다 우선한다.
+    file_environment.update(environment)
+    env = file_environment
 
     token = env.get(ENV_TOKEN, "").strip()
     if not token:

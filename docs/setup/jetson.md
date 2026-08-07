@@ -14,3 +14,19 @@
 MediaPipe Python 패키지는 Jetson 아키텍처에서 공식 wheel 지원 여부가 달라질 수
 있으므로 설치 방법과 검증된 버전을 `vision/requirements.txt`에 고정하기 전에
 실제 장치에서 확인합니다.
+
+## Logger와 uploader 실행
+
+uploader 비밀값은 `/etc/thing-uploader.env`에 `KEY=VALUE` 형식으로 둡니다.
+Logger와 격리 uploader 프로세스는 다음 명령 하나로 함께 실행합니다.
+
+```bash
+ros2 launch thing_bringup logger.launch.py
+```
+
+다른 env 파일을 사용할 때만 launch 인자를 지정합니다.
+
+```bash
+ros2 launch thing_bringup logger.launch.py \
+  uploader_env_file:=/path/to/thing-uploader.env
+```
