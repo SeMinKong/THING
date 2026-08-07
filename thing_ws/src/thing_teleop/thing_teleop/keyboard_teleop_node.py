@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import curses
 from collections import deque
-from time import monotonic
+from threading import RLock, Thread
+from time import monotonic, sleep
 
 import rclpy
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, SingleThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -84,6 +85,7 @@ class KeyboardTeleopNode(Node):
 
     def __init__(self) -> None:
         super().__init__('keyboard_teleop_node')
+        self._state_lock = RLock()
         step_size = float(self.declare_parameter('step_size', 0.01).value)
         self.speed_limit = float(
             self.declare_parameter('speed_limit', 1.0).value
@@ -135,6 +137,7 @@ class KeyboardTeleopNode(Node):
         self._next_lease_heartbeat = 0.0
         self._lease_enabled = False
         self._stop_queued = False
+        self._stop_complete = False
         self._exit_after_stop = False
         self.exit_ready = False
 
@@ -159,6 +162,10 @@ class KeyboardTeleopNode(Node):
             1.0 / publish_rate_hz,
             self._publish_command,
         )
+        self._lifecycle_timer = self.create_timer(
+            0.05,
+            self.update_control_lifecycle,
+        )
         self._mode_client = self.create_client(
             SetControlMode,
             '/thing/set_control_mode',
@@ -171,115 +178,142 @@ class KeyboardTeleopNode(Node):
         )
 
     def _on_motor_status(self, message: MotorStatus) -> None:
-        now = monotonic()
-        self._last_motor_status_time = now
-        self._motor_receive_times.append(now)
-        self.bus_communication_ok = message.bus_communication_ok
-        for motor in message.motors:
-            axis_name = _ACTUATOR_TO_AXIS.get(motor.actuator_name)
-            if axis_name is None:
-                continue
-            self.motors[axis_name] = MotorUiState(
-                motor_id=motor.motor_id,
-                goal_position_raw=motor.goal_position_raw,
-                present_position_raw=motor.present_position_raw,
-                current_ampere=motor.current_ampere,
-                temperature_celsius=motor.temperature_celsius,
-                torque_enabled=motor.torque_enabled,
-                communication_ok=motor.communication_ok,
-                received=True,
-            )
+        with self._state_lock:
+            now = monotonic()
+            self._last_motor_status_time = now
+            self._motor_receive_times.append(now)
+            self.bus_communication_ok = message.bus_communication_ok
+            for motor in message.motors:
+                axis_name = _ACTUATOR_TO_AXIS.get(motor.actuator_name)
+                if axis_name is None:
+                    continue
+                self.motors[axis_name] = MotorUiState(
+                    motor_id=motor.motor_id,
+                    goal_position_raw=motor.goal_position_raw,
+                    present_position_raw=motor.present_position_raw,
+                    current_ampere=motor.current_ampere,
+                    temperature_celsius=motor.temperature_celsius,
+                    torque_enabled=motor.torque_enabled,
+                    communication_ok=motor.communication_ok,
+                    received=True,
+                )
 
     def _on_control_state(self, message: ControlState) -> None:
-        self._last_control_state_time = monotonic()
-        self._control_mode = message.active_mode
-        self._control_owner = message.active_owner
-        self.control_name = _CONTROL_NAMES.get(
-            message.active_mode,
-            f'UNKNOWN({message.active_mode})',
-        )
-        self.owner_name = _OWNER_NAMES.get(
-            message.active_owner,
-            f'UNKNOWN({message.active_owner})',
-        )
-        self.owner_alive = message.owner_alive
-        if (
-            message.active_mode != ControlState.MODE_TELEOP
-            or message.active_owner != ControlState.OWNER_LOCAL
-        ):
-            self._lease_enabled = False
-            self._disarm('Control mode or owner changed')
+        with self._state_lock:
+            self._last_control_state_time = monotonic()
+            self._control_mode = message.active_mode
+            self._control_owner = message.active_owner
+            self.control_name = _CONTROL_NAMES.get(
+                message.active_mode,
+                f'UNKNOWN({message.active_mode})',
+            )
+            self.owner_name = _OWNER_NAMES.get(
+                message.active_owner,
+                f'UNKNOWN({message.active_owner})',
+            )
+            self.owner_alive = message.owner_alive
+            if (
+                message.active_mode != ControlState.MODE_TELEOP
+                or message.active_owner != ControlState.OWNER_LOCAL
+            ):
+                self._lease_enabled = False
+                self._disarm('Control mode or owner changed')
 
     def _on_safety_state(self, message: SafetyState) -> None:
-        self._last_safety_state_time = monotonic()
-        self._safety_state = message.state
-        self.safety_name = _SAFETY_NAMES.get(
-            message.state,
-            f'UNKNOWN({message.state})',
-        )
-        if message.state not in (SafetyState.READY, SafetyState.RUN):
-            self._disarm(f'Safety state changed to {self.safety_name}')
+        with self._state_lock:
+            self._last_safety_state_time = monotonic()
+            self._safety_state = message.state
+            self.safety_name = _SAFETY_NAMES.get(
+                message.state,
+                f'UNKNOWN({message.state})',
+            )
+            if message.state not in (SafetyState.READY, SafetyState.RUN):
+                self._disarm(f'Safety state changed to {self.safety_name}')
 
     def motor_receive_rate_hz(self) -> float:
         """Estimate MotorStatus receive rate from the local steady clock."""
-        if len(self._motor_receive_times) < 2:
-            return 0.0
-        elapsed = self._motor_receive_times[-1] - self._motor_receive_times[0]
-        if elapsed <= 0.0:
-            return 0.0
-        return (len(self._motor_receive_times) - 1) / elapsed
+        with self._state_lock:
+            if len(self._motor_receive_times) < 2:
+                return 0.0
+            elapsed = self._motor_receive_times[-1] - self._motor_receive_times[0]
+            if elapsed <= 0.0:
+                return 0.0
+            return (len(self._motor_receive_times) - 1) / elapsed
 
     def motor_states_for_display(self) -> dict[str, MotorUiState]:
         """Return feedback, marking all motors stale after one second."""
-        if (
-            self._last_motor_status_time is None
-            or monotonic() - self._last_motor_status_time > 1.0
-        ):
-            return {
-                name: MotorUiState(
-                    motor_id=motor.motor_id,
-                    received=False,
-                )
-                for name, motor in self.motors.items()
-            }
-        return self.motors
+        with self._state_lock:
+            if (
+                self._last_motor_status_time is None
+                or monotonic() - self._last_motor_status_time > 1.0
+            ):
+                return {
+                    name: MotorUiState(
+                        motor_id=motor.motor_id,
+                        received=False,
+                    )
+                    for name, motor in self.motors.items()
+                }
+            return dict(self.motors)
 
     def system_state_for_display(self) -> SystemUiState:
         """Build the system summary displayed by curses."""
-        return SystemUiState(
-            control=self.control_name,
-            owner=self.owner_name,
-            owner_alive=self.owner_alive,
-            safety=self.safety_name,
-            armed=self.armed,
-            bus_communication_ok=self.bus_communication_ok,
-            publish_rate_hz=self.motor_receive_rate_hz(),
-        )
+        with self._state_lock:
+            return SystemUiState(
+                control=self.control_name,
+                owner=self.owner_name,
+                owner_alive=self.owner_alive,
+                safety=self.safety_name,
+                armed=self.armed,
+                bus_communication_ok=self.bus_communication_ok,
+                publish_rate_hz=self.motor_receive_rate_hz(),
+            )
+
+    def ui_snapshot(
+        self,
+    ) -> tuple[TeleopCore, SystemUiState, dict[str, MotorUiState], str]:
+        """Copy all mutable state needed for one consistent UI frame."""
+        with self._state_lock:
+            core = TeleopCore(
+                step_size=self.core.step_size,
+                selected_index=self.core.selected_index,
+                thumb_pose=self.core.thumb_pose,
+                targets=list(self.core.targets),
+            )
+            return (
+                core,
+                self.system_state_for_display(),
+                self.motor_states_for_display(),
+                self.status,
+            )
 
     def request_teleop_control(self) -> None:
         """Request TELEOP/LOCAL control without arming command output."""
-        self._disarm('Requesting TELEOP/LOCAL control')
-        if self._mode_request is not None:
-            self.status = 'A control-mode request is already in progress'
-            return
-        self._start_mode_request(
-            ControlState.MODE_TELEOP,
-            ControlState.OWNER_LOCAL,
-            'acquire',
-        )
+        with self._state_lock:
+            self._disarm('Requesting TELEOP/LOCAL control')
+            if self._mode_request is not None:
+                self.status = 'A control-mode request is already in progress'
+                return
+            self._start_mode_request(
+                ControlState.MODE_TELEOP,
+                ControlState.OWNER_LOCAL,
+                'acquire',
+            )
 
     def request_stop(self, exit_after: bool = False) -> None:
         """Stop lease renewal and request explicit DISABLED/NONE control."""
-        self._disarm('STOP requested; command publishing stopped')
-        self._lease_enabled = False
-        self._exit_after_stop = self._exit_after_stop or exit_after
-        if self._mode_request is not None:
-            if self._mode_request_action == 'stop':
+        with self._state_lock:
+            self._disarm('STOP requested; command publishing stopped')
+            self._lease_enabled = False
+            self._stop_complete = False
+            self._exit_after_stop = self._exit_after_stop or exit_after
+            if self._mode_request is not None:
+                if self._mode_request_action == 'stop':
+                    return
+                self._stop_queued = True
+                self.status = 'STOP queued behind the current control request...'
                 return
-            self._stop_queued = True
-            self.status = 'STOP queued behind the current control request...'
-            return
-        self._start_stop_request()
+            self._start_stop_request()
 
     def _start_stop_request(self) -> None:
         self._stop_queued = False
@@ -301,8 +335,10 @@ class KeyboardTeleopNode(Node):
                 if action == 'stop'
                 else 'SetControlMode service is not available'
             )
-            if action == 'stop' and self._exit_after_stop:
-                self.exit_ready = True
+            if action == 'stop':
+                self._stop_complete = True
+                if self._exit_after_stop:
+                    self.exit_ready = True
             return
         request = SetControlMode.Request()
         request.requested_mode = requested_mode
@@ -317,32 +353,36 @@ class KeyboardTeleopNode(Node):
 
     def update_control_lifecycle(self) -> None:
         """Poll service completion and send owner-lease heartbeats."""
-        now = monotonic()
-        if self._mode_request is not None:
-            if self._mode_request.done():
-                self._finish_mode_request(now)
-            elif now >= self._mode_request_deadline:
-                action = self._mode_request_action
-                self._mode_request.cancel()
-                self._mode_request = None
-                self._mode_request_action = ''
-                self._lease_enabled = False
-                self.status = (
-                    f'{action.upper()} request timed out; command output is disarmed'
-                )
-                if self._stop_queued and action != 'stop':
-                    self._start_stop_request()
-                    return
-                if action == 'stop' and self._exit_after_stop:
-                    self.exit_ready = True
-            return
+        with self._state_lock:
+            now = monotonic()
+            if self._mode_request is not None:
+                if self._mode_request.done():
+                    self._finish_mode_request(now)
+                elif now >= self._mode_request_deadline:
+                    action = self._mode_request_action
+                    self._mode_request.cancel()
+                    self._mode_request = None
+                    self._mode_request_action = ''
+                    self._lease_enabled = False
+                    self.status = (
+                        f'{action.upper()} request timed out; '
+                        'command output is disarmed'
+                    )
+                    if self._stop_queued and action != 'stop':
+                        self._start_stop_request()
+                        return
+                    if action == 'stop':
+                        self._stop_complete = True
+                        if self._exit_after_stop:
+                            self.exit_ready = True
+                return
 
-        if self._lease_enabled and now >= self._next_lease_heartbeat:
-            self._start_mode_request(
-                ControlState.MODE_TELEOP,
-                ControlState.OWNER_LOCAL,
-                'heartbeat',
-            )
+            if self._lease_enabled and now >= self._next_lease_heartbeat:
+                self._start_mode_request(
+                    ControlState.MODE_TELEOP,
+                    ControlState.OWNER_LOCAL,
+                    'heartbeat',
+                )
 
     def _finish_mode_request(self, now: float) -> None:
         action = self._mode_request_action
@@ -357,8 +397,10 @@ class KeyboardTeleopNode(Node):
             if self._stop_queued and action != 'stop':
                 self._start_stop_request()
                 return
-            if action == 'stop' and self._exit_after_stop:
-                self.exit_ready = True
+            if action == 'stop':
+                self._stop_complete = True
+                if self._exit_after_stop:
+                    self.exit_ready = True
             return
 
         if not response.accepted:
@@ -366,6 +408,7 @@ class KeyboardTeleopNode(Node):
             self.status = f'{action.upper()} rejected: {response.reason}'
         elif action == 'stop':
             self._lease_enabled = False
+            self._stop_complete = True
             self.status = 'Control released: DISABLED / NONE'
         else:
             self._lease_enabled = True
@@ -381,29 +424,27 @@ class KeyboardTeleopNode(Node):
 
     def best_effort_stop(self) -> None:
         """Try to release control during abnormal or external shutdown."""
-        self._lease_enabled = False
-        if not rclpy.ok() or not self._mode_client.service_is_ready():
+        if not rclpy.ok():
             return
-        request = SetControlMode.Request()
-        request.requested_mode = ControlState.MODE_DISABLED
-        request.requested_owner = ControlState.OWNER_NONE
-        future = self._mode_client.call_async(request)
-        rclpy.spin_until_future_complete(
-            self,
-            future,
-            timeout_sec=self._service_timeout,
-        )
+        self.request_stop()
+        deadline = monotonic() + self._service_timeout + 0.1
+        while monotonic() < deadline:
+            with self._state_lock:
+                if self._stop_complete:
+                    return
+            sleep(0.01)
 
     def arm_home(self) -> None:
         """Set a known home command and arm output when every gate is valid."""
-        self.core.set_home()
-        invalid_reason = self._command_gate_reason()
-        if invalid_reason:
-            self.armed = False
-            self.status = f'Cannot arm: {invalid_reason}'
-            return
-        self.armed = True
-        self.status = 'ARMED at home; publishing TELEOP command at 20 Hz'
+        with self._state_lock:
+            self.core.set_home()
+            invalid_reason = self._command_gate_reason()
+            if invalid_reason:
+                self.armed = False
+                self.status = f'Cannot arm: {invalid_reason}'
+                return
+            self.armed = True
+            self.status = 'ARMED at home; publishing TELEOP command at 20 Hz'
 
     def _command_gate_reason(self) -> str:
         now = monotonic()
@@ -432,48 +473,60 @@ class KeyboardTeleopNode(Node):
         self.status = f'DISARMED: {reason}; press h to arm again'
 
     def _publish_command(self) -> None:
-        if not self.armed:
-            return
-        invalid_reason = self._command_gate_reason()
-        if invalid_reason:
-            self._disarm(invalid_reason)
-            return
+        with self._state_lock:
+            if not self.armed:
+                return
+            invalid_reason = self._command_gate_reason()
+            if invalid_reason:
+                self._disarm(invalid_reason)
+                return
 
-        values = self.core.command_values()
-        self._sequence = (self._sequence + 1) & 0xFFFFFFFF
-        message = HandCommand()
-        message.stamp = self.get_clock().now().to_msg()
-        message.sequence = self._sequence
-        message.source = HandCommand.SOURCE_TELEOP
-        message.thumb_flex = values['thumb_flex']
-        message.thumb_opp = values['thumb_opp']
-        message.thumb_abd = values['thumb_abd']
-        message.index_flex = values['index_flex']
-        message.middle_flex = values['middle_flex']
-        message.ring_flex = values['ring_flex']
-        message.little_flex = values['little_flex']
-        message.speed_limit = self.speed_limit
-        message.confidence = 1.0
+            values = self.core.command_values()
+            self._sequence = (self._sequence + 1) & 0xFFFFFFFF
+            message = HandCommand()
+            message.stamp = self.get_clock().now().to_msg()
+            message.sequence = self._sequence
+            message.source = HandCommand.SOURCE_TELEOP
+            message.thumb_flex = values['thumb_flex']
+            message.thumb_opp = values['thumb_opp']
+            message.thumb_abd = values['thumb_abd']
+            message.index_flex = values['index_flex']
+            message.middle_flex = values['middle_flex']
+            message.ring_flex = values['ring_flex']
+            message.little_flex = values['little_flex']
+            message.speed_limit = self.speed_limit
+            message.confidence = 1.0
         self._command_publisher.publish(message)
+
+    def apply_motion_key(self, key: int) -> None:
+        """Apply a keyboard target change while protecting publisher state."""
+        with self._state_lock:
+            _, status = apply_preview_key(self.core, key)
+            if status:
+                self.status = status
+
+    def should_exit(self) -> bool:
+        """Return whether graceful STOP processing permits UI exit."""
+        with self._state_lock:
+            return self.exit_ready
 
 
 def run_ui(screen: curses.window, node: KeyboardTeleopNode) -> None:
-    """Process ROS callbacks and terminal keys in one non-blocking loop."""
+    """Render snapshots and process keys while ROS runs independently."""
     curses.curs_set(0)
     screen.keypad(True)
     screen.timeout(50)
     running = True
     while running and rclpy.ok():
-        rclpy.spin_once(node, timeout_sec=0.0)
-        node.update_control_lifecycle()
-        if node.exit_ready:
+        if node.should_exit():
             break
+        core, system, motors, status = node.ui_snapshot()
         lines = build_screen_lines(
-            node.core,
+            core,
             node.speed_limit,
-            node.system_state_for_display(),
-            node.motor_states_for_display(),
-            node.status,
+            system,
+            motors,
+            status,
         )
         draw_screen(screen, lines)
         key = screen.getch()
@@ -491,22 +544,27 @@ def run_ui(screen: curses.window, node: KeyboardTeleopNode) -> None:
         if key in (ord('h'), ord('H')):
             node.arm_home()
             continue
-        running, status = apply_preview_key(node.core, key)
-        if status:
-            node.status = status
+        node.apply_motion_key(key)
 
 
 def main(args=None) -> None:
     """Run the ROS state monitor and curses user interface."""
     rclpy.init(args=args)
     node = KeyboardTeleopNode()
+    executor = SingleThreadedExecutor()
+    executor.add_node(node)
+    executor_thread = Thread(target=executor.spin, daemon=True)
+    executor_thread.start()
     try:
         curses.wrapper(run_ui, node)
     except (ExternalShutdownException, KeyboardInterrupt):
         pass
     finally:
-        if not node.exit_ready:
+        if not node.should_exit():
             node.best_effort_stop()
+        executor.shutdown(timeout_sec=2.0)
+        executor_thread.join(timeout=2.0)
+        executor.remove_node(node)
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
