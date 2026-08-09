@@ -1,0 +1,100 @@
+/**:
+  ros__parameters:
+    # Thumb hardware shared by the standalone test node and motor driver.
+    thumb_bus_a_device: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
+    thumb_bus_b_device: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0"
+    thumb_baud_rate: 1000000
+    thumb_protocol_version: 2.0
+    thumb_flex_motor_id: 2
+    thumb_abduction_motor_id: 5
+    thumb_opposition_motor_id: 6
+
+    # Four representative opposition/abduction poses used by the control layer.
+    # Entries at the same index in every array describe one pose.
+    thumb_functional_pose_names: ["neutral", "open", "grasp", "folded"]
+
+    # Normalized joint coordinates in the inclusive range 0.0..1.0.
+    #
+    # opposition: 0.0=neutral, 1.0=fully opposed
+    # abduction:   0.0=home,    1.0=fully abducted
+    # Thumb flexion is not part of pose selection. Once an opposition/abduction
+    # pose is selected, flexion remains independently controllable from 0.0 to
+    # 1.0 in the same way as the other finger-flexion axes.
+    # neutral uses opposing tendon preload: opposition pulls from the front at
+    # raw 1650 while abduction pulls from the back at raw 400. This mechanically
+    # braces the thumb so it remains stable while the flexion axis moves.
+    thumb_functional_opposition: [0.2, 0.0, 0.6, 1.0]
+    thumb_functional_abduction: [0.0, 1.0, 0.2, 1.0]
+
+    # Final raw target and required approach direction for each pose. A direction
+    # of 1 means approaching while raw position increases; -1 means approaching
+    # while it decreases. The deterministic direction removes tendon backlash.
+    thumb_opposition_positions_raw: [1650, -250, 100, 2500]
+    thumb_opposition_approach_directions: [1, -1, -1, 1]
+    thumb_abduction_positions_raw: [400, 0, 2450, 3000]
+    thumb_abduction_approach_directions: [-1, -1, 1, 1]
+
+    # Backlash-reset positions used before approaching each final pose. Move to
+    # these positions first, then approach the final raw target above. These
+    # positions also serve as collision-free transition positions. For neutral,
+    # opposition approaches raw 1650 in the increasing direction and abduction
+    # approaches raw 400 in the decreasing direction.
+    thumb_opposition_approach_start_positions_raw: [300, -250, 1000, 2000]
+    thumb_abduction_approach_start_positions_raw: [700, 500, 2000, 2500]
+
+    # Row-major source-to-target reversal transitions. Rows and columns both use
+    # [neutral, open, grasp, folded]. Initial candidates are arithmetic midpoints
+    # of the source and target final raw positions. A transition is used only
+    # when that axis changes approach direction; tune each pair after testing.
+    thumb_opposition_reversal_positions_raw:
+      [1650, 700, 875, 2075,
+       700, -250, -75, 1125,
+       875, -75, 100, 1300,
+       2075, 1125, 1300, 2500]
+    thumb_abduction_reversal_positions_raw:
+      [400, 200, 1425, 1700,
+       200, 0, 1225, 1500,
+       1425, 1225, 2450, 2725,
+       1700, 1500, 2725, 3000]
+
+    # Flexion remains a continuous 0.0..1.0 input. Its raw endpoints must be
+    # measured independently for every opposition/abduction pose because the
+    # coupled tendon geometry changes with the selected pose.
+    thumb_flex_home_positions_raw: [3700, 3300, 3900, 4300]
+    thumb_flex_closed_positions_raw: [4900, 4900, 4800, 5200]
+    # This measured position leaves the flexion tendon slack in every functional
+    # pose. Always move here before changing opposition or abduction.
+    thumb_flex_clearance_position_raw: 3200
+
+    # Conservative standalone-test settings. The test node only moves when
+    # execute_motion is explicitly overridden to true.
+    execute_motion: false
+    start_pose: "neutral"
+    target_pose: "open"
+    target_flex: 0.0
+
+    # Optional automated regression sequences. Pose entries are target poses;
+    # the previous completed pose automatically becomes the next source.
+    run_pose_sequence: false
+    test_pose_sequence:
+      ["open", "neutral", "grasp", "neutral", "folded", "neutral",
+       "open", "grasp", "open", "folded", "open", "neutral",
+       "grasp", "folded", "grasp", "neutral"]
+    run_flex_sequence: false
+    test_flex_pose_names: ["neutral", "open", "grasp", "folded"]
+    test_flex_values: [0.0, 0.25, 0.5, 0.75, 1.0, 0.75, 0.5, 0.25, 0.0]
+    test_step_hold_seconds: 1.0
+    return_to_start_on_complete: true
+    disable_torque_on_complete: true
+
+    thumb_position_tolerance_raw: 30
+    thumb_approach_tolerance_raw: 75
+    thumb_motion_timeout_seconds: 6.0
+    thumb_control_period_ms: 20
+    thumb_operating_mode: 5
+    thumb_position_p_gain: 400
+    thumb_position_i_gain: 0
+    thumb_position_d_gain: 600
+    thumb_goal_current_ma: 500
+    thumb_profile_acceleration_raw: 20
+    thumb_profile_velocity_raw: 50

@@ -1,0 +1,773 @@
+/* frontend/src/index.css
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * 설계 방향: 계측 기록 아카이브 (measurement archive)
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * 이 사이트는 텐던 구동 로봇 핸드가 남긴 세션 기록을 누구나 열람하는 공개
+ * 아카이브다. 대시보드가 아니다. 조작할 것도, 실시간으로 감시할 것도 없다.
+ * 남은 기록을 찾아보고 내려받는 곳이다.
+ *
+ * 그래서 어두운 관제 콘솔이 아니라 **밝은 논문 저장소**의 어휘를 택했다.
+ *
+ *   · 종이빛 바탕 — 어두운 네온 대시보드는 흔하고, 밝은 실내나 프로젝터에서
+ *     읽기 어렵다. 표와 그래프는 원래 흰 바탕에서 가장 잘 읽힌다.
+ *   · 자간을 좁힌 큰 제목 + 등폭 데이터 — 서식이 곧 신뢰다. 19자리 Session ID
+ *     는 등폭이 아니면 자릿수를 셀 수 없다.
+ *   · 얇은 가로선만으로 나누기 — 줄무늬 배경(zebra)이나 두꺼운 테두리는 낡아
+ *     보인다. 여백과 1px 선으로 충분하다.
+ *   · 색은 판정에만 — 초록 SUCCESS, 붉은 FAILURE. 나머지는 회색조와 강조색
+ *     하나(teal). 강조색을 아껴야 강조가 된다.
+ *
+ * 다크 모드는 토글 UI 없이 prefers-color-scheme 으로만 따른다. 사용자가 이미
+ * 운영체제에서 답한 질문을 화면에서 또 묻지 않는다.
+ */
+
+/* ═══════════════════════════════════════════════════════════════════════
+   토큰
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* 중성색 — 차가운 회색 대신 따뜻한 쪽. 종이의 느낌을 낸다 */
+  --n-0:  #ffffff;
+  --n-25: #fbfaf9;
+  --n-50: #f5f4f1;
+  --n-100:#eceae6;
+  --n-200:#dedbd5;
+  --n-300:#c2beb6;
+  --n-400:#9b968d;
+  --n-500:#78736b;
+  --n-600:#5b5751;
+  --n-700:#413e39;
+  --n-800:#2a2825;
+  --n-900:#1a1917;
+
+  /* 강조 — 기본 파랑을 피한 深teal. 계측기 눈금의 느낌 */
+  --a-50:  #e6f4f1;
+  --a-100: #c2e5de;
+  --a-500: #0f766e;
+  --a-600: #0d5f59;
+  --a-700: #0a4a45;
+
+  --ok-50: #e7f6ec; --ok-500: #16794a; --ok-600: #115c39;
+  --no-50: #fdecec; --no-500: #b3261e; --no-600: #8c1d17;
+  --wa-50: #fdf3e3; --wa-500: #9a6412;
+
+  /* 의미 토큰 — 컴포넌트는 이것만 쓴다 */
+  --paper:     var(--n-25);
+  --surface:   var(--n-0);
+  --surface-2: var(--n-50);
+  --rule:      var(--n-200);
+  --rule-soft: var(--n-100);
+  --ink:       var(--n-900);
+  --ink-2:     var(--n-600);
+  --ink-3:     var(--n-400);
+  --accent:    var(--a-500);
+  --accent-hi: var(--a-600);
+  --accent-bg: var(--a-50);
+  --accent-line: var(--a-100);
+  --ok: var(--ok-500); --ok-bg: var(--ok-50); --ok-line: #b9dfc8;
+  --no: var(--no-500); --no-bg: var(--no-50); --no-line: #f3c4c1;
+  --wa: var(--wa-500); --wa-bg: var(--wa-50); --wa-line: #ecd6a8;
+
+  --sans: 'Pretendard Variable', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', monospace;
+
+  /* 라벨 타이포그래피
+   *
+   * 처음에는 라벨(dt, th, label)에 등폭 + letter-spacing 0.11em + uppercase 를
+   * 걸었다. 라틴 소형 대문자 라벨의 관용적인 모양이다. 한글에서 무너졌다.
+   *
+   *   · JetBrains Mono 에는 한글 글리프가 없다(unicode-range 에 U+AC00–D7A3 이
+   *     없음). 그래서 시스템 한글 폰트로 대체되고, 벗어나려 했던 맑은 고딕이
+   *     그대로 나온다.
+   *   · letter-spacing 은 라틴 대문자를 벌려 읽히게 하는 장치다. 한글은 이미
+   *     정방형이라 벌리면 "기 록  길 이" 처럼 낱자가 흩어진다.
+   *   · text-transform: uppercase 는 한글에 대문자가 없어 아무 일도 하지 않는다.
+   *
+   * 그래서 라벨은 sans + 자간 0 으로 두고, 크기·굵기·색으로만 위계를 만든다.
+   * 등폭은 값(ID·숫자·digest·시각)에만 쓴다. 그쪽이 등폭이 실제로 필요한 곳이다.
+   */
+  --label-size: 11.5px;
+  --label-weight: 550;
+
+  --r: 8px;
+  --r-sm: 5px;
+  --shadow: 0 1px 2px rgba(26, 25, 23, 0.04),
+            0 4px 14px -6px rgba(26, 25, 23, 0.08);
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* 다크 모드 — 색을 반전하지 않고 다시 고른다.
+   단순 반전은 대비가 무너지고 강조색이 탁해진다. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper:     #16151a;
+    --surface:   #1d1c22;
+    --surface-2: #24232a;
+    --rule:      #35333d;
+    --rule-soft: #2a2932;
+    --ink:       #f0eeeb;
+    --ink-2:     #a8a49e;
+    --ink-3:     #756f68;
+    --accent:    #4fd1c5;
+    --accent-hi: #7ce0d6;
+    --accent-bg: #4fd1c518;
+    --accent-line: #2d7d75;
+    --ok: #52c98a; --ok-bg: #52c98a18; --ok-line: #2f6b4b;
+    --no: #f2857f; --no-bg: #f2857f18; --no-line: #8c3f3a;
+    --wa: #e0b055; --wa-bg: #e0b05518; --wa-line: #7a5c20;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3),
+              0 6px 20px -8px rgba(0, 0, 0, 0.5);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.6;
+  /* 숫자 정렬이 필요한 곳에서만 tabular-nums 를 켠다(.num, .mono).
+     본문 숫자는 비례폭이 자연스럽다. */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--accent-bg); color: var(--accent-hi); }
+
+a { color: inherit; }
+
+/* 키보드 사용자에게만 초점 링을 보인다. 마우스 클릭에 링이 남으면 지저분하다 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   골격
+   ═══════════════════════════════════════════════════════════════════════ */
+
+#app-layout { min-height: 100vh; display: flex; flex-direction: column; }
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 0 clamp(16px, 4vw, 40px);
+  height: 60px;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.brand-glyph { color: var(--accent); display: grid; place-items: center; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.brand-name { font-size: 14.5px; font-weight: 650; letter-spacing: -0.01em; }
+.brand-note {
+  font-size: 11px;
+  font-weight: 450;
+  color: var(--ink-3);
+  letter-spacing: -0.005em;
+}
+
+.masthead-nav { display: flex; align-items: center; gap: 2px; }
+
+/* 활성 표시는 motion 의 layoutId 가 항목 사이를 옮긴다.
+   좌표를 손으로 계산하지 않으므로 항목이 늘어도 그대로 동작한다. */
+.nav-tab {
+  position: relative;
+  padding: 7px 13px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
+  text-decoration: none;
+  border-radius: var(--r-sm);
+  transition: color 0.15s var(--ease);
+}
+.nav-tab:hover { color: var(--ink); }
+.nav-tab.active { color: var(--ink); }
+.nav-tab-pill {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-sm);
+  z-index: -1;
+}
+
+.sheet {
+  flex: 1;
+  width: 100%;
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 44px) clamp(16px, 4vw, 40px) 72px;
+}
+/* 목록 표는 9열이라 1060px 안에서는 셀이 줄바꿈된다. 스크롤바를 띄우기보다
+   폭을 넓히는 편이 낫다. 넓은 화면에서 양옆이 남는 상태였다.
+   좁은 화면에서는 .table-scroll 이 가로 스크롤로 받는다. */
+.sheet.wide { max-width: 1280px; }
+.sheet.narrow { max-width: 720px; }
+.sheet.hero { display: grid; place-items: center; min-height: 72vh; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   타이포그래피
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* eyebrow 는 영문만 쓴다(Public data archive, Sessions).
+   한글을 넣으면 등폭 대체와 자간 때문에 무너지므로 한글을 넣지 않는다. */
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 10px;
+}
+
+h1, h2, h3 { margin: 0; letter-spacing: -0.022em; font-weight: 640; }
+h1 { font-size: clamp(28px, 4.4vw, 40px); line-height: 1.14; }
+h2 { font-size: clamp(21px, 2.6vw, 26px); line-height: 1.22; }
+h3 { font-size: 15px; font-weight: 620; letter-spacing: -0.008em; }
+
+.lede { font-size: 16.5px; line-height: 1.65; color: var(--ink-2); margin: 14px 0 0; max-width: 56ch; }
+.subtle { color: var(--ink-2); }
+.small { font-size: 13px; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.break { word-break: break-all; }
+.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+p.subtle { margin: 0; }
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 20px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--rule);
+}
+.page-head p { margin: 8px 0 0; color: var(--ink-2); font-size: 14px; max-width: 60ch; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   표면
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+}
+.panel + .panel { margin-top: 20px; }
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.panel-head h3 { display: flex; align-items: center; gap: 8px; }
+.panel-head .hint { font-size: 12.5px; color: var(--ink-3); }
+.panel-body { padding: 18px; }
+
+/* .panel 은 자체 padding 이 없다. 표를 테두리까지 붙이기 위해서다.
+   상세 화면은 <section className="panel"> 안에 h3·p·dl 을 .panel-body 없이 바로
+   넣는 구조라, 직계 자식별로 여백을 준다.
+   표(table, .table-scroll)는 일부러 여백 없이 테두리까지 붙인다. */
+.panel > h3 { padding: 18px 18px 0; margin: 0 0 12px; }
+.panel > p:not(.note) { padding: 0 18px; margin: 0 0 14px; }
+.panel > .note { margin: 0 18px 14px; }
+.panel > dl.facts,
+.panel > .chart-frame { margin: 0 18px 18px; }
+.panel > dl.facts {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+.panel > .btn-row { padding: 0 18px 18px; }
+/* 표 바로 앞의 설명은 표와 붙여 둔다 */
+.panel > p:not(.note) + table,
+.panel > p:not(.note) + .table-scroll { margin-top: -2px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   버튼
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 550;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.14s var(--ease), border-color 0.14s var(--ease),
+              color 0.14s var(--ease);
+}
+.btn:hover:not(:disabled) { background: var(--surface-2); border-color: var(--n-300); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn svg { flex: none; }
+
+.btn-primary {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
+.btn-quiet { background: transparent; border-color: transparent; color: var(--ink-2); }
+.btn-quiet:hover:not(:disabled) { background: var(--surface-2); border-color: var(--rule-soft); color: var(--ink); }
+.btn-lg { height: 44px; padding: 0 20px; font-size: 15px; }
+.btn-sm { height: 30px; padding: 0 10px; font-size: 12.5px; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
+
+@media (prefers-color-scheme: dark) {
+  .btn-primary { color: #08211f; }
+  .btn:hover:not(:disabled) { border-color: var(--rule); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   표 — 얇은 선과 여백만으로 나눈다
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 넓은 표는 세로가 아니라 가로로 넘긴다. 열을 접어 감추면 비교가 안 된다 */
+/* 넓은 표는 세로가 아니라 가로로 넘긴다. 열을 접어 감추면 비교가 안 된다 */
+.table-scroll { overflow-x: auto; }
+
+/* ─────────────────────────────────────────────────────────────────────
+   호환 별칭
+   상세 화면(498행)에 남아 있는 이전 클래스 이름들이다. JSX 를 한 번에 다
+   고치면 되지만, 표 구조가 복잡해 이름만 이어 붙이는 편이 안전하다.
+   ───────────────────────────────────────────────────────────────────── */
+
+/* 모터 상태 표. .grid 와 같은 규칙을 쓴다 */
+table.data-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.data-table th,
+table.data-table td {
+  padding: 10px 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+table.data-table thead th {
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  letter-spacing: -0.005em;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--rule);
+}
+table.data-table tbody tr { border-bottom: 1px solid var(--rule-soft); }
+table.data-table tbody tr:last-child { border-bottom: 0; }
+table.data-table tbody tr:hover { background: var(--surface-2); }
+table.data-table.compact th,
+table.data-table.compact td { padding: 7px 11px; font-size: 12.5px; }
+table.data-table.flush { background: none; border: 0; box-shadow: none; }
+
+/* 판정 배지의 이전 이름 */
+.pill { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px;
+        font-family: var(--mono); font-size: 11.5px; font-weight: 500;
+        border-radius: 999px; border: 1px solid var(--rule);
+        background: var(--surface-2); color: var(--ink-2); white-space: nowrap; }
+.pill-ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-line); }
+.pill-fail { color: var(--no); background: var(--no-bg); border-color: var(--no-line); }
+.pill-warn { color: var(--wa); background: var(--wa-bg); border-color: var(--wa-line); }
+
+/* 차트 머리말의 컨트롤 묶음 */
+.chart-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+/* 라벨 + 입력 한 쌍의 이전 이름 */
+.filter-group { display: flex; flex-direction: column; gap: 6px; }
+.filter-group > label {
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  letter-spacing: -0.005em;
+  color: var(--ink-3);
+}
+table.grid { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.grid th,
+table.grid td { padding: 12px 14px; text-align: left; }
+
+/* 남는 폭은 첫 열(이름)이 흡수한다.
+ *
+ * table-layout: auto 의 기본 동작은 남는 폭을 모든 열에 비례 배분한다. 그래서
+ * 값 열과 버튼 열까지 함께 늘어나고, 왼쪽 정렬된 버튼 오른쪽에 큰 빈칸이 남았다.
+ * 이름은 길이가 가변이고 값·버튼은 필요한 폭이 정해져 있으니, 슬랙은 이름이
+ * 받는 게 맞다. 그러면 값과 버튼이 오른쪽에 모여 정렬된다.
+ */
+table.grid th:first-child,
+table.grid td:first-child { width: 100%; }
+
+/* 값은 줄바꿈하지 않는다.
+   시각·길이·크기가 두 줄로 쪼개지면 자릿수를 세로로 비교할 수 없고 행 높이가
+   들쭉날쭉해진다. 넘치면 셀을 접는 대신 표를 가로로 넘긴다(.table-scroll).
+   Session ID 만 예외로 둘 이유가 없어 전부 적용한다. */
+table.grid td { white-space: nowrap; }
+/* 파일 이름·설명은 두 줄로 쌓이므로 nowrap 예외다 */
+table.grid td .file-note { white-space: normal; }
+table.grid thead th {
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  letter-spacing: -0.005em;
+  color: var(--ink-3);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--rule);
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+table.grid tbody tr { border-bottom: 1px solid var(--rule-soft); }
+table.grid tbody tr:last-child { border-bottom: 0; }
+table.grid tbody tr { transition: background 0.12s var(--ease); }
+table.grid tbody tr:hover { background: var(--surface-2); }
+table.grid td.tight { padding-top: 8px; padding-bottom: 8px; }
+/* 동작 열은 오른쪽 끝에 붙인다. 왼쪽 정렬이면 열이 늘어난 만큼 버튼 뒤에
+   빈칸이 생겨 표가 미완성처럼 보인다. */
+.row-action { text-align: right; white-space: nowrap; }
+
+/* 크기·행 수를 같은 페이지 안 최대값에 견주어 보여주는 막대.
+   숫자만 있으면 1204 와 2011 의 차이가 눈에 들어오지 않는다.
+   실제로 받은 값만 쓴다. 없는 데이터를 그려 넣지 않는다. */
+.qbar {
+  display: block;
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: var(--accent-line);
+  transform-origin: left;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   상태 칩
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* 칩 안의 값은 SUCCESS·THING-001 처럼 라틴 코드값이라 등폭이 맞다.
+   한글이 들어오면(예: '동기됨') 자간 0 이어야 흩어지지 않는다. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 9px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+/* 판정은 색만으로 구분하지 않는다. 글자와 아이콘을 함께 둔다(색각 이상 대응) */
+.chip-ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok-line); }
+.chip-no { color: var(--no); background: var(--no-bg); border-color: var(--no-line); }
+.chip-wa { color: var(--wa); background: var(--wa-bg); border-color: var(--wa-line); }
+.chip svg { flex: none; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   폼
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > label {
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  letter-spacing: -0.005em;
+  color: var(--ink-3);
+}
+.field-row { display: flex; gap: 8px; }
+
+input[type='text'], select {
+  height: 36px;
+  padding: 0 11px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-sm);
+  transition: border-color 0.14s var(--ease), box-shadow 0.14s var(--ease);
+}
+input[type='text'] { min-width: 236px; }
+select { min-width: 132px; font-family: var(--sans); cursor: pointer; }
+input[type='text']::placeholder { color: var(--ink-3); }
+input[type='text']:focus, select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* 세그먼트 토글 */
+.segment {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-sm);
+}
+.segment button {
+  position: relative;
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--ink-2);
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.14s var(--ease);
+}
+.segment button:hover { color: var(--ink); }
+.segment button.active { color: var(--ink); }
+.segment-pill {
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+  border-radius: 3px;
+  box-shadow: 0 1px 2px rgba(26, 25, 23, 0.08);
+  z-index: -1;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   홈
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.hero { width: 100%; }
+.hero-figure {
+  position: relative;
+  margin: 0 0 34px;
+  height: 168px;
+  border-radius: var(--r);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--rule-soft);
+}
+.hero-figure svg { display: block; width: 100%; height: 100%; }
+.hero-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
+  margin: 32px 0;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.hero-fact { padding: 16px 20px 16px 0; }
+.hero-fact + .hero-fact { border-left: 1px solid var(--rule-soft); padding-left: 20px; }
+.hero-fact dt {
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  letter-spacing: -0.005em;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.hero-fact dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 21px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.hero-fact dd small { font-size: 12px; color: var(--ink-3); font-weight: 400; margin-left: 3px; }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   상세
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1px;
+  margin: 0;
+  background: var(--rule-soft);
+}
+.facts > div { background: var(--surface); padding: 13px 16px; }
+.facts .span-2 { grid-column: span 2; }
+.facts dt {
+  font-size: var(--label-size);
+  font-weight: var(--label-weight);
+  letter-spacing: -0.005em;
+  color: var(--ink-3);
+  margin-bottom: 5px;
+}
+.facts dd { margin: 0; font-size: 13.5px; }
+
+.file-row { display: flex; align-items: center; gap: 10px; }
+.file-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink-2);
+}
+.file-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.file-name { font-family: var(--mono); font-size: 13px; line-height: 1.35; }
+.file-note { font-size: 12px; color: var(--ink-3); line-height: 1.35; }
+
+.chart-frame {
+  padding: 8px 4px 0;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.note {
+  display: flex;
+  gap: 9px;
+  padding: 11px 13px;
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--rule);
+  background: var(--surface-2);
+  color: var(--ink-2);
+}
+.note svg { flex: none; margin-top: 2px; }
+.note-info { background: var(--accent-bg); border-color: var(--accent-line); color: var(--ink); }
+.note-warn { background: var(--wa-bg); border-color: var(--wa-line); color: var(--ink); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   상태 / 빈 화면
+   ═══════════════════════════════════════════════════════════════════════ */
+
+.state {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  padding: 56px 24px;
+  text-align: center;
+}
+.state h3 { font-size: 15.5px; }
+.state p { margin: 0; font-size: 13.5px; color: var(--ink-2); max-width: 46ch; }
+.state-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-soft);
+  color: var(--ink-3);
+}
+.state-error .state-icon { color: var(--no); background: var(--no-bg); border-color: var(--no-line); }
+.state code {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--surface-2);
+}
+
+/* 로딩 골격.
+   "불러오는 중" 이라는 글자만 두면 멈춘 건지 도는 건지 알 수 없다. 들어올
+   내용의 모양을 미리 그려 두면 기다림이 짧게 느껴지고 화면이 튀지 않는다. */
+.skeleton-rows { padding: 4px 0; }
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr 1fr 1fr 0.8fr;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.skeleton-row:last-child { border-bottom: 0; }
+.shimmer {
+  height: 11px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--rule-soft) 50%, var(--surface-2) 75%);
+  background-size: 220% 100%;
+  animation: shimmer 1.25s linear infinite;
+}
+@keyframes shimmer {
+  from { background-position: 120% 0; }
+  to   { background-position: -120% 0; }
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--rule-soft);
+}
+.pager .count { margin-right: auto; font-size: 12.5px; color: var(--ink-3); }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   좁은 화면
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 860px) {
+  .brand-note { display: none; }
+  .page-head { flex-direction: column; align-items: stretch; }
+  .facts .span-2 { grid-column: span 1; }
+  .hero-fact + .hero-fact { border-left: 0; padding-left: 0; border-top: 1px solid var(--rule-soft); }
+  .hero-figure { height: 132px; }
+}
+
+@media (max-width: 640px) {
+  .masthead { height: 54px; }
+  .toolbar { flex-direction: column; align-items: stretch; }
+  .field-row { flex-wrap: wrap; }
+  input[type='text'] { min-width: 0; flex: 1; }
+  table.grid th, table.grid td { padding: 10px 12px; }
+  .skeleton-row { grid-template-columns: 2fr 1fr 1fr; }
+  .skeleton-row > :nth-child(n+4) { display: none; }
+  .pager { flex-wrap: wrap; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   모션 축소
+   전정기관 장애가 있는 사용자에게 움직임은 불편이 아니라 통증이다.
+   JS 애니메이션은 ui/motion.js 가 같은 질의로 차단한다.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .shimmer { background: var(--surface-2); }
+}

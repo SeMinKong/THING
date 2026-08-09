@@ -1,0 +1,49 @@
+# /etc/systemd/system/thing-database-web.service
+#
+# 설치: sudo cp thing-database-web.service /etc/systemd/system/
+#       sudo systemctl daemon-reload
+#       sudo systemctl enable --now thing-database-web
+#
+# -----------------------------------------------------------------------------
+# [B-2 수정] 배포 경로 통일
+#
+# 이전 버전은 /home/ubuntu/nerf_updated/... 를 가리켰고 README는 ~/ec2_server를
+# 안내해서 서로 어긋나 있었다. nginx_thing_database_web.conf / README.md와 함께
+# 아래 한 경로로 통일했다.
+#
+#   PROJECT_ROOT = /home/ubuntu/ec2_server/thing_database_web
+#
+# 서버의 실제 체크아웃 경로가 다르면 WorkingDirectory / Environment / ExecStart
+# 세 줄의 경로를 함께 고쳐야 한다.
+# -----------------------------------------------------------------------------
+
+[Unit]
+Description=thing_database_web Django backend (gunicorn)
+After=network.target
+
+[Service]
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/ec2_server/thing_database_web/backend
+Environment="PATH=/home/ubuntu/ec2_server/thing_database_web/backend/.venv/bin"
+# [FR-52 / NFR-29] 세션 데이터 루트를 systemd가 생성·소유한다.
+#   /var/lib/thing-data  (0750, User/Group 소유)
+# 배포 디렉터리 밖이라 git pull·재배포가 데이터를 건드리지 않는다.
+StateDirectory=thing-data
+StateDirectoryMode=0750
+# [Jira 범위] 데이터 파일·디렉터리 권한을 서비스 수준에서 고정한다.
+# 0027 -> 새로 만드는 디렉터리 0750, 파일 0640.
+# 업로드마다 세션 디렉터리가 새로 생기므로 chmod 한 번으로는 유지되지 않는다.
+UMask=0027
+ExecStart=/home/ubuntu/ec2_server/thing_database_web/backend/.venv/bin/gunicorn \
+    config.wsgi:application \
+    --bind 127.0.0.1:8000 \
+    --workers 3 \
+    --timeout 300 \
+    --access-logfile - \
+    --error-logfile -
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

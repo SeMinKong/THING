@@ -1,0 +1,22 @@
+/**:
+  ros__parameters:
+    # BUS_A / ring finger flexion (ID 1)
+    device_name: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
+    baud_rate: 1000000
+    protocol_version: 2.0
+
+    motor_id: 1
+    home_position: 110
+    closed_position: 2700
+
+    position_p_gain: 1200
+    position_i_gain: 20
+    position_d_gain: 600
+    goal_current: 500
+    profile_acceleration: 50
+    profile_velocity: 200
+
+    position_tolerance: 30
+    settled_velocity_raw: 1
+    required_settled_samples: 3
+    motion_timeout_seconds: 6
