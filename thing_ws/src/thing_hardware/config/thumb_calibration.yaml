@@ -1,0 +1,14 @@
+thumb_calibrator:
+  ros__parameters:
+    bus_a_device: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
+    bus_b_device: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0"
+    baud_rate: 1000000
+    protocol_version: 2.0
+
+    flex_motor_id: 2
+    abduction_motor_id: 5
+    opposition_motor_id: 6
+
+    # 0 keeps sampling until Ctrl+C; use 1-10000 for a finite measurement.
+    sample_count: 50
+    sample_period_ms: 100

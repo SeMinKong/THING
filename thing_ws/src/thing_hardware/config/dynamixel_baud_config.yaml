@@ -1,0 +1,13 @@
+/**:
+  ros__parameters:
+    # BUS_A / middle finger flexion (ID 3) is the first validation target.
+    device_name: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
+    motor_id: 3
+    protocol_version: 2.0
+
+    current_baud_rate: 57600
+    target_baud_rate: 1000000
+    scan_baud_rates: [57600, 1000000]
+
+    # EEPROM is changed only when this is explicitly overridden to true.
+    execute_change: false

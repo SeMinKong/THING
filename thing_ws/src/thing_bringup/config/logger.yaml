@@ -1,0 +1,12 @@
+logger:
+  ros__parameters:
+    # 로컬 rosbag2 원본 저장 루트. ROBOT_DATA_DIR=/var/lib/thing-robot-data 하위(FR-46).
+    bag_root: "/var/lib/thing-robot-data/rosbag2"
+    # exporter가 canonical 4파일을 생성하는 임시 업로드 루트. 성공 handoff 후 정리된다.
+    export_root: "/var/lib/thing-robot-data/tmp-upload"
+    # metadata JSON의 robot_id. EC2 장치 token의 robot과 일치해야 한다.
+    robot_id: "THING-001"
+    # 장치 NTP/chrony 동기화 여부를 metadata에 기록한다(docs/setup/network.md).
+    time_sync: true
+    # 격리 uploader 데몬의 private Unix socket. uploader_contract.py 기본값과 같아야 한다.
+    uploader_socket: "/run/thing-uploader/uploader.sock"

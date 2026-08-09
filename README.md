@@ -1,34 +1,96 @@
 # Human-Mimetic Tendon Robot Hand
 
-이 저장소는 tendon 구동 로봇손의 기구·전자·제어·비전·시뮬레이션·시험 자료를 한곳에서 통합 관리합니다.
+카메라로 사용자의 손 자세를 인식하고, 7개의 DYNAMIXEL 서보로 구동되는
+underactuated tendon 로봇손이 동작을 실시간으로 모방하는 프로젝트입니다.
+전체 계획은 3주이며 V6.3 동결 시점의 남은 2주 동안 Must 기능 통합을 우선합니다.
 
-인체 손의 굽힘과 파지 동작을 tendon 구조와 서보모터로 모방하고, 카메라 기반 손 추적을 통해 실시간으로 제어하는 5주 학부 프로젝트입니다.
+최종 요구사항의 단일 기준은
+[`docs/requirements/요구사항 명세서 V6.3.md`](docs/requirements/요구사항%20명세서%20V6.3.md)입니다.
 
-## 5주 MVP
+## MVP
 
-- 5개 손가락과 엄지 대립축을 포함한 6-서보 로봇손 제작
-- 손 펴기, 주먹, 원통 파지 및 가벼운 물체 집기 구현
-- MediaPipe 기반 실시간 손동작 미믹
-- 파지 성공률, 반복 동작, 지연시간 측정
-- Isaac Lab의 기성 dexterous-hand 예제 실행을 도전 목표로 수행
+- MediaPipe 기반 한 손의 21개 landmark 검출
+- 엄지 굽힘·대립·벌림과 네 손가락 굽힘으로 구성된 7논리축 생성
+- 7논리축과 XL-330-288T 7개를 1:1로 연결
+- ROS 2 Humble 기반 Jetson–Raspberry Pi 무선 제어
+- MIMIC·MANUAL·TELEOP 제어권 중재와 안전 제한
+- 편 손, 주먹, 원통 파지, 엄지–검지 집기
+- Laptop 내부망 React 관제·제어 웹
+- MediaPipe landmark, HandCommand, MotorStatus를 rosbag2로 기록
+- rosbag2를 metadata JSON·HandCommand CSV·MotorStatus CSV로 변환
+- EC2 공개 포털에서 READY 세션 조회와 정확히 세 파일 다운로드
+
+Isaac Sim/Lab, VLA, imitation learning과 관절별 독립 다축 제어는 MVP 제외 범위입니다.
+
+## 실행 장치
+
+| 장치 | 주요 역할 |
+| --- | --- |
+| Jetson Orin Nano | 카메라, MediaPipe, 7축 목표 생성, MJPEG, Web Bridge, Logger·exporter·uploader |
+| Raspberry Pi 5 | 명령 중재·검증, 안전, DYNAMIXEL |
+| Laptop | 내부망 관제·제어 웹, 개발, TELEOP |
+| AWS EC2 | 공개 데이터 포털, SQLite와 세 파일 영속 저장 |
+| XL-330-288T × 8 | 7개 활성 구동축, 1개 예비 모터 |
+
+Raspberry Pi는 Ubuntu 24.04 호스트에서 Ubuntu 22.04 기반 ROS 2 Humble
+컨테이너를 사용하는 구성을 기본으로 합니다. Docker는 Jetson과 Raspberry Pi에만
+사용하고 Docker Compose는 Raspberry Pi에서만 사용합니다.
 
 ## 저장소 구성
 
-- `docs/`: 계획, 아키텍처, 인터페이스, 주간 기록
-- `mechanical/`: 관절, tendon, spool 및 손 구조 CAD
-- `electronics/`: 회로, 배선 및 BOM
-- `firmware/`: 마이크로컨트롤러와 서보 제어 코드
-- `vision/`: 손 인식, 캘리브레이션 및 동작 매핑
-- `simulation/`: URDF/USD와 Isaac Lab 실험
-- `tests/`: 시험 절차와 측정 결과
-- `media/`: 조립 및 시연 자료
+- `thing_ws/`: ROS 2 인터페이스·비전·제어·하드웨어·로거·bringup
+- `web/internal-control/frontend/`: Laptop 내부망 Vite+React 제어 웹
+- `EC2/thing_database_web/`: 팀원이 계속 사용하는 EC2 포털 단일 원본
+- `deploy/`: Jetson·Raspberry Pi 실행 환경
+- `mechanical/`: CAD, STL, 조립 및 출력 자료
+- `electronics/`: BOM, 회로, 배선 및 안전 전원
+- `vision/`: 비전 실험과 캘리브레이션 자료
+- `tests/`: 재현 가능한 시험 절차와 결과
+- `docs/`: 요구사항, 아키텍처, 인터페이스 및 개발환경 문서
 
-## 협업 흐름
+EC2 전달본은 현재 개발 중인 프로토타입입니다. 저장소에 포함됐다는 사실만으로
+V6.3의 Bearer Token·세 파일·READY·HTTPS 계약이 구현됐다고 간주하지 않습니다.
 
-1. GitLab Issue에 목적과 완료 조건을 작성합니다.
-2. Issue 번호를 포함한 브랜치를 생성합니다. 예: `23-vision-finger-flexion`.
-3. 작업과 시험 결과를 커밋하고 원격 브랜치로 push합니다.
-4. Merge Request에 `Closes #23`을 작성하고 리뷰를 요청합니다.
-5. 리뷰와 시험을 통과한 변경만 `main`에 병합합니다.
+## 저장소 받기
 
-세부 규칙은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고합니다.
+Git LFS가 필요합니다.
+
+```bash
+sudo apt install git-lfs
+git lfs install
+git clone --branch develop \
+  https://lab.ssafy.com/s15-webmobile3-sub1/S15P11C103.git
+cd S15P11C103
+git lfs pull
+```
+
+## ROS 2 빌드
+
+Ubuntu 22.04와 ROS 2 Humble 환경에서 실행합니다.
+
+```bash
+source /opt/ros/humble/setup.bash
+cd thing_ws
+rosdep install --from-paths src --ignore-src -r -y
+colcon build --symlink-install
+source install/setup.bash
+colcon test
+colcon test-result --verbose
+```
+
+현재 패키지는 단계적으로 구현 중입니다. 장치별 실행 방법은 `docs/setup/`과
+`thing_bringup`의 launch 파일을 기준으로 관리합니다.
+
+## 협업
+
+Jira를 작업 관리의 단일 기준으로 사용합니다. 최신 `develop`에서 Jira 키가 포함된
+브랜치를 만들고 MR을 통해서만 병합합니다.
+
+```bash
+git switch develop
+git pull --ff-only origin develop
+git switch -c feature/S15P11C103-69-vision-camera-stream
+```
+
+자세한 규칙은 [`CONTRIBUTING.md`](CONTRIBUTING.md)를 참고합니다.
+GitLab Runner는 사용하지 않으며 변경 영역별 로컬 검증 결과를 MR에 기록합니다.
