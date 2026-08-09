@@ -70,6 +70,6 @@ mjpeg_streamer:
 web_bridge_node:
   ros__parameters:
     bind_address: 0.0.0.0
-    port: 8000
+    port: 18000
     snapshot_period_ms: 200
     service_timeout_ms: 2000

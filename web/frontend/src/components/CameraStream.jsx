@@ -163,6 +163,7 @@ export default function CameraStream({ showHandLoss = false }) {
               src={activeUrl}
               alt="로봇 손 제어용 실시간 영상"
               className="size-full object-contain"
+              style={{ transform: "scaleX(-1)" }}
               onError={() => {
                 setFailedUrl(activeUrl);
                 diag.error({
