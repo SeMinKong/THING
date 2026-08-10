@@ -21,30 +21,45 @@ DYNAMIXEL 제어를 담당합니다. React 관제 웹과 EC2 데이터 포털을
 > 비전 인식, 명령 중재, 안전 검증, 7축 모터 구동, Web Bridge, 데이터 기록·업로드
 > 경로를 통합했으며 실제 텐던 로봇 손으로 손동작 모방과 물체 파지 시연을 완료했습니다.
 
-## 시연 영상
+## 시연
+
+### 최종 통합 시연
+
+카메라 손동작 인식부터 7축 텐던 로봇 손 구동까지 연결한 최종 시연입니다.
+
+https://github.com/user-attachments/assets/3583076f-5f6d-49d1-b914-9c6c6e543c1d
+
+> [원본 최종 시연 영상 열기](media/videos/최종시연.mp4)
+
+### 동작 하이라이트
+
+아래 미리보기는 모방·파지·독립 관절 동작 9개를 짧게 이어 보여줍니다.
 
 <p align="center">
-  <a href="media/videos/최종시연.mp4">
-    <img
-      src="docs/daily-reports/2026-07-31/images/integrated-robot-hand.jpg"
-      width="420"
-      alt="THING 텐던 로봇 손 프로토타입"
-    >
-  </a>
+  <img
+    src="media/images/movement-highlights.gif"
+    width="600"
+    alt="실시간 손동작 모방, 여러 손동작 모방, 지연 개선 웨이브, 캔 파지, 유연 물체 파지, 손목보호대 파지, 엄지 3축, 손가락 웨이브, 카운트다운 시퀀스 하이라이트"
+  >
 </p>
 
 <p align="center">
-  <sub>실물 텐던 로봇 손 · 이미지를 클릭하면 최종 통합 시연 영상을 볼 수 있습니다.</sub>
+  <sub>각 동작의 전체 영상은 아래 목록에서 확인할 수 있습니다.</sub>
 </p>
 
-**통합·모방**
+### 개별 시연 영상
+
+<details>
+<summary><strong>전체 원본 영상 펼쳐보기</strong></summary>
+
+#### 통합·모방
 
 - [최종 통합 시연](media/videos/최종시연.mp4)
 - [실시간 손동작 모방](media/videos/모방시연.mp4)
 - [여러 손동작 모방](media/videos/모방여러동작.mp4)
 - [지연 개선 후 웨이브 모방](media/videos/모방웨이브지연개선.mp4)
 
-**파지·시퀀스**
+#### 파지·시퀀스
 
 - [캔 파지 모방](media/videos/모방캔파지.mp4)
 - [유연한 물체 파지](media/videos/파지말랑이.mp4)
@@ -53,7 +68,9 @@ DYNAMIXEL 제어를 담당합니다. React 관제 웹과 EC2 데이터 포털을
 - [손가락 웨이브](media/videos/파도타기.mp4)
 - [카운트다운 시퀀스](media/videos/카운트다운.mp4)
 
-영상 파일은 Git LFS로 관리합니다.
+</details>
+
+원본 MP4 영상은 Git LFS로 관리합니다.
 
 ## 핵심 구현
 
