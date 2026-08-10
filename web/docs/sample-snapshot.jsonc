@@ -1,0 +1,300 @@
+// ============================================================================
+// 브릿지 → 웹 snapshot 견본 (주석 포함)
+// ----------------------------------------------------------------------------
+// endpoint : /ws/robot-state
+// 계약     : web/docs/interfaces-bridge.md
+//
+// 이 파일은 JSONC 입니다. `//` 주석을 지우면 그대로 유효한 JSON 이 되고, 웹이
+// 실제로 받아들이는 형태입니다. 브릿지 출력을 이 파일과 나란히 놓고 대조하십시오.
+//
+// 표기
+//   [고정]   6.4절이 고정한 top-level 6필드. 반드시 있어야 합니다
+//   [추가]   브릿지에 요구하는 두 필드. 없으면 화면이 잠깁니다
+//   [선택]   없으면 웹이 파생합니다. 어느 쪽이든 동작합니다
+//   [원문]   .msg 필드를 그대로 dump 한 것. 이름을 바꾸지 마십시오
+// ============================================================================
+{
+  // [고정] snapshot 을 만든 시각. RFC 3339 UTC `Z`.
+  //        top-level 에서 유일하게 문자열 시각입니다. .msg 안의 시각은
+  //        {sec, nanosec} 원문이며 형식이 다릅니다.
+  "timestamp": "2026-07-31T12:00:00.000Z",
+
+  // [고정] 현재 제어 mode. symbolic string 이어야 합니다.
+  //        DISABLED | MIMIC | MANUAL | TELEOP
+  //        웹은 이 값이 문자열인지로 snapshot 을 판별합니다. 정수로 오면
+  //        snapshot 전체가 버려지고 화면이 갱신되지 않습니다.
+  "mode": "MANUAL",
+
+  // [고정] 현재 기록 상태. symbolic string 이어야 합니다.
+  //        IDLE | STARTING | RECORDING | STOPPING | COMPLETED | FAILED | INTERRUPTED
+  "recording_state": "IDLE",
+
+  // ── [고정][원문] HandLandmarks.msg ───────────────────────────────────────
+  // 아직 유효 데이터를 받지 못했으면 null 이 아니라 {} 로 보냅니다.
+  "landmarks": {
+    // std_msgs/Header. HandLandmarks 는 stamp 가 header 안에 있습니다.
+    "header": {
+      // builtin_interfaces/Time 원문. 문자열로 바꾸지 마십시오.
+      // 웹은 값을 파싱하지 않고 "바뀌었는지" 만 봅니다. 매 발행마다 전진하면 됩니다.
+      "stamp": { "sec": 1785000000, "nanosec": 0 },
+      // 좌표 기준 프레임. 웹은 쓰지 않습니다.
+      "frame_id": "camera"
+    },
+    // 손이 검출됐는가. false 이면 웹이 "손 미검출" 로 표시합니다.
+    "detected": true,
+    // 검출 신뢰도 0.0~1.0. 8.1절이 0.70 미만을 미검출로 취급하므로
+    // 웹도 그 기준으로 "신뢰도 부족 — 미검출로 처리됩니다" 를 냅니다.
+    "confidence": 0.93,
+    // 좌우 손. 0 UNKNOWN | 1 LEFT | 2 RIGHT. 웹은 현재 표시하지 않습니다.
+    "handedness": 2,
+    // 좌우 판정 신뢰도. 웹은 쓰지 않습니다.
+    "handedness_confidence": 0.99,
+    // 입력 영상 크기. 좌표 정규화 기준입니다. 웹은 쓰지 않습니다.
+    "image_width": 640,
+    "image_height": 480,
+    // geometry_msgs/Point32[21]. MediaPipe 21 랜드마크 좌표.
+    // 0 손목, 1-4 엄지, 5-8 검지, 9-12 중지, 13-16 약지, 17-20 소지.
+    // 웹은 현재 개별 좌표를 화면에 쓰지 않습니다(FR-21 Could). 빈 배열로 둬도
+    // 다른 표시에는 영향이 없습니다.
+    "landmarks": []
+  },
+
+  // ── [고정][원문] MotorStatus.msg ────────────────────────────────────────
+  "motor_state": {
+    "header": {
+      // MotorStatus 도 stamp 가 header 안입니다.
+      // 이 값이 멈추면 웹은 Raspberry Pi 발행이 끊긴 것으로 봅니다.
+      "stamp": { "sec": 1785000000, "nanosec": 0 },
+      "frame_id": ""
+    },
+    // MotorState[] — FR-07 에 따라 7개여야 합니다. 아래는 1개만 예시로 뒀습니다.
+    "motors": [
+      {
+        // DYNAMIXEL ID. 웹은 표의 첫 열에 그대로 표시합니다.
+        "motor_id": 1,
+        // 논리축 이름. thumb_flex thumb_opp thumb_abd
+        //              index_flex middle_flex ring_flex little_flex
+        "actuator_name": "thumb_flex",
+
+        // DYNAMIXEL raw 위치값(0~4095). 웹은 표시하지 않습니다.
+        // rad 값과 함께 오므로 웹은 사람이 읽을 수 있는 rad 쪽만 씁니다.
+        "goal_position_raw": 2048,
+        "present_position_raw": 2040,
+
+        // 목표 위치 (rad). 명령이 무엇을 지시했는가.
+        "goal_position_rad": 0.42,
+        // 현재 위치 (rad). 실제로 어디에 있는가.
+        // 웹은 두 값을 나란히 보여 줍니다. 차이가 크면 추종이 안 되는 것입니다.
+        "present_position_rad": 0.41,
+
+        // 현재 속도 (rad/s).
+        "velocity_rad_s": 0.0,
+
+        // 전류 (A). hardware_error 가 0 이 아니면 웹이 이 값을 붉게 표시합니다.
+        // 과전류 판정 자체는 Raspberry Pi 가 합니다 (NFR-16).
+        "current_ampere": 0.05,
+
+        // 공급 전압 (V). 웹은 표시하지 않습니다.
+        "voltage_volt": 11.1,
+
+        // 온도 (°C). 과온도 hardware_error 로 표시됩니다.
+        "temperature_celsius": 35.0,
+
+        // 토크 활성 여부 (bool). MotorState.msg 에서 temperature_celsius 다음,
+        // hardware_error 앞입니다. true = 토크 ON(RUN 중), false = OFF(READY·RESET 후).
+        // 웹은 "토크" 열에 ON/OFF 로 표시하고, communication_ok 가 false 면 이 값을
+        // 유효로 보지 않고 "-" 로 둡니다.
+        "torque_enabled": true,
+
+        // DYNAMIXEL 하드웨어 오류 비트필드. 0 이면 정상.
+        // 비트별 의미가 프로젝트 문서에 없어 웹은 "0 이 아니면 오류" 로만 다룹니다.
+        // 과전류와 과온을 구분하지 못합니다.
+        "hardware_error": 0,
+
+        // DYNAMIXEL SDK 통신 결과 코드. 웹은 표시하지 않습니다.
+        // 사람이 읽을 값은 아래 communication_ok 입니다.
+        "communication_result": 0,
+
+        // 이 모터와 통신이 되는가. false 면 웹이 그 행을 "오류" 로 표시합니다.
+        "communication_ok": true
+      }
+    ],
+    // 버스 전체 통신 상태. false 면 웹이 장치 표시에서 모터를 "단절" 로 냅니다.
+    "bus_communication_ok": true,
+    // 읽기 실패 누적 횟수. 0 보다 크면 웹이 표 아래에 경고를 냅니다.
+    "failed_read_count": 0,
+    // 사람이 읽을 부가 설명. 웹은 현재 쓰지 않습니다.
+    "message": ""
+  },
+
+  // ── [고정][원문] SafetyState.msg ────────────────────────────────────────
+  "safety_state": {
+    // SafetyState 는 stamp 가 최상위입니다 (header 가 아님).
+    "stamp": { "sec": 1785000000, "nanosec": 0 },
+
+    // 안전 상태. uint8 정수로 보내면 됩니다.
+    //   0 INIT   점검 중
+    //   1 READY  준비. 모터 토크 꺼짐
+    //   2 RUN    명령이 모터로 전달되는 중
+    //   3 HOLD   일시 정지
+    //   4 SAFE   안전 자세로 물러남
+    //   5 FAULT  고장
+    //   6 ESTOP  비상 정지
+    //   7 RESET  명시적 정상 STOP 뒤 모터 이동 없이 torque OFF 를 재확인하는 상태(최소 500ms·7모터 torque_enabled=false)
+    // 웹은 이 값으로 머리 색과 판정 문구를 바꾸고, READY·RUN 에서만 조작을 엽니다.
+    "state": 2,
+
+    // 아래 다섯 개는 HOLD·SAFE·FAULT 의 원인입니다.
+    // 웹은 원인별로 다른 안내 문구를 냅니다. 판정은 Raspberry Pi 가 합니다.
+
+    // 명령이 끊겨 timeout 됐는가 (FR-11).
+    "command_timeout": false,
+    // 모터 통신이 살아 있는가.
+    "motor_communication_ok": true,
+    // 과전류가 감지됐는가.
+    "over_current": false,
+    // 과온이 감지됐는가.
+    "over_temperature": false,
+    // 비상 정지 스위치가 눌려 있는가. true 면 물리적으로 풀어야 합니다.
+    "estop_active": false,
+
+    // 고장 코드. 코드표가 프로젝트 문서에 없어 웹은 표시만 합니다.
+    "fault_code": 0,
+    // 사람이 읽을 원인 설명. 웹은 현재 쓰지 않습니다.
+    "reason": ""
+  },
+
+  // ── [추가][원문] ControlState.msg ───────────────────────────────────────
+  // 이 필드가 없으면 웹은 owner 를 알 수 없어 제어권을 인정하지 않고
+  // 모든 조작을 막습니다 (fail-closed). 화면은 "제어권 없음" 으로 보이는데
+  // 그것이 로봇의 정상 상태와 똑같이 생기므로, 웹은 별도로 미수신을 알립니다.
+  "control_state": {
+    // ControlState 는 stamp 가 최상위입니다.
+    "stamp": { "sec": 1785000000, "nanosec": 0 },
+
+    // 현재 mode. 0 DISABLED | 1 MIMIC | 2 MANUAL | 3 TELEOP
+    // top-level `mode` 와 같은 값이지만 여기는 정수로 보내도 됩니다.
+    "active_mode": 2,
+
+    // 제어권 보유자. 0 NONE | 1 WEB | 2 LOCAL
+    // WEB 이면 웹이, LOCAL 이면 teleop 등 로컬 프로그램이 쥐고 있습니다.
+    "active_owner": 1,
+
+    // lease 가 유효한가. 웹은 active_owner 가 WEB 이고 이 값이 true 일 때만
+    // 조작 버튼을 엽니다. FR-34 의 1000ms 갱신이 끊기면 false 가 됩니다.
+    "owner_alive": true,
+
+    // Sequence(ExecuteSequence) 단일 실행 슬롯의 점유 상태입니다. 개별 Gesture 는
+    // 포함하지 않습니다 (gesture·sequence 공통 실행 신호는 /thing/control/motion_active).
+    // 웹은 이 값으로 버튼을 잠그지 않습니다. ack 로 판단하므로 표시용입니다.
+    "sequence_running": false,
+
+    // 마지막 전이 사유. 웹은 현재 표시하지 않습니다.
+    "last_transition_reason": "MANUAL acquired by WEB"
+  },
+
+  // ── [추가][원문] RecordingState.msg ─────────────────────────────────────
+  // 키 이름이 `recording_state` 가 아닌 이유: 그 키는 top-level 의 상태 문자열이
+  // 이미 쓰고 있습니다. 이 필드가 없으면 웹은 session_id 를 알 수 없어
+  // 녹화 시작을 막습니다. 조작·모방 제어에는 영향이 없습니다.
+  "recording": {
+    "header": {
+      // RecordingState 도 stamp 가 header 안입니다.
+      "stamp": { "sec": 1785000000, "nanosec": 0 },
+      "frame_id": ""
+    },
+
+    // 기록 상태 정수. 0 IDLE | 1 STARTING | 2 RECORDING | 3 STOPPING
+    //                 4 COMPLETED | 5 FAILED | 6 INTERRUPTED
+    "state": 0,
+
+    // ── 진행 중인 세션 ──
+    // 활성 세션 ID. 0 은 "세션 없음" 이므로 숫자 0 그대로 보내도 됩니다.
+    // 0 이 아닌 값은 반드시 10진 문자열로 보내십시오 (6.5절).
+    // 63-bit 값을 JSON 숫자로 보내면 JS 가 파싱하는 시점에 손상되고
+    // 웹은 그 값을 되돌려 보내지 않습니다 — 세션이 닫히지 않습니다.
+    "active_session_id": 0,
+    // 진행 중인 rosbag2 경로. 웹은 표시하지 않습니다 (FR-26: 웹은 bag 에 접근 안 함).
+    "active_bag_path": "",
+    // 시작 시각. 웹은 현재 쓰지 않습니다.
+    "active_started_at": { "sec": 0, "nanosec": 0 },
+
+    // ── 직전에 닫힌 세션 ──
+    // 판정 대상 세션 ID. 문자열로 보내십시오.
+    // 웹은 이 값을 SetMimicResult 에 그대로 되돌려 보냅니다.
+    "last_session_id": "8531234567890123456",
+    // 직전 세션의 bag 경로. 웹은 표시하지 않습니다.
+    "last_bag_path": "/var/lib/thing-robot-data/bags/8531234567890123456",
+    // 시작·종료 시각. 웹은 현재 쓰지 않습니다.
+    "last_started_at": { "sec": 1785000000, "nanosec": 0 },
+    "last_ended_at": { "sec": 1785000060, "nanosec": 0 },
+
+    // 판정 대기 중인가. true 면 웹이 성공·실패 버튼을 띄우고
+    // 새 기록 시작을 막습니다. 이 표시는 조작 화면에서도 보입니다.
+    "result_pending": false,
+
+    // 직전 세션 판정. 0 UNSET | 1 SUCCESS | 2 FAILURE
+    "last_mimic_result": 1,
+
+    // 사람이 읽을 부가 설명. 웹은 현재 쓰지 않습니다.
+    "message": ""
+  },
+
+  // ── [선택] 장치별 연결 상태 ─────────────────────────────────────────────
+  // 없으면 웹이 snapshot 조각의 갱신 여부로 파생합니다.
+  // 값은 "unknown" | "up" | "down" 셋 중 하나이며 bool 이 아닙니다.
+  //   unknown  아직 모른다 (단절이 아님)
+  //   up       살아 있다
+  //   down     끊겼다
+  // NFR-09 가 웹의 범위를 다섯 종으로 정했으므로 camera·MediaPipe·hand_target·
+  // MJPEG 를 개별로 나눌 필요는 없습니다. 상세 원인은 diagnostics 소관입니다.
+  "connection_status": {
+    "jetson": "up",
+    "rpi": "up",
+    "ros2": "up",
+    "camera": "up",
+    "motor": "up"
+  },
+
+  // ── [선택][원문] HandCommand.msg ────────────────────────────────────────
+  // 없으면 웹의 7논리축 표가 표시되지 않습니다 (FR-21 Should).
+  // 7축은 최상위 고정 필드입니다. `values` 같은 래퍼로 감싸지 마십시오 (FR-30).
+  "last_hand_command": {
+    // HandCommand 는 stamp 가 최상위입니다.
+    "stamp": { "sec": 1785000000, "nanosec": 0 },
+
+    // 명령 일련번호 (uint32). 역행·중복 판정에 쓰입니다.
+    "sequence": 1234,
+
+    // 명령 출처. 0 UNKNOWN | 1 MIMIC | 2 TELEOP | 3 GESTURE | 4 SEQUENCE | 5 SAFETY
+    "source": 1,
+
+    // 7논리축 목표값. 각 0.0~1.0.
+    // 웹은 엄지 3축과 네 손가락 4축으로 묶어 보여 줍니다.
+    "thumb_flex": 0.42,
+    "thumb_opp": 0.10,
+    "thumb_abd": 0.05,
+    "index_flex": 0.88,
+    "middle_flex": 0.90,
+    "ring_flex": 0.85,
+    "little_flex": 0.80,
+
+    // 속도 상한 비율 (0.0 초과 1.0 이하).
+    // FR-32: 실제 축 속도는 YAML 최대속도에 이 비율을 곱합니다.
+    "speed_limit": 1.0,
+
+    // 이 명령을 만든 손 검출의 신뢰도.
+    "confidence": 0.93
+  }
+
+  // ── 여기 없는 [선택] 필드 ───────────────────────────────────────────────
+  // landmarks 안에 아래 세 개를 넣으면 웹이 그대로 씁니다. 없으면 근사합니다.
+  //
+  //   "hand_loss_latched":    true/false   손 미검출 확정 여부
+  //   "reacquire_elapsed_ms": 120          유효 재검출 경과
+  //   "reacquire_stable_ms":  300          유효 재검출 필요 시간
+  //
+  // 없으면 웹이 검출 실패 150ms 지속으로 latch 를 근사하고, 재검출 진행률 바는
+  // 표시하지 않습니다. FR-27 의 Must 요건("자동 재개되지 않음" 고지)은
+  // 근사만으로도 충족됩니다.
+}

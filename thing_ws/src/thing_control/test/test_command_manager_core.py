@@ -27,6 +27,7 @@ SAFETY_READY = 1
 SAFETY_RUN = 2
 SAFETY_HOLD = 3
 SAFETY_FAULT = 5
+SAFETY_RESET = 7
 
 RECORDING_IDLE = 0
 RECORDING_RECORDING = 2
@@ -60,7 +61,22 @@ def manager(clock):
 
 
 def make_ready(manager):
-    manager.update_safety_state(SAFETY_READY)
+    update_safety(manager, SAFETY_READY)
+
+
+def update_safety(manager, state):
+    """Issue a fresh transition stamp after any active STOP boundary."""
+    stamp_ns = max(
+        manager._last_safety_stamp_ns or 0,
+        manager._stop_source_stamp_boundary_ns or 0,
+        manager._stop_recovery_epoch_stamp_ns or 0,
+    ) + 1
+    return manager.update_safety_state(state, stamp_ns)
+
+
+def request_stop(manager):
+    boundary_ns = (manager._last_safety_stamp_ns or 0) + 1
+    return manager.request_mode(MODE_DISABLED, OWNER_NONE, boundary_ns)
 
 
 def acquire(manager, mode=MODE_MIMIC, owner=OWNER_WEB):
@@ -110,6 +126,26 @@ def test_same_mode_and_owner_request_renews_lease(manager, clock):
     assert manager.snapshot().owner_alive is True
 
 
+def test_mode_request_cannot_silently_reacquire_when_lease_expires(
+    manager,
+    clock,
+):
+    acquire(manager)
+    clock.advance_ms(3000)
+
+    expired = manager.request_mode(MODE_MIMIC, OWNER_WEB)
+
+    assert expired.accepted is False
+    assert expired.reason == 'owner_lease_expired'
+    state = manager.snapshot()
+    assert state.active_mode == MODE_DISABLED
+    assert state.active_owner == OWNER_NONE
+    assert state.owner_alive is False
+
+    retried = manager.request_mode(MODE_MIMIC, OWNER_WEB)
+    assert retried.accepted is True
+
+
 def test_different_owner_cannot_take_active_control(manager):
     acquire(manager)
 
@@ -155,7 +191,7 @@ def test_stop_releases_owner_and_clears_motion_state(manager):
     acquire(manager, MODE_MANUAL, OWNER_WEB)
     manager.set_sequence_running(True)
 
-    result = manager.request_mode(MODE_DISABLED, OWNER_NONE)
+    result = request_stop(manager)
 
     assert result.accepted is True
     state = manager.snapshot()
@@ -167,11 +203,13 @@ def test_stop_releases_owner_and_clears_motion_state(manager):
 
 def test_stop_blocks_new_control_acquisition_for_500ms(manager, clock):
     acquire(manager)
-    assert manager.request_mode(MODE_DISABLED, OWNER_NONE).accepted is True
+    assert request_stop(manager).accepted is True
 
     immediate = manager.request_mode(MODE_MIMIC, OWNER_WEB)
     clock.advance_ms(499)
     before_deadline = manager.request_mode(MODE_MIMIC, OWNER_WEB)
+    update_safety(manager, SAFETY_RESET)
+    update_safety(manager, SAFETY_READY)
     clock.advance_ms(1)
     at_deadline = manager.request_mode(MODE_MIMIC, OWNER_WEB)
 
@@ -180,6 +218,49 @@ def test_stop_blocks_new_control_acquisition_for_500ms(manager, clock):
     assert before_deadline.accepted is False
     assert before_deadline.reason == 'stop_in_progress'
     assert at_deadline.accepted is True
+
+
+def test_stop_in_fault_does_not_require_unreachable_reset_state(manager, clock):
+    update_safety(manager, SAFETY_FAULT)
+    assert request_stop(manager).accepted is True
+
+    clock.advance_ms(500)
+    update_safety(manager, SAFETY_INIT)
+    update_safety(manager, SAFETY_READY)
+
+    result = manager.request_mode(MODE_MIMIC, OWNER_WEB)
+    assert result.accepted is True
+
+
+def test_pre_stop_queued_safety_epoch_cannot_clear_recovery_gate(manager, clock):
+    assert manager.update_safety_state(SAFETY_READY, 100) is False
+    assert manager.request_mode(MODE_MIMIC, OWNER_WEB).accepted is True
+    assert manager.request_mode(MODE_DISABLED, OWNER_NONE, 200).accepted is True
+    clock.advance_ms(500)
+
+    # Both samples were produced before STOP even though they arrived afterward.
+    assert manager.update_safety_state(SAFETY_RESET, 150) is False
+    assert manager.update_safety_state(SAFETY_READY, 190) is False
+    blocked = manager.request_mode(MODE_MIMIC, OWNER_WEB)
+    assert blocked.accepted is False
+    assert blocked.reason == 'stop_in_progress'
+
+    assert manager.update_safety_state(SAFETY_RESET, 201) is False
+    assert manager.update_safety_state(SAFETY_READY, 202) is False
+    assert manager.request_mode(MODE_MIMIC, OWNER_WEB).accepted is True
+
+
+def test_malformed_or_replayed_safety_stamps_cannot_authorize_control(manager):
+    assert manager.update_safety_state(SAFETY_READY, 0) is False
+    assert manager.request_mode(MODE_MIMIC, OWNER_WEB).accepted is False
+
+    assert manager.update_safety_state(SAFETY_READY, 100) is False
+    assert manager.request_mode(MODE_MIMIC, OWNER_WEB).accepted is True
+
+    # Older and same-stamp state changes are ignored.
+    assert manager.update_safety_state(SAFETY_FAULT, 99) is False
+    assert manager.update_safety_state(SAFETY_RESET, 100) is False
+    assert manager.snapshot().active_mode == MODE_MIMIC
 
 
 def test_motion_blocks_valid_mode_change_with_motion_active_reason(manager):
@@ -264,7 +345,7 @@ def test_expired_owner_cannot_select_command_before_timer_runs(manager, clock):
 def test_unsafe_transition_releases_active_control(manager, unsafe_state):
     acquire(manager)
 
-    changed = manager.update_safety_state(unsafe_state)
+    changed = update_safety(manager, unsafe_state)
 
     assert changed is True
     state = manager.snapshot()
@@ -274,27 +355,49 @@ def test_unsafe_transition_releases_active_control(manager, unsafe_state):
     assert state.last_transition_reason == 'safety_not_ready'
 
 
-def test_hold_blocks_commands_but_preserves_mode_until_explicit_stop(manager):
+def test_hold_preserves_owner_and_forwards_source_only_for_validation(manager):
     acquire(manager)
 
-    changed = manager.update_safety_state(SAFETY_HOLD)
+    changed = update_safety(manager, SAFETY_HOLD)
 
     assert changed is False
     state = manager.snapshot()
     assert state.active_mode == MODE_MIMIC
     assert state.active_owner == OWNER_WEB
     assert state.owner_alive is True
-    assert manager.accepts_source(SOURCE_MIMIC) is False
+    assert manager.accepts_source(SOURCE_MIMIC) is True
 
-    stopped = manager.request_mode(MODE_DISABLED, OWNER_NONE)
+    stopped = request_stop(manager)
     assert stopped.accepted is True
     assert manager.snapshot().active_mode == MODE_DISABLED
+    assert manager.snapshot().active_owner == OWNER_NONE
+
+
+@pytest.mark.parametrize('safety_state', [SAFETY_INIT, SAFETY_RESET])
+def test_stop_is_rejected_in_init_and_reset(safety_state, manager):
+    update_safety(manager, safety_state)
+    stopped = request_stop(manager)
+    assert stopped.accepted is False
+    assert stopped.reason == 'stop_not_allowed_in_safety_state'
+
+
+def test_hold_allows_only_same_owner_same_mode_lease_renewal(manager, clock):
+    acquire(manager)
+    update_safety(manager, SAFETY_HOLD)
+    clock.advance_ms(2999)
+
+    renewed = manager.request_mode(MODE_MIMIC, OWNER_WEB)
+
+    assert renewed.accepted is True
+    assert renewed.reason == 'accepted'
+    clock.advance_ms(2999)
+    assert manager.accepts_source(SOURCE_MIMIC) is True
 
 
 def test_run_safety_state_keeps_active_control(manager):
     acquire(manager)
 
-    changed = manager.update_safety_state(SAFETY_RUN)
+    changed = update_safety(manager, SAFETY_RUN)
 
     assert changed is False
     assert manager.snapshot().active_mode == MODE_MIMIC
@@ -333,9 +436,9 @@ def test_recording_does_not_block_current_owner_lease_renewal(manager):
 def test_stop_is_accepted_during_recording_and_fault(manager):
     acquire(manager)
     manager.update_recording_state(RECORDING_RECORDING, False)
-    manager.update_safety_state(SAFETY_FAULT)
+    update_safety(manager, SAFETY_FAULT)
 
-    result = manager.request_mode(MODE_DISABLED, OWNER_NONE)
+    result = request_stop(manager)
 
     assert result.accepted is True
     assert result.reason == 'accepted'
@@ -361,3 +464,14 @@ def test_simultaneous_acquisition_accepts_exactly_one_owner(manager):
         'accepted',
         'owner_conflict',
     }
+
+
+def test_manager_rejects_unbounded_or_non_integer_timing_values():
+    for kwargs in (
+        {'owner_lease_timeout_ms': 3001},
+        {'owner_lease_timeout_ms': True},
+        {'stop_reacquire_delay_ms': 501},
+        {'stop_reacquire_delay_ms': 1.5},
+    ):
+        with pytest.raises(ValueError):
+            CommandManagerCore(**kwargs)

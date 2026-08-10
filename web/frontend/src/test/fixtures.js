@@ -1,13 +1,25 @@
 // frontend/src/test/fixtures.js
 //
-// 요구사항 명세서 V6.3 6.4절 snapshot v1 과 FR-37 ack 을 그대로 모사한다.
-// 필드명은 develop .msg 그대로 쓴다 (FR-30).
+// 요구사항 명세서 V7.1 6.4절 snapshot v1 과 거부 사유(FR-37) ack 을 그대로 모사한다.
+//
+// 구조는 thing_interfaces 의 .msg 실물을 따른다 (FR-30).
+//   시각 필드 위치: ControlState·SafetyState·HandCommand 는 `stamp`,
+//                  HandLandmarks·MotorStatus·RecordingState 는 `header.stamp`
+//   시각 타입: builtin_interfaces/Time = { sec, nanosec }. 문자열이 아니다.
+//   enum: uint8 상수. 브릿지가 .msg 원문을 dump 하면 정수로 온다.
+// 픽스처가 프런트 편한 모양을 쓰면 실물과 갈라져 시험이 결함을 못 잡는다.
 
 import { REJECT_REASON, WEB_REASON } from "../config/messageProtocol";
 
-/** RFC 3339 UTC Z (밀리초 3자리) */
+/** RFC 3339 UTC Z (밀리초 3자리). 6.4절 top-level timestamp 형식. */
 export function utcNowZ() {
   return new Date().toISOString().replace(/(\.\d{3})\d*Z$/, "$1Z");
+}
+
+/** builtin_interfaces/Time. .msg 의 시각 필드는 전부 이 형태다. */
+export function rosTime(offsetMs = 0) {
+  const ms = Date.now() + offsetMs;
+  return { sec: Math.floor(ms / 1000), nanosec: (ms % 1000) * 1e6 };
 }
 
 // 3상태다. FR-24 "가짜 값으로 채우지 않는다": bool 로는 "아직 못 받았다" 와
@@ -32,7 +44,7 @@ export function controlState(over = {}) {
     owner_alive: false,
     sequence_running: false,
     last_transition_reason: "",
-    stamp: null,
+    stamp: rosTime(),
     ...over,
   };
 }
@@ -56,22 +68,22 @@ export function safetyState(over = {}) {
     estop_active: false,
     fault_code: 0,
     reason: "",
-    reset_allowed: ["SAFE", "FAULT", "ESTOP"].includes(state),
-    stamp: null,
+    stamp: rosTime(),
     ...over,
   };
 }
 
 export function recordingState(over = {}) {
   return {
+    header: { stamp: rosTime(), frame_id: "" },
     state: "IDLE",
-    active_session_id: 0,
+    active_session_id: "",
     active_bag_path: "",
-    active_started_at: null,
-    last_session_id: 0,
+    active_started_at: rosTime(),
+    last_session_id: "",
     last_bag_path: "",
-    last_started_at: null,
-    last_ended_at: null,
+    last_started_at: rosTime(),
+    last_ended_at: rosTime(),
     result_pending: false,
     last_mimic_result: "UNSET",
     message: "",
@@ -85,7 +97,7 @@ export function recordingState(over = {}) {
  */
 export function snapshot(over = {}) {
   const control = over.control_state ?? controlState();
-  const recording = over.recording_detail ?? recordingState();
+  const recording = over.recording ?? recordingState();
   return {
     // ── 고정 6필드 ──
     timestamp: utcNowZ(),
@@ -97,12 +109,12 @@ export function snapshot(over = {}) {
     // 기본 snapshot 은 브릿지 미연결 상태를 모사하므로 {} 다.
     safety_state: {},
     // ── 확장 ──
+    // ── 브릿지가 추가로 얹는 두 개 (.msg 원문 dump) ──
     control_state: control,
-    recording_detail: recording,
+    recording,
+    // ── 선택 필드. 없으면 프런트가 파생한다 ──
     connection_status: emptyConnection,
     last_hand_command: {},
-    pending: { mode: null, owner: null },
-    bridge_connected: false,
     ...over,
   };
 }
@@ -112,7 +124,6 @@ export function readySnapshot(over = {}) {
   return snapshot({
     safety_state: safetyState({ state: "READY", motor_communication_ok: true }),
     connection_status: allConnected,
-    bridge_connected: true,
     ...over,
   });
 }
@@ -125,7 +136,6 @@ export function mimicSnapshot(over = {}) {
     }),
     safety_state: safetyState({ state: "RUN", motor_communication_ok: true }),
     connection_status: allConnected,
-    bridge_connected: true,
     ...over,
   });
 }
@@ -138,13 +148,13 @@ export function manualSnapshot(over = {}) {
     }),
     safety_state: safetyState({ state: "RUN", motor_communication_ok: true }),
     connection_status: allConnected,
-    bridge_connected: true,
     ...over,
   });
 }
 
 /** 7논리축이 채워진 landmarks 표시 객체 */
 export const landmarksPayload = {
+  header: { stamp: rosTime(), frame_id: "camera" },
   detected: true,
   handedness: "RIGHT",
   confidence: 0.93,
@@ -152,6 +162,7 @@ export const landmarksPayload = {
 
 /** MotorStatus 표시 객체 — 7모터 */
 export const motorStatePayload = {
+  header: { stamp: rosTime(), frame_id: "" },
   motors: Array.from({ length: 7 }, (_, i) => ({
     motor_id: i + 1,
     actuator_name: ["thumb_flex", "thumb_opp", "thumb_abd", "index_flex",
@@ -165,6 +176,8 @@ export const motorStatePayload = {
     hardware_error: 0,
     communication_result: 0,
     communication_ok: true,
+    // V7 FR-30 승인 변경. .msg 반영 전이라 브릿지가 안 줄 수도 있다.
+    torque_enabled: true,
     // failed_read_count 는 MotorState.msg 에 없다. 버스 단위(MotorStatus)에만 있다.
   })),
   bus_communication_ok: true,

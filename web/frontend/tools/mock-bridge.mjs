@@ -49,7 +49,6 @@ import {
   HAND_AXIS_KEYS,
   RECORDING_STATE,
   REJECT_REASON,
-  RESET_ALLOWED_STATES,
   TIMING,
 } from '../src/config/messageProtocol.js';
 
@@ -58,6 +57,9 @@ import {
 const SAFETY_STATE = {
   INIT: 'INIT', READY: 'READY', RUN: 'RUN', HOLD: 'HOLD',
   SAFE: 'SAFE', FAULT: 'FAULT', ESTOP: 'ESTOP',
+  // V7 이 additive 로 추가한 상수 (FR-30). 명시적 정상 STOP 뒤
+  // Guard ACK·settle·torque-off 를 확인하는 정상 제어 상태다.
+  RESET: 'RESET',
 };
 
 /** FR-38 alias 정규화. 미지원 이름이면 null. */
@@ -77,6 +79,9 @@ const readArg = (name, fallback) => {
 const PORT = Number(readArg('port', 8000));
 const HOST = readArg('host', '127.0.0.1');
 const PATHNAME = '/ws/robot-state';
+// 선택 필드(connection_status, hand_loss_latched 등)를 빼고 보내
+// 프런트의 파생 경로를 확인한다.
+const EMIT_OPTIONAL = !args.includes('--no-derived');
 
 const log = (tag, message) => console.log(`[${tag}] ${message}`);
 
@@ -159,6 +164,22 @@ function decodeFrames(buffer) {
 
 const utcNowZ = () => new Date().toISOString().replace(/(\.\d{3})\d*Z$/, '$1Z');
 
+/**
+ * builtin_interfaces/Time 원문 형태.
+ *
+ * 6.4절 top-level `timestamp` 만 RFC 3339 문자열이고, .msg 안의 시각 필드는
+ * 브릿지가 message_to_ordereddict 로 dump 하므로 `{sec, nanosec}` 로 온다.
+ *   `stamp`        ControlState, SafetyState, HandCommand
+ *   `header.stamp` HandLandmarks, MotorStatus, RecordingState
+ *
+ * 웹은 이 값을 파싱하지 않고 "바뀌었는지" 만 비교하므로, mock 은 매 발행마다
+ * 전진하는 값을 주기만 하면 된다.
+ */
+function rosTime() {
+  const ms = Date.now();
+  return { sec: Math.floor(ms / 1000), nanosec: (ms % 1000) * 1e6 };
+}
+
 /** FR-18: CSPRNG 로 만든 0이 아닌 63-bit 양의 정수. 10진 문자열로 표현한다. */
 function newSessionId() {
   const value = randomBytes(8).readBigUInt64BE() & ((1n << 63n) - 1n);
@@ -182,7 +203,7 @@ const robot = {
   resultPending: false,
   lastResult: 'UNSET',
   handDetected: true,
-  handConfidence: 0.93,
+  handConfidence: 0.95,
   lowConfidence: false,
   handLost: false,
   motionUntil: null,
@@ -233,6 +254,7 @@ function updateHandLoss(nowMs) {
     : 0;
 
   return {
+    header: { stamp: rosTime(), frame_id: 'camera' },
     detected,
     handedness: detected ? 'RIGHT' : 'UNKNOWN',
     handedness_confidence: detected ? 0.99 : 0,
@@ -240,10 +262,13 @@ function updateHandLoss(nowMs) {
     image_width: 640,
     image_height: 480,
     valid_detection: valid,
-    hand_loss_latched: robot.latched,
-    reacquire_elapsed_ms: reacquire,
-    reacquire_stable_ms: 300,
-    resume_required: robot.latched,
+    // 선택 필드. 브릿지가 파생해 주면 프런트가 그대로 쓰고, 없으면 프런트가
+    // 검출 지속시간으로 근사한다.
+    ...(EMIT_OPTIONAL ? {
+      hand_loss_latched: robot.latched,
+      reacquire_elapsed_ms: reacquire,
+      reacquire_stable_ms: 300,
+    } : {}),
   };
 }
 
@@ -291,9 +316,7 @@ function buildSnapshot(nowMs) {
     estop_active: robot.safety === SAFETY_STATE.ESTOP,
     fault_code: robot.safety === SAFETY_STATE.FAULT ? 1 : 0,
     reason: robot.safetyReason,
-    stamp: utcNowZ(),
-    // FR-35: SAFE·FAULT·ESTOP 에서만 reset_safety 를 쓴다
-    reset_allowed: RESET_ALLOWED_STATES.includes(robot.safety),
+    stamp: rosTime(),
   };
   const control = {
     active_mode: robot.mode,
@@ -301,9 +324,10 @@ function buildSnapshot(nowMs) {
     owner_alive: robot.ownerAlive,
     sequence_running: robot.sequenceRunning,
     last_transition_reason: robot.reason,
-    stamp: utcNowZ(),
+    stamp: rosTime(),
   };
   const recording = {
+    header: { stamp: rosTime(), frame_id: '' },
     state: robot.recState,
     active_session_id: robot.activeSession,
     active_bag_path: robot.activeSession
@@ -321,7 +345,7 @@ function buildSnapshot(nowMs) {
     recording_state: robot.recState,
     landmarks,
     motor_state: {
-      stamp: utcNowZ(),
+      header: { stamp: rosTime(), frame_id: '' },
       motors: HAND_AXIS_KEYS.map((axis, i) => ({
         motor_id: i + 1,
         actuator_name: axis,
@@ -335,6 +359,7 @@ function buildSnapshot(nowMs) {
         hardware_error: robot.safety === SAFETY_STATE.FAULT ? 1 : 0,
         communication_result: robot.motorOk ? 0 : -3001,
         communication_ok: robot.motorOk,
+        torque_enabled: robot.safety === SAFETY_STATE.RUN,
       })),
       bus_communication_ok: robot.motorOk,
       failed_read_count: robot.motorOk ? 0 : 12,
@@ -343,24 +368,24 @@ function buildSnapshot(nowMs) {
     safety_state: safety,
     // 확장
     control_state: control,
-    recording_detail: recording,
-    // 2계층에서는 이 snapshot 이 전달된 것이 곧 브릿지가 살아 있다는 뜻이므로
-    // 항상 true 다. 상수이지만 계약에 남긴다 — 프런트엔드가 이 필드로 조작 가능
-    // 여부를 판단하고, 빠뜨리면 UI 가 잠긴다.
-    bridge_connected: true,
-    connection_status: {
-      jetson: 'up', rpi: 'up', ros2: 'up',
-      camera: 'up', motor: robot.motorOk ? 'up' : 'down',
-    },
+    recording,
+    // 아래는 선택 필드다. 브릿지가 안 보내면 프런트가 snapshot 조각의 신선도에서
+    // 파생한다. --no-derived 로 그 경로를 확인할 수 있다.
+    ...(EMIT_OPTIONAL ? {
+      connection_status: {
+        jetson: 'up', rpi: 'up', ros2: 'up',
+        camera: 'up', motor: robot.motorOk ? 'up' : 'down',
+      },
+    } : {}),
+    // FR-30: HandCommand 는 7개 "고정 축" 이다. values 래퍼가 없다.
     last_hand_command: {
-      values: Object.fromEntries(HAND_AXIS_KEYS.map((k) => [k, Number(v.toFixed(3))])),
-      source: robot.mode === CONTROL_MODE.MIMIC ? 'MIMIC' : 'GESTURE',
+      stamp: rosTime(),
       sequence: robot.sequence,
+      source: robot.mode === CONTROL_MODE.MIMIC ? 'MIMIC' : 'GESTURE',
+      ...Object.fromEntries(HAND_AXIS_KEYS.map((k) => [k, Number(v.toFixed(3))])),
       speed_limit: 1.0,
       confidence: Number(Math.min(v + 0.3, 1).toFixed(3)),
-      stamp: utcNowZ(),
     },
-    pending: { mode: null, owner: null },
   };
 }
 
@@ -369,8 +394,9 @@ function buildSnapshot(nowMs) {
 const ACCEPT = [true, REJECT_REASON.ACCEPTED];
 
 function setControlMode(payload) {
-  const mode = payload.requested_mode ?? payload.mode;
-  const owner = payload.requested_owner ?? payload.owner;
+  // SetControlMode.srv 의 요청 필드는 requested_mode·requested_owner 다.
+  const mode = payload.requested_mode;
+  const owner = payload.requested_owner;
 
   if (mode === CONTROL_MODE.DISABLED && owner === CONTROL_OWNER.NONE) {
     releaseOwner('명시적 STOP');
@@ -428,7 +454,7 @@ const HANDLERS = {
     requested_mode: CONTROL_MODE.DISABLED, requested_owner: CONTROL_OWNER.NONE,
   }),
   execute_gesture: (payload) => {
-    const name = canonicalGesture(payload.gesture_name ?? payload.gesture_id);
+    const name = canonicalGesture(payload.gesture_name);
     if (!name) return [false, REJECT_REASON.INVALID_MODE];
     // FR-22 초기 유지시간: open·fist 1000ms, 그 외 3000ms
     return startMotion(`gesture ${name}`, ['open', 'fist'].includes(name) ? 1000 : 3000,
@@ -554,9 +580,12 @@ function handleRequest(socket, raw) {
 
 // ── 키보드 시나리오 ─────────────────────────────────────────────────────
 
+// `s` 키로 순환시킬 상태. 웹이 받을 수 있는 8개를 모두 포함한다.
+// RESET 은 실제로는 명시적 STOP 뒤에만 나타나지만(FR-35), 이 키는 화면 확인용
+// 수동 전환이므로 순환에 넣어 두어야 RESET 안내 문구를 눈으로 볼 수 있다.
 const SAFETY_CYCLE = [
   SAFETY_STATE.READY, SAFETY_STATE.RUN, SAFETY_STATE.HOLD,
-  SAFETY_STATE.SAFE, SAFETY_STATE.FAULT, SAFETY_STATE.ESTOP,
+  SAFETY_STATE.RESET, SAFETY_STATE.SAFE, SAFETY_STATE.FAULT, SAFETY_STATE.ESTOP,
 ];
 
 const KEYS = {

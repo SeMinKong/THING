@@ -19,7 +19,7 @@
     목록 기본 20개·최대 100개, `started_at DESC, session_id DESC`
     exact Session ID 검색은 Must
     data 기본 1000행·최대 5000행, timestamp 오름차순; 결측 숫자는 JSON `null`
-    file_kind는 metadata|hand_command|motor_status enum이며 경로 입력을 받지 않는다.
+    file_kind는 metadata|hand_command|motor_status|landmark enum이며 경로 입력을 받지 않는다.
     파일 누락·hash 불일치는 정상 다운로드로 제공하지 않는다.
 """
 import logging

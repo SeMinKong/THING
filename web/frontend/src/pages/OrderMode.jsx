@@ -1,61 +1,54 @@
 // ============================================================================
 // 조작(MANUAL) 모드 페이지
 // ----------------------------------------------------------------------------
-// FR-19/FR-20: VisionMode와 동일한 CameraStream 컴포넌트로 영상·손 검출·카메라
-//   상태를 조작 모드에서도 관제할 수 있도록 함 (두 모드 모두 관제 가능해야 함)
+// FR-25: 이 화면에서는 영상보다 모터 상태가 중요하다. 보낸 명령이 실제로
+//   반영됐는지를 왼쪽 모터 표에서 확인한다. 영상·손 검출 관제는 모방 화면이 맡는다.
 // FR-22: 버튼 입력을 통한 명령 전달 (기본 명령 = Gesture, 추가 명령 = Sequence)
 // FR-23: 웹 명령 범위 제한 (정지 명령 최우선, 큐잉 금지)
 // FR-25: 모터 상태 확인
 // FR-27: 위험 상태에서 새 명령 비활성화
 // ============================================================================
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useHandSocket } from "../context/HandSocketContext";
 import { BASIC_GESTURES, SEQUENCE_ACTIONS } from "../config/commandPresets";
 import { CONTROL_MODE, CONTROL_OWNER } from "../config/messageProtocol";
 import MotorStatusPanel from "../components/MotorStatusPanel";
-import ModeAcquirePanel from "../components/ModeAcquirePanel";
-import CameraStream from "../components/CameraStream";
-import "./OrderMode.css";
+import { motion } from "motion/react";
+import { Panel, Head, Body, Tag } from "../ui/Sheet";
+import HandPoseView from "../components/HandPoseView";
 
 export default function OrderMode() {
   const {
     connectionState,
     controlState,
-    lastError,
+    controlStateKnown,
     safetyState,
     safetyStateKnown,
     motorStatus,
-    snapshotAt,
+    sectionUpdatedAt,
     snapshotReceivedAt,
-    modeRejectedReason,
     needsResumeConfirmation,
     isSafeToOperate,
     webHasControl,
+    commandInFlight,
     sendGesture,
     sendSequence,
-    sendStop,
   } = useHandSocket();
-  // FR-22: 현재 명령이 실행 중이면 다음 명령은 큐잉하지 않고 무시한다.
-  const [pendingCommandId, setPendingCommandId] = useState(null);
 
   // FR-22 "같은 시점에 Gesture 하나만 실행하고 새 일반 동작은 큐에 쌓지 않고
-  // 거부한다." 잠금은 임의 타이머가 아니라 로봇이 알려주는 사실로 푼다.
-  //   · 거부되면(lastError) 애초에 실행되지 않았으므로 즉시 해제
-  //   · 수락되면 control_state.sequence_running 이 서고, 초기 유지시간이 끝나
-  //     내려갈 때 해제한다 (FR-22: open·fist 1000ms, 그 외 3000ms)
-  const sequenceRunning = controlState.sequence_running;
-  const wasRunningRef = useRef(false);
-  useEffect(() => {
-    if (sequenceRunning) wasRunningRef.current = true;
-    if (pendingCommandId === null) return;
-    if (lastError || (wasRunningRef.current && !sequenceRunning)) {
-      wasRunningRef.current = false;
-      setPendingCommandId(null);
-    }
-  }, [pendingCommandId, lastError, sequenceRunning]);
+  // 거부한다." 이 판정 주체는 로봇이다. 웹은 ack 왕복 동안만 잠가 더블클릭을
+  // 막고, 실제 중복 실행은 FR-37 motion_active 거부 문구로 안내한다.
+  //
+  // (이전 구현은 control_state.sequence_running 의 true→false 로 잠금을 풀었다.
+  //  그 필드는 이름 그대로 ExecuteSequence 액션용일 수 있고 — FR-31 은 Gesture 와
+  //  Action 을 구분한다 — 브릿지가 Gesture 실행 중에 세워 주지 않으면 제스처를
+  //  한 번 보낸 뒤 패널이 영구히 잠겼다. 브릿지 구현에 대한 의존을 끊었다.)
+
+  // hover 한 명령의 자세를 우측 미리보기 슬롯에 그린다. disabled 버튼은 mouseenter 를
+  // 쏘지 않으므로 잠겼을 때는 자연히 표시되지 않고, 렌더에서도 command=null 로 한 번 더 막는다.
+  const [hoveredCommand, setHoveredCommand] = useState(null);
 
   const isManualActive = controlState.active_mode === CONTROL_MODE.MANUAL;
-
   const isConnected = connectionState === "open";
 
   const commandsDisabled =
@@ -64,142 +57,113 @@ export default function OrderMode() {
     !isSafeToOperate ||
     !webHasControl ||
     needsResumeConfirmation ||
-    controlState.sequence_running ||
-    pendingCommandId !== null;
+    commandInFlight;
+
+  // 왜 잠겼는지 한 가지만 말한다. 여러 이유를 나열하면 읽지 않는다.
+  const reason = !isConnected ? "서버에 연결되어 있지 않습니다."
+    : !controlStateKnown ? "로봇의 제어 상태를 아직 받지 못했습니다."
+    : needsResumeConfirmation ? "제어가 재개되지 않았습니다. 모드를 다시 획득하세요."
+    : !isSafeToOperate
+      ? (safetyStateKnown
+        ? `안전 상태 ${safetyState.state} 에서는 조작 명령을 보낼 수 없습니다.`
+        : "안전 상태를 아직 받지 못했습니다.")
+    : controlState.active_owner === CONTROL_OWNER.LOCAL
+      ? "로컬 프로그램이 제어권을 보유하고 있습니다."
+    : !webHasControl ? "제어권을 먼저 획득하세요."
+    : !isManualActive ? "조작 모드가 아닙니다."
+    : commandInFlight ? "직전 명령의 응답을 기다리는 중입니다."
+    : "";
 
   const runGesture = (gesture) => {
     if (commandsDisabled) return;
-    setPendingCommandId(gesture.id);
-    const ok = sendGesture(gesture);
-    if (!ok) setPendingCommandId(null);
-    // TODO(ROS2 확정 후): 실제로는 브릿지가 보내는 완료/ack 신호(control_state
-    // 또는 별도 gesture 완료 메시지)로 해제하는 것이 정확하다. 지금은 프론트
-    // 단독 데모용으로 일정 시간 후 잠금을 해제한다.
-    // 임의 타이머가 아니라 서버 ack 로 잠금을 푼다.
-    // 500ms 고정이면 FR-22 의 초기 유지시간(open·fist 1000ms,
-    // cylindrical_grasp·pinch 3000ms)보다 먼저 풀려 두 번째 요청이
-    // motion_active 로 거부된다. 잠금 해제는 아래 useEffect 가 맡는다.
+    sendGesture(gesture);
   };
 
-  const runSequence = (sequenceId) => {
+  const runSequence = (action) => {
     if (commandsDisabled) return;
-    sendSequence(sequenceId);
+    sendSequence(action.id, action.speed_limit);
   };
 
-  const handleStop = () => {
-    // FR-23: 정지 명령은 다른 일반 명령보다 우선 처리 - 잠금 상태와 무관하게 항상 전송
-    setPendingCommandId(null);
-    sendStop();
-  };
+  // 정지는 화면 이동 게이트가 맡는다 (components/ModeGate.jsx).
+  // sendStop() 은 SetControlMode(DISABLED, NONE) 이므로 실행 중 동작을 끊는 것이
+  // 아니라 제어권을 해제하는 것이다. 여기 버튼으로 두면 누르는 순간 제어권이
+  // 풀려 개요로 되돌아가므로, 이동 흐름 안에 두는 편이 맞다.
 
   return (
-    <div className="container my-5 px-4">
-      <h2 className="mb-4 fw-bold text-dark text-center">명령 제공 모드</h2>
+    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
+            <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+        <Panel className="flex min-h-0 flex-1 flex-col">
+          <div aria-label="명령" className="flex min-h-0 flex-1 flex-col">
+            <Head title="명령">
+              <Tag tone={commandsDisabled ? "idle" : "live"}>
+                {commandsDisabled ? "잠김" : "전송 가능"}
+              </Tag>
+            </Head>
 
-      {/* FR-19 / FR-35 / NFR-23: 제어권은 사용자가 직접 획득한다. 자동 획득하지 않는다. */}
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MANUAL} />
+            <Body className="flex min-h-0 flex-1 flex-col gap-3">
+              {reason && <p className="text-xl leading-relaxed text-ink-500">{reason}</p>}
 
-      {modeRejectedReason && (
-        <div className="alert alert-warning text-center" role="alert">
-          {modeRejectedReason}
-        </div>
-      )}
-      {!isConnected && (
-        <div className="alert alert-danger text-center" role="alert">
-          서버와 연결되어 있지 않아 명령을 보낼 수 없습니다.
-        </div>
-      )}
-      {isConnected && !webHasControl && controlState.active_owner === CONTROL_OWNER.LOCAL && (
-        <div className="alert alert-warning text-center" role="alert">
-          로컬 프로그램(teleop)이 제어권을 보유하고 있어 웹에서 조작할 수 없습니다.
-          해당 주체가 해제해야 합니다.
-        </div>
-      )}
-      {needsResumeConfirmation && (
-        <div className="alert alert-warning text-center" role="alert">
-          제어권을 잃었습니다. 이전 명령은 자동으로 재개되지 않습니다(NFR-23).
-          상단의 "제어 재개"로 안내를 닫고 아래에서 모드를 다시 획득하십시오.
-        </div>
-      )}
-      {!isSafeToOperate && (
-        <div className="alert alert-danger text-center" role="alert">
-          {safetyStateKnown
-            ? `현재 안전 상태(${safetyState.state})에서는 일반 조작 명령이 비활성화됩니다.`
-            : "안전 상태를 아직 수신하지 못했습니다. 확인되기 전까지 조작 명령을 보내지 않습니다."}
-        </div>
-      )}
-
-      <div className="row g-4 align-items-start">
-        <div className="col-lg-7">
-          {/* FR-19 인수조건: 두 모드 모두 영상/손 검출 관제 가능해야 함 - VisionMode와 동일한 공통 컴포넌트 사용 */}
-          <CameraStream compact />
-
-          <p className="text-center mt-2 mb-0 small text-muted">
-            현재 안전 상태:{" "}
-            <strong>{safetyStateKnown ? safetyState.state : "수신 대기"}</strong>
-          </p>
-
-          {/* FR-25: 모터 상태 - 조작 모드에서 명령 결과를 바로 확인할 수 있도록 배치 */}
-          <div className="mt-4">
-            <MotorStatusPanel
-              motorStatus={motorStatus}
-              snapshotAt={snapshotAt}
-              receivedAt={snapshotReceivedAt}
-            />
-          </div>
-        </div>
-
-        <div className="col-lg-5 d-flex justify-content-lg-end">
-          <div className="command-panel w-100">
-            {/* FR-22 기본 명령 (Gesture) */}
-            <div className="row row-cols-2 g-3 mb-3">
-              {BASIC_GESTURES.map((gesture) => (
-                <div className="col" key={gesture.id}>
-                  <button
-                    type="button"
-                    className="btn btn-outline-secondary w-100 py-3 fw-semibold fs-5 rounded-3"
-                    onClick={() => runGesture(gesture)}
-                    disabled={commandsDisabled}
-                    aria-label={gesture.label}
-                    title={gesture.label}
-                  >
-                    {gesture.icon}
-                    <span className="d-block fs-6 fw-normal mt-1">{gesture.label}</span>
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {/* FR-22 추가 명령 (Sequence 액션) */}
-            <div className="row row-cols-2 g-3 mb-4">
-              {SEQUENCE_ACTIONS.map((action) => (
-                <div className="col" key={action.id}>
-                  <button
-                    type="button"
-                    className="btn btn-outline-info w-100 py-2 fw-semibold rounded-3"
-                    onClick={() => runSequence(action.id)}
-                    disabled={commandsDisabled}
-                    title={action.label}
-                  >
-                    {action.icon} {action.label}
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="text-lg-end text-center">
-              <button
-                type="button"
-                className="btn btn-danger btn-lg px-5 py-2 fw-bold shadow-sm w-100"
-                style={{ maxWidth: 240 }}
-                onClick={handleStop}
+              {/* FR-22 기본 명령 (Gesture) 및 추가 명령 (Sequence) — 동일한 2열 그리드에서 6개 버튼이 남는 높이를 나눠 갖는다 */}
+              {/* leave 는 버튼이 아니라 그리드 전체에 건다. 버튼 사이 gap 은 그리드 안쪽이라
+                  버튼을 옮기는 동안 프리뷰가 사라지지 않고 자세 morph 가 이어진다. */}
+              <div
+                className="grid min-h-0 flex-1 grid-cols-2 gap-2"
+                onMouseLeave={() => setHoveredCommand(null)}
               >
-                기능 중지
-              </button>
-            </div>
+                {[...BASIC_GESTURES, ...SEQUENCE_ACTIONS].map((command) => {
+                  const isSequence = SEQUENCE_ACTIONS.some((action) => action.id === command.id);
+
+                  return (
+                    <motion.button
+                      key={command.id}
+                      type="button"
+                      onClick={() => (isSequence ? runSequence(command) : runGesture(command))}
+                      onMouseEnter={() => setHoveredCommand(command)}
+                      disabled={commandsDisabled}
+                      aria-label={command.label}
+                      title={command.label}
+                      whileHover={commandsDisabled ? undefined : { y: -2 }}
+                      whileTap={commandsDisabled ? undefined : { scale: 0.97 }}
+                      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                      className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-action-200 bg-action-50 px-2 py-3 text-center transition-colors hover:border-action-700 hover:bg-action-100 disabled:opacity-30"           >
+                      <span className="text-2xl leading-none" aria-hidden="true">
+                        {command.icon}
+                      </span>
+                      <span className="text-3xl font-medium">{command.label}</span>
+                      {!isSequence && <span className="font-mono text-[20px] text-ink-400">{command.id}</span>}
+                    </motion.button>
+                  );
+                })}
+              </div>
+
+            </Body>
           </div>
-        </div>
+        </Panel>
       </div>
+      {/* FR-25: 조작 모드에서는 영상보다 모터 상태가 중요하다.
+          보낸 명령이 실제로 반영됐는지를 여기서 확인한다.
+          모터 표는 내용 높이로 두고, 그 아래 남는 공간을 동작 미리보기 슬롯으로 쓴다. */}
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+        <MotorStatusPanel
+          motorStatus={motorStatus}
+          motorUpdatedAt={sectionUpdatedAt.motor_state ?? null}
+          receivedAt={snapshotReceivedAt}
+        />
+        <Panel className="flex min-h-0 flex-1 flex-col" delay={0.05}>
+          <Head
+            title="동작 미리보기"
+            afterTitle={hoveredCommand ? (
+              <span className="text-ink-400 text-sm">{hoveredCommand.label}</span>
+            ) : null}
+          />
+          <Body className="flex min-h-0 flex-1 flex-col">
+            {/* 잠김(조작 모드 아님·제어권 없음 등)이면 command=null → 미리보기 안 뜸 */}
+            <HandPoseView command={commandsDisabled ? null : hoveredCommand} />
+          </Body>
+        </Panel>
+      </div>
+
+
     </div>
   );
 }

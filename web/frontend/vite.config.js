@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // FR-28: frontend 는 Laptop 에서 native Vite + React 로 실행하고
 // WS_URL·MJPEG_URL 외부 설정으로 Jetson Web Bridge 와 MJPEG 에 연결한다.
@@ -7,7 +8,7 @@ import react from "@vitejs/plugin-react";
 // Django 로 빌드 산출물을 서빙하던 구성은 없어졌다. 브라우저는 Jetson 의
 // thing_web_bridge 노드(/ws/robot-state)에 직접 붙는다 (6.4절).
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
 
   server: {
     // 로컬 개발 편의용 프록시.

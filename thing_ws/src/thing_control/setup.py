@@ -25,6 +25,8 @@ setup(
     entry_points={
         'console_scripts': [
             'command_manager = thing_control.command_manager:main',
+            'command_guard = thing_control.command_guard:main',
+            'manual_executor = thing_control.manual_executor:main',
             'safety_manager = thing_control.safety_manager:main',
         ],
     },

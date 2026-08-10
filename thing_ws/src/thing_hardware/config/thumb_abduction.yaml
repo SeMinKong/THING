@@ -1,0 +1,23 @@
+/**:
+  ros__parameters:
+    # BUS_B / thumb abduction (ID 5)
+    device_name: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0"
+    baud_rate: 1000000
+    protocol_version: 2.0
+
+    motor_id: 5
+    # Replace both values with measured, safe endpoints before running.
+    home_position: -1
+    closed_position: -1
+
+    position_p_gain: 400
+    position_i_gain: 0
+    position_d_gain: 600
+    goal_current: 500
+    profile_acceleration: 20
+    profile_velocity: 50
+
+    position_tolerance: 30
+    settled_velocity_raw: 1
+    required_settled_samples: 3
+    motion_timeout_seconds: 6

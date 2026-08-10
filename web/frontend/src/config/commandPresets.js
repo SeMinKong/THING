@@ -16,6 +16,7 @@
 // command_guard/safety_manager가 최종 판단한다 (웹은 안전 판단 주체가 아님).
 // ============================================================================
 import { HAND_SOURCE } from "./messageProtocol";
+import { PENDING } from "./pending.js";
 
 // FR-22 기본 명령: 사전 정의 자세(Gesture) - 값이 정해져 있는 단발성 자세.
 
@@ -28,28 +29,28 @@ export const BASIC_GESTURES = [
     icon: "✋",
     label: "손 펴기",
     source: HAND_SOURCE.GESTURE,
-    speed_limit: 1.0, // 추가: FR-06, FR-32 속도 제한값
+    speed_limit: PENDING.GESTURE_SPEED_LIMIT.open,
   },
   {
     id: "fist",
     icon: "👊",
     label: "주먹 쥐기",
     source: HAND_SOURCE.GESTURE,
-    speed_limit: 1.0,
+    speed_limit: PENDING.GESTURE_SPEED_LIMIT.fist,
   },
   {
     id: "cylindrical_grasp",
-    icon: "🤝",
+    icon: "👍",
     label: "원통 파지",
     source: HAND_SOURCE.GESTURE,
-    speed_limit: 0.5,
+    speed_limit: PENDING.GESTURE_SPEED_LIMIT.cylindrical_grasp,
   },
   {
     id: "pinch",
     icon: "🤏",
     label: "집기 (엄지-검지)",
     source: HAND_SOURCE.GESTURE,
-    speed_limit: 0.5,
+    speed_limit: PENDING.GESTURE_SPEED_LIMIT.pinch,
   },
 ];
 
@@ -72,6 +73,6 @@ export const BASIC_GESTURES = [
 // service/action 실행").
 export const SEQUENCE_ACTIONS = [
   // speed_limit 은 ExecuteSequence.action 의 goal 필드다 (FR-32: 0.0 초과 1.0 이하).
-  { id: "scissors_rock_paper", icon: "✂️", label: "가위바위보", speed_limit: 0.5 },
-  { id: "countdown", icon: "⏱️", label: "5부터 카운트다운", speed_limit: 0.5 },
+  { id: "scissors_rock_paper", icon: "✂️", label: "가위바위보", speed_limit: PENDING.SEQUENCE_SPEED_LIMIT.scissors_rock_paper },
+  { id: "countdown", icon: "⏱️", label: "5부터 카운트다운", speed_limit: PENDING.SEQUENCE_SPEED_LIMIT.countdown },
 ];

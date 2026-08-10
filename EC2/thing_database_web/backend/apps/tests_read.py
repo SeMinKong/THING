@@ -64,7 +64,7 @@ class ReadBaseTest(TestCase):
             uploaded_at=start + timedelta(minutes=1, seconds=6),
             result=result,
             duration_ms=0,
-            interface_commit="70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec",
+            interface_commit="626c59e09f108e6e5eb6d2313efe28bf0e51ed03",
             time_sync=True,
             content_digest="sha256:" + "1" * 64,
             status=status,
@@ -186,7 +186,12 @@ class SessionDetailTests(ReadBaseTest):
         self.assertEqual(body["schema_version"], 1)
         self.assertEqual(body["data_version"], 1)
         self.assertTrue(body["content_digest"].startswith("sha256:"))
-        self.assertEqual(set(body["downloads"]), set(storage.FILE_KINDS))
+        # landmark 는 형식 미정이라 선택 part 다. 없는 파일 링크를 주면 사용자가
+        # 404 를 받으므로, 실제로 업로드된 종류만 링크를 낸다.
+        self.assertEqual(
+            set(body["downloads"]),
+            {"metadata", "hand_command", "motor_status"},
+        )
         self.assertEqual(
             body["downloads"]["metadata"], f"/api/v1/sessions/{SID}/download/metadata"
         )
@@ -272,11 +277,17 @@ class SessionDataTests(ReadBaseTest):
 
 
 class SessionDownloadTests(ReadBaseTest):
-    """[FR-49 / NFR-25] 세 파일 다운로드와 무결성."""
+    """[FR-49 / NFR-25] 파일 다운로드와 무결성."""
 
-    def test_downloads_three_kinds_with_canonical_filenames(self):
+    def test_absent_landmark_is_404(self):
+        """landmark 를 올리지 않은 세션은 404 다. 빈 파일이나 200 을 주지 않는다."""
+        self.make_ready()
+        resp = self.client.get(f"/api/v1/sessions/{SID}/download/landmark")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_downloads_present_kinds_with_canonical_filenames(self):
         session = self.make_ready()
-        for kind in storage.FILE_KINDS:
+        for kind in ("metadata", "hand_command", "motor_status"):
             resp = self.client.get(f"/api/v1/sessions/{SID}/download/{kind}")
             self.assertEqual(resp.status_code, 200, kind)
             self.assertIn(

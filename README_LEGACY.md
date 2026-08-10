@@ -26,8 +26,8 @@ Isaac Sim/Lab, VLA, imitation learning과 관절별 독립 다축 제어는 MVP 
 
 | 장치 | 주요 역할 |
 | --- | --- |
-| Jetson Orin Nano | 카메라, MediaPipe, 7축 목표 생성, MJPEG, Web Bridge |
-| Raspberry Pi 5 | 명령 중재·검증, 안전, DYNAMIXEL, Logger·exporter·uploader |
+| Jetson Orin Nano | 카메라, MediaPipe, 7축 목표 생성, MJPEG, Web Bridge, Logger·exporter·uploader |
+| Raspberry Pi 5 | 명령 중재·검증, 안전, DYNAMIXEL |
 | Laptop | 내부망 관제·제어 웹, 개발, TELEOP |
 | AWS EC2 | 공개 데이터 포털, SQLite와 세 파일 영속 저장 |
 | XL-330-288T × 8 | 7개 활성 구동축, 1개 예비 모터 |
@@ -41,7 +41,6 @@ Raspberry Pi는 Ubuntu 24.04 호스트에서 Ubuntu 22.04 기반 ROS 2 Humble
 - `thing_ws/`: ROS 2 인터페이스·비전·제어·하드웨어·로거·bringup
 - `web/internal-control/frontend/`: Laptop 내부망 Vite+React 제어 웹
 - `EC2/thing_database_web/`: 팀원이 계속 사용하는 EC2 포털 단일 원본
-- `services/thing-data-uploader/`: Raspberry Pi 격리 HTTPS uploader
 - `deploy/`: Jetson·Raspberry Pi 실행 환경
 - `mechanical/`: CAD, STL, 조립 및 출력 자료
 - `electronics/`: BOM, 회로, 배선 및 안전 전원

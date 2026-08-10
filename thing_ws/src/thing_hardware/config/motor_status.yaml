@@ -1,0 +1,24 @@
+motor_status_node:
+  ros__parameters:
+    baud_rate: 1000000
+    protocol_version: 2.0
+    publish_period_ms: 500
+    diagnostic_period_ms: 1000
+
+    bus_names: [BUS_A, BUS_B, BUS_C]
+    bus_devices:
+      - "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
+      - "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0"
+      - "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0"
+
+    # Parallel arrays. An axis uses bus_names[bus_indices[n]].
+    motor_ids: [1, 2, 3, 4, 5, 6, 7]
+    actuator_names:
+      - ring_flex
+      - thumb_flex
+      - middle_flex
+      - index_flex
+      - thumb_abduction
+      - thumb_opposition
+      - little_flex
+    bus_indices: [0, 0, 0, 1, 1, 1, 2]

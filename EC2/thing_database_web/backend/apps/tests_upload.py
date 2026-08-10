@@ -47,7 +47,7 @@ def motor_status_csv(session_id=SID, rows=2):
         sec = 1785283200 + i
         lines.append(
             f"{session_id},{sec},0,{i * 10},base_link,{11 + i},thumb_flex,"
-            f"2048,2050,0.0,0.01,0.0,0.05,11.9,32,0,0,true,true,0"
+            f"2048,2050,0.0,0.01,0.0,0.05,11.9,32,true,0,0,true,true,0"
         )
     return ("\n".join(lines) + "\n").encode("utf-8")
 
@@ -63,7 +63,7 @@ def build_metadata(hc, ms, session_id=SID, robot_id=ROBOT, result="SUCCESS", row
         "ended_at": "2026-07-29T00:01:00.000Z",
         "exported_at": "2026-07-29T00:01:05.000Z",
         "result": result,
-        "interface_commit": "70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec",
+        "interface_commit": "626c59e09f108e6e5eb6d2313efe28bf0e51ed03",
         "time_sync": True,
         "files": {
             "hand_command": {
@@ -137,6 +137,18 @@ class UploadBaseTest(TestCase):
 
 class UploadSuccessTests(UploadBaseTest):
     """[FR-46] 정상 업로드와 응답 규격."""
+
+    def test_metadata_without_exported_at_is_accepted(self):
+        """로봇 exporter(thing_logger)는 exported_at 을 내보내지 않는다.
+
+        export_schema.METADATA_FIELDS 에 exported_at 이 없다. content_digest 는
+        exported_at 을 제외하고 계산하므로, 없어도 같은 digest 로 통과해야 한다.
+        """
+        hc, ms = hand_command_csv(), motor_status_csv()
+        meta = build_metadata(hc, ms)
+        del meta["exported_at"]
+        resp = self.post(as_parts(meta, hc, ms))
+        self.assertEqual(resp.status_code, 201, resp.content)
 
     def test_returns_201_and_ready(self):
         meta, parts = self.valid_upload()

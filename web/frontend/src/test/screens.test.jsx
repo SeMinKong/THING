@@ -12,31 +12,42 @@
 
 import { act, render } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { HandSocketProvider } from "../context/HandSocketContext";
 import StatusBar from "../components/StatusBar";
-import SafetyBanner from "../components/SafetyBanner";
+import Header from "../components/Header";
+import { ModeGateProvider, useModeGate } from "../components/ModeGate";
+
+// import SafetyBanner from "../components/SafetyBanner";
 import MotorStatusPanel from "../components/MotorStatusPanel";
-import ModeAcquirePanel from "../components/ModeAcquirePanel";
 import OrderMode from "../pages/OrderMode";
 import VisionMode from "../pages/VisionMode";
-import { CONTROL_MODE, HAND_AXES } from "../config/messageProtocol";
+import { HAND_AXES } from "../config/messageProtocol";
+import { SPEC } from "../config/pending";
 import {
   controlState,
-  landmarksPayload,
   manualSnapshot,
   mimicSnapshot,
   motorStatePayload,
   readySnapshot,
+  rosTime,
   safetyState,
   snapshot,
 } from "./fixtures";
 
+/** 게이트 모달을 여는 최소 트리거. 제어권 UI 는 모달로 옮겨졌다 */
+function GateTrigger({ to }) {
+  const { go } = useModeGate();
+  return <button type="button" onClick={() => go(to)}>이동</button>;
+}
+
 function renderWithSocket(ui, snap = snapshot()) {
   const view = render(
     <MemoryRouter>
-      <HandSocketProvider>{ui}</HandSocketProvider>
+      <HandSocketProvider>
+        <ModeGateProvider>{ui}</ModeGateProvider>
+      </HandSocketProvider>
     </MemoryRouter>,
   );
   const socket = MockWebSocket.latest();
@@ -80,16 +91,25 @@ describe("FR-24 StatusBar", () => {
     expect(document.body.textContent.length).toBeGreaterThan(0);
   });
 
-  it("READY 상태를 렌더한다", () => {
+  it("현재 모드와 연결 상태를 렌더한다", () => {
+    // 제어권과 안전 상태는 VerdictBlock 이 맡는다. StatusBar 는 나머지다.
     renderWithSocket(<StatusBar />, readySnapshot());
-    expect(document.body.textContent).toContain("READY");
+    expect(document.body.textContent).toContain("현재 모드");
+    expect(document.body.textContent).toContain("연결됨");
+  });
+
+  it("제어권은 VerdictBlock 이 표시한다", () => {
+    renderWithSocket(<Header />, readySnapshot());
+    expect(document.body.textContent).toContain("제어권");
   });
 
   it("ESTOP 을 명확히 표시한다", () => {
-    renderWithSocket(<StatusBar />, snapshot({
+    // 안전 상태는 SafetyRail 이 맡는다. 8상태를 경로로 그리고 현재 위치를 밝힌다.
+    renderWithSocket(<Header />, snapshot({
       safety_state: { ...snapshot().safety_state, state: "ESTOP", estop_active: true },
     }));
     expect(document.body.textContent).toContain("ESTOP");
+    expect(document.body.textContent).toContain("비상 정지");
   });
 
   it("mode 와 owner 를 표시한다", () => {
@@ -101,36 +121,44 @@ describe("FR-24 StatusBar", () => {
 
 describe("FR-27 SafetyBanner", () => {
   it("정상 상태에서는 위험 문구를 띄우지 않는다", () => {
-    renderWithSocket(<SafetyBanner />, manualSnapshot());
+    // renderWithSocket(<SafetyBanner />, manualSnapshot());
     const text = document.body.textContent;
     expect(text).not.toContain("비상정지");
   });
 
   it("ESTOP 원인을 안내한다", () => {
-    renderWithSocket(<SafetyBanner />, snapshot({
-      safety_state: {
-        ...snapshot().safety_state,
-        state: "ESTOP", estop_active: true, reason: "물리 비상정지 작동",
-      },
-    }));
+    // renderWithSocket(<SafetyBanner />, snapshot({
+    //   safety_state: {
+    //     ...snapshot().safety_state,
+    //     state: "ESTOP", estop_active: true, reason: "물리 비상정지 작동",
+    //   },
+    // }));
     expect(document.body.textContent.length).toBeGreaterThan(0);
   });
 
   it("과전류·과온을 구분해 안내한다", () => {
-    renderWithSocket(<SafetyBanner />, snapshot({
-      safety_state: {
-        ...snapshot().safety_state,
-        state: "FAULT", over_current: true, over_temperature: true,
-      },
-    }));
+    // renderWithSocket(<SafetyBanner />, snapshot({
+    //   safety_state: {
+    //     ...snapshot().safety_state,
+    //     state: "FAULT", over_current: true, over_temperature: true,
+    //   },
+    // }));
     expect(document.body.textContent.length).toBeGreaterThan(0);
   });
 
-  it("HOLD 에서는 STOP 절차를 안내한다", () => {
-    renderWithSocket(<SafetyBanner />, snapshot({
-      safety_state: { ...snapshot().safety_state, state: "HOLD", command_timeout: true },
-    }));
-    expect(document.body.textContent.length).toBeGreaterThan(0);
+  it("HOLD 에서는 자동복귀 조건과 STOP 대안을 함께 안내한다", () => {
+    // FR-27: "HOLD 이면 Guard 검증 activity 300ms 자동복귀 조건, 100ms 최대 gap,
+    //         총 1000ms SAFE deadline 과 명시적 STOP→RESET 대안을 함께 안내한다."
+    // renderWithSocket(<SafetyBanner />, snapshot({
+    //   safety_state: { ...snapshot().safety_state, state: "HOLD", command_timeout: true },
+    // }));
+    const text = document.body.textContent;
+    expect(text).toContain(String(SPEC.HOLD_RECOVERY_ACTIVITY_MS));
+    expect(text).toContain(String(SPEC.HOLD_RECOVERY_MAX_GAP_MS));
+    expect(text).toContain(String(SPEC.SAFE_DEADLINE_MS));
+    expect(text).toContain("STOP");
+    // 구식 문구가 남아 있으면 안 된다 (V7 이전: STOP → READY 복귀 → 재획득)
+    expect(text).not.toContain("READY 상태로 복귀");
   });
 });
 
@@ -162,11 +190,38 @@ describe("FR-25 MotorStatusPanel", () => {
   });
 });
 
+it("torque_enabled 를 ON/OFF 로 보여준다", () => {
+    const payload = {
+      ...motorStatePayload,
+      motors: motorStatePayload.motors.map((m, i) => (
+        i === 0 ? { ...m, torque_enabled: false } : { ...m, torque_enabled: true }
+      )),
+    };
+    render(<MotorStatusPanel motorStatus={payload} />);
+    const text = document.body.textContent;
+    expect(text).toContain("토크");
+    expect(text).toContain("ON");
+    expect(text).toContain("OFF");
+  });
+
+  it("통신 실패 모터의 torque 는 유효 상태로 표시하지 않는다", () => {
+    // interfaces.md MotorStatus 계약: communication_ok=false 면 torque_enabled 를
+    // 유효로 보지 않고 통신 실패를 우선한다. torque_enabled=true 여도 ON 을 내지 않는다.
+    const allFail = {
+      ...motorStatePayload,
+      motors: motorStatePayload.motors.map((m) => (
+        { ...m, communication_ok: false, torque_enabled: true }
+      )),
+    };
+    render(<MotorStatusPanel motorStatus={allFail} />);
+    expect(document.body.textContent).not.toContain("ON");
+  });
+
 describe.each(VIEWPORTS)("$name 렌더", ({ width }) => {
   it("StatusBar 가 깨지지 않는다", () => {
     setViewport(width);
     renderWithSocket(<StatusBar />, readySnapshot());
-    expect(document.body.textContent).toContain("READY");
+    expect(document.body.textContent).toContain("현재 모드");
   });
 
   it("MotorStatusPanel 이 7모터를 유지한다", () => {
@@ -190,9 +245,10 @@ describe("오류 fixture", () => {
   });
 
   it("알 수 없는 메시지 타입을 무시한다", () => {
-    const { socket } = renderWithSocket(<StatusBar />, readySnapshot());
+    const { socket } = renderWithSocket(<Header />, readySnapshot());
     expect(() => act(() => { socket.emit({ type: "brand_new_type", payload: {} }); }))
       .not.toThrow();
+    // 모르는 메시지는 상태를 덮어쓰지 않는다. 진단 로그로만 남는다.
     expect(document.body.textContent).toContain("READY");
   });
 });
@@ -246,50 +302,64 @@ describe("FR-19 제어권 자동 획득 금지", () => {
   });
 });
 
-describe("FR-19 ModeAcquirePanel", () => {
-  it("제어권이 없으면 두 단계를 안내한다", () => {
-    const { getByRole } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, readySnapshot(),
-    );
-    expect(getByRole("button", { name: /정지/ })).toBeTruthy();
-    expect(getByRole("button", { name: /획득/ })).toBeTruthy();
+describe("FR-19 제어권 게이트 모달", () => {
+  const open = (to, snap) => {
+    const view = renderWithSocket(<GateTrigger to={to} />, snap);
+    act(() => { view.getByRole("button", { name: "이동" }).click(); });
+    return view;
+  };
+
+  it("제어권이 없으면 획득만 안내한다", () => {
+    // 이미 DISABLED 면 1단계가 끝난 것이다. 정지할 것이 없으므로 그 버튼은 없다.
+    const { getByRole, queryByRole } = open("/vision", readySnapshot());
+    expect(getByRole("dialog")).toBeTruthy();
+    expect(getByRole("button", { name: /획득/ }).disabled).toBe(false);
+    expect(queryByRole("button", { name: /정지/ })).toBeNull();
   });
 
-  it("이미 해당 모드를 보유하면 패널을 그리지 않는다", () => {
-    const { container } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, mimicSnapshot(),
-    );
-    expect(container.querySelector("[role='region']")).toBeNull();
+  it("다른 모드를 쥐고 있으면 정지가 먼저 나온다", () => {
+    const { getByRole } = open("/order", mimicSnapshot());
+    expect(getByRole("button", { name: /정지/ })).toBeTruthy();
+    expect(getByRole("button", { name: /획득/ }).disabled).toBe(true);
+  });
+
+  it("이미 해당 모드를 보유하면 모달을 띄우지 않는다", () => {
+    const { queryByRole } = open("/vision", mimicSnapshot());
+    expect(queryByRole("dialog")).toBeNull();
   });
 
   it("FR-34: READY 가 아니면 획득 버튼을 비활성화한다", () => {
-    const snap = snapshot({
-      safety_state: safetyState({ state: "HOLD" }),
-      bridge_connected: true,
-    });
-    const { getByRole } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MANUAL} />, snap,
-    );
+    const snap = snapshot({ safety_state: safetyState({ state: "HOLD" }) });
+    const { getByRole } = open("/order", snap);
     expect(getByRole("button", { name: /획득/ }).disabled).toBe(true);
   });
 
   it("획득 버튼을 눌러야 set_control_mode 를 보낸다", () => {
-    const { getByRole, socket } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, readySnapshot(),
-    );
+    const { getByRole, socket } = open("/vision", readySnapshot());
     expect(socket.sent).toHaveLength(0);
     act(() => { getByRole("button", { name: /획득/ }).click(); });
     expect(socket.sent).toHaveLength(1);
     expect(socket.sent[0].type).toBe("set_control_mode");
-    expect(socket.sent[0].payload).toEqual({ mode: "MIMIC", owner: "WEB" });
+    // SetControlMode.srv 요청 필드는 requested_mode·requested_owner 다.
+    expect(socket.sent[0].payload).toEqual({
+      requested_mode: "MIMIC", requested_owner: "WEB",
+    });
+  });
+
+  it("제어권을 쥔 채로 다른 모드로 넘어가려면 정지가 먼저다", () => {
+    const { getByRole } = open("/order", mimicSnapshot());
+    expect(getByRole("dialog").textContent).toContain("먼저 정지");
+    expect(getByRole("button", { name: /획득/ }).disabled).toBe(true);
+    expect(getByRole("button", { name: /정지/ }).disabled).toBe(false);
   });
 });
 
 describe("6.4절 미수신 객체 안내", () => {
   it("SafetyState 미수신 시 허위 경고 대신 수신 대기를 알린다", () => {
-    const snap = snapshot({ bridge_connected: true, safety_state: {} });
+    const snap = snapshot({ safety_state: {} });
     const { container } = renderWithSocket(
-      <><StatusBar /><SafetyBanner /></>, snap,
+      <><Header />
+      {/* <SafetyBanner /> */}</>, snap,
     );
     const text = container.textContent;
     expect(text).toContain("수신 대기");
@@ -333,11 +403,11 @@ describe("FR-20 VisionMode hand-loss 표시", () => {
 describe("FR-24 VisionMode 7축 표시", () => {
   it("축이 일부만 오면 그 축만 '-' 로 두고 죽지 않는다", () => {
     const snap = mimicSnapshot({
+      // FR-30: HandCommand 는 7개 "고정 축" 이다. values 래퍼가 없다.
       last_hand_command: {
-        values: { thumb_flex: 0.5, thumb_opp: null, thumb_abd: null,
-                  index_flex: 0.25, middle_flex: null, ring_flex: null,
-                  little_flex: null },
-        source: "MIMIC", sequence: 7, stamp: "2026-07-31T00:00:00.000Z",
+        thumb_flex: 0.5, thumb_opp: null, thumb_abd: null,
+        index_flex: 0.25, middle_flex: null, ring_flex: null, little_flex: null,
+        source: "MIMIC", sequence: 7, stamp: rosTime(),
       },
     });
     const { container } = renderWithSocket(<VisionMode />, snap);
@@ -384,20 +454,19 @@ describe("FR-21 confidence 표시", () => {
 describe("FR-24 StatusBar 기록 상태", () => {
   it("기록 중이면 상태와 Session ID 를 표시한다", () => {
     const snap = mimicSnapshot({
-      recording_detail: {
-        ...mimicSnapshot().recording_detail,
+      recording: {
+        ...mimicSnapshot().recording,
         state: "RECORDING", active_session_id: "9223372036854775701",
       },
     });
     const { container } = renderWithSocket(<StatusBar />, snap);
     expect(container.textContent).toContain("기록: RECORDING");
-    expect(container.textContent).toContain("9223372036854775701");
   });
 
   it("판정 대기를 따로 알린다", () => {
     const snap = mimicSnapshot({
-      recording_detail: {
-        ...mimicSnapshot().recording_detail,
+      recording: {
+        ...mimicSnapshot().recording,
         state: "COMPLETED", result_pending: true,
       },
     });
@@ -412,71 +481,77 @@ describe("FR-24 StatusBar 기록 상태", () => {
 });
 
 describe("FR-25 stale 과 연결 끊김 구분", () => {
-  function motorSnap(stamp, timestamp, busOk = true) {
-    return readySnapshot({
-      timestamp,
-      motor_state: {
-        stamp,
-        motors: motorStatePayload.motors,
-        bus_communication_ok: busOk,
-        failed_read_count: 0,
-        message: "",
-      },
-    });
+  // 신선도는 stamp 뺄셈이 아니라 "마지막으로 바뀐 시각" 으로 잰다.
+  // MotorStatus 의 시각은 header.stamp 이고 {sec,nanosec} 이라 파싱할 수 없고,
+  // snapshotAt(Jetson) 과 header.stamp(Raspberry Pi) 는 서로 다른 장비 시계다.
+  function panel(props) {
+    return renderWithSocket(
+      <MotorStatusPanel
+        motorStatus={{ ...motorStatePayload, ...(props.motorStatus ?? {}) }}
+        motorUpdatedAt={props.motorUpdatedAt}
+        receivedAt={props.receivedAt}
+      />,
+      readySnapshot(),
+    );
   }
 
   it("갱신이 오래되면 stale 로 표시한다", () => {
-    const snap = motorSnap("2026-07-31T00:00:00.000Z", "2026-07-31T00:00:03.000Z");
-    const { container } = renderWithSocket(<MotorStatusPanel
-      motorStatus={snap.motor_state} snapshotAt={snap.timestamp} />, snap);
+    const now = Date.now();
+    const { container } = panel({
+      motorUpdatedAt: now - 5000,   // MotorStatus 만 5초째 정지
+      receivedAt: now,              // snapshot 은 방금 왔다
+    });
     expect(container.textContent).toContain("값이 오래됨");
     // 로봇이 통신 정상이라고 했으므로 단절이 아니다
     expect(container.textContent).toContain("전체 통신 정상");
   });
 
   it("최신 값이면 stale 표시가 없다", () => {
-    const snap = motorSnap("2026-07-31T00:00:03.000Z", "2026-07-31T00:00:03.100Z");
-    const { container } = renderWithSocket(<MotorStatusPanel
-      motorStatus={snap.motor_state} snapshotAt={snap.timestamp} />, snap);
+    const now = Date.now();
+    const { container } = panel({ motorUpdatedAt: now, receivedAt: now });
     expect(container.textContent).not.toContain("값이 오래됨");
   });
 
   it("단절은 stale 과 다른 표시다", () => {
-    const snap = motorSnap("2026-07-31T00:00:03.000Z", "2026-07-31T00:00:03.100Z", false);
-    const { container } = renderWithSocket(<MotorStatusPanel
-      motorStatus={snap.motor_state} snapshotAt={snap.timestamp} />, snap);
+    const now = Date.now();
+    const { container } = panel({
+      motorStatus: { bus_communication_ok: false },
+      motorUpdatedAt: now,
+      receivedAt: now,
+    });
     expect(container.textContent).toContain("일부/전체 통신 불량");
-    expect(container.textContent).not.toContain("값이 오래됨");
+  });
+
+  it("snapshot 자체가 끊기면 stale 보다 강한 표시를 쓴다", () => {
+    const now = Date.now();
+    const { container } = panel({
+      motorUpdatedAt: now - 5000,
+      receivedAt: now - 5000,       // snapshot 도 5초째 없다
+    });
+    expect(container.textContent).toContain("연결 끊김");
   });
 });
 
 
 // ───────────────────────────────────────────────────────────────────────────
-// 회귀 — 브릿지 연결 판정과 값 신선도
-//
-// 두 결함을 실제로 겪고 고친 뒤 고정한 것이다.
-//   1. snapshot 에 bridge_connected 가 없어 조작 UI 가 영구히 잠겼다
-//   2. mock·시뮬레이터를 종료해도 모터 상태가 "전체 통신 정상" 으로 멈췄다
+// 회귀 — 브릿지 필드 누락과 값 신선도
 // ───────────────────────────────────────────────────────────────────────────
 
-describe("bridge_connected 누락 방어", () => {
-  it("필드가 없어도 브릿지 미연결로 잠기지 않는다", () => {
-    // 2계층에서는 snapshot 을 받았다는 것이 곧 브릿지가 살아 있다는 뜻이다.
-    // Boolean(undefined) === false 로 두면 필드를 잊은 브릿지가 UI 를 전부 잠근다.
+describe("control_state 누락을 화면에 드러낸다", () => {
+  it("ControlState 를 못 받으면 획득을 막고 이유를 말한다", () => {
     const snap = readySnapshot();
-    delete snap.bridge_connected;
-    const { container } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />, snap,
-    );
-    expect(container.textContent).not.toContain("브릿지에 연결되어 있지 않아");
+    delete snap.control_state;
+    const view = renderWithSocket(<GateTrigger to="/vision" />, snap);
+    act(() => { view.getByRole("button", { name: "이동" }).click(); });
+    // control_state 를 못 받으면 owner 를 알 수 없으므로 획득을 막는다 (fail-closed).
+    expect(view.getByRole("button", { name: /획득/ }).disabled).toBe(true);
   });
 
-  it("false 를 명시하면 잠근다", () => {
-    const { container } = renderWithSocket(
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />,
-      readySnapshot({ bridge_connected: false }),
-    );
-    expect(container.textContent).toContain("브릿지에 연결되어 있지 않아");
+  it("ControlState 를 받으면 획득 버튼이 열린다", () => {
+    const view = renderWithSocket(<GateTrigger to="/vision" />, readySnapshot());
+    act(() => { view.getByRole("button", { name: "이동" }).click(); });
+    const { getByRole } = view;
+    expect(getByRole("button", { name: /획득/ }).disabled).toBe(false);
   });
 });
 

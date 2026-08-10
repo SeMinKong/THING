@@ -15,15 +15,15 @@ import { useState } from "react";
 import { useHandSocket } from "../context/HandSocketContext";
 import {
   HAND_AXES,
-  HAND_DETECTION,
-  TIMING,
+  HAND_AXIS_KEYS,
   CONTROL_MODE,
   RECORDING_STATE,
   RECORDING_RESULT,
-  isDeviceUsable,
+  formatStamp,
 } from "../config/messageProtocol";
 import CameraStream from "../components/CameraStream";
-import ModeAcquirePanel from "../components/ModeAcquirePanel";
+import { motion, AnimatePresence } from "motion/react";
+import { Panel, Head, Body, Tag } from "../ui/Sheet";
 
 /** 7축 표시. 값이 없으면 "-" 를 낸다 (FR-24: 가짜 값으로 채우지 않는다). */
 function formatAxis(value) {
@@ -35,26 +35,20 @@ function formatAxis(value) {
 export default function VisionMode() {
   const {
     connectionState,
-    connectionStatus,
     controlState,
-    handDetection,
-    handLossLatched,
-    reacquireElapsedMs,
-    reacquireStableMs,
     handCommand,
     recordingState,
+    recordingStateKnown,
     webHasControl,
     startRecording,
     stopRecording,
     submitRecordingResult,
   } = useHandSocket();
-  const [showRealtimeData, setShowRealtimeData] = useState(false);
+  // 기본이 펼치기다. 접는 것은 화면이 좁을 때를 위한 선택지다
+  const [showRealtimeData, setShowRealtimeData] = useState(true);
 
   const isMimicActive = controlState.active_mode === CONTROL_MODE.MIMIC && webHasControl;
   // "아직 모름" 을 단절로 단정하지 않는다 (FR-24).
-  const isCameraConnected = isDeviceUsable(connectionStatus.camera)
-    && connectionState === "open";
-  const handDetected = handDetection === HAND_DETECTION.DETECTED;
 
   // ROS2 브릿지가 아직 연결되지 않았거나 값을 아직 못 받았으면 null.
   // 임의의 값(0 등)으로 채우지 않고 "데이터 없음" 상태 그대로 보여준다.
@@ -63,24 +57,27 @@ export default function VisionMode() {
   // FR-21: HandCommand.confidence. 명령이 어느 정도 신뢰도로 만들어졌는지.
   const commandConfidence = typeof handCommand?.confidence === "number"
     && Number.isFinite(handCommand.confidence) ? handCommand.confidence : null;
-  const rawAxisValues = handCommand?.values ?? null;
-  const hasAnyAxis = rawAxisValues
-    && HAND_AXES.some((axis) => typeof rawAxisValues[axis.key] === "number");
-  const axisValues = hasAnyAxis ? rawAxisValues : null;
-  // `normalize.py` 가 stamp 를 RFC 3339 UTC 문자열로 통일해 내려준다.
-  // HandCommand.msg 의 builtin_interfaces/Time, epoch 초, 문자열 어느 쪽으로
-  // 오더라도 서버 경계에서 한 가지 형태가 된다. 여기서 산술하지 않는다.
-  const stampText = typeof handCommand?.stamp === "string"
-    ? handCommand.stamp.replace("T", " ").replace("Z", "")
-    : "-";
+  // FR-30: "HandCommand는 7개 고정 축·source·sequence·speed_limit·confidence" 다.
+  // 7축은 최상위 필드이며 `values` 래퍼가 없다. 브릿지가 .msg 원문을 dump 하므로
+  // handCommand 객체 자체가 축을 들고 있다.
+  const hasAnyAxis = handCommand
+    && HAND_AXIS_KEYS.some((key) => typeof handCommand[key] === "number");
+  const axisValues = hasAnyAxis ? handCommand : null;
+  // HandCommand.stamp 는 builtin_interfaces/Time 이라 원문 dump 시 {sec, nanosec} 다.
+  // formatStamp 가 문자열·Time 양쪽을 받는다. 표시 전용이며 판정에 쓰지 않는다.
+  const stampText = formatStamp(handCommand?.stamp);
 
   // FR-26 녹화 버튼은 MIMIC 모드에서만 활성화
+  // recordingStateKnown 이 false 면 RecordingState.msg 를 못 받은 것이다.
+  // session_id 없이 StopRecording 을 부를 수 없으므로 시작도 막는다 (fail-closed).
   const canStartRecording =
     isMimicActive &&
     connectionState === "open" &&
+    recordingStateKnown &&
     recordingState.state === RECORDING_STATE.IDLE &&
     !recordingState.result_pending;
-  const canStopRecording = isMimicActive && recordingState.state === RECORDING_STATE.RECORDING;
+  const canStopRecording = isMimicActive && recordingStateKnown
+    && recordingState.state === RECORDING_STATE.RECORDING;
   const isRecordingActive = [RECORDING_STATE.STARTING, RECORDING_STATE.RECORDING, RECORDING_STATE.STOPPING].includes(
     recordingState.state
   );
@@ -88,182 +85,209 @@ export default function VisionMode() {
   // FR-26: 녹화 종료 후 성공/실패 판정이 완료되기 전에는 다음 녹화를 시작할 수 없다.
   const needsResultJudgement = recordingState.result_pending;
 
+  // 엄지 3축과 네 손가락 4축으로 묶는다. 묶음 자체가 손의 구조를 담는다
+  const AXIS_GROUPS = [
+    { name: "엄지", keys: ["thumb_flex", "thumb_opp", "thumb_abd"] },
+    { name: "네 손가락", keys: ["index_flex", "middle_flex", "ring_flex", "little_flex"] },
+  ];
+  const axisLabel = Object.fromEntries(HAND_AXES.map((a) => [a.key, a.label]));
+  // 축 막대는 spring 으로 움직인다. 손이 움직이는 것을 보고 있으므로
+  // 막대도 이어져 움직여야 같은 것을 보고 있다고 느낀다
+  const BAR = { type: "spring", stiffness: 200, damping: 26, mass: 0.5 };
+
   return (
-    <div className="container my-5" style={{ maxWidth: 800 }}>
-      {/* FR-19 / FR-35 / NFR-23: 제어권은 사용자가 직접 획득한다. 자동 획득하지 않는다. */}
-      <ModeAcquirePanel targetMode={CONTROL_MODE.MIMIC} />
+    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(340px,1fr)]">
+  {/* 카메라는 남는 높이를 전부 받는다. hand-loss 안내는 흐름에 두면 형제로서
+     카메라 높이를 다투므로(검출/미검출 반복 시 카메라가 커졌다 작아졌다 함)
+     CameraStream 내부에 오버레이로 겹친다 — showHandLoss 로 켠다 (FR-27). */}
+ <div className="flex min-h-0 flex-col gap-3">
+   <CameraStream showHandLoss />
+ </div>
 
-      {/* FR-20: 카메라 영상(원본/overlay 선택, 오류·정지 프레임 감지) + 손 검출 여부 - 두 모드 공통 컴포넌트 */}
-      <div className="mb-4">
-        <CameraStream />
-      </div>
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+        {/* FR-21 Should: 7논리축 목표와 confidence */}
+        <Panel>
+          <div aria-label="손동작 정보">
+            <Head title="7논리축">
+              <button
+                type="button"
+                id="dataToggle"
+                aria-pressed={showRealtimeData}
+                onClick={() => setShowRealtimeData((v) => !v)}
+                className="rounded-full bg-ink-100 px-2 py-0.5 text-xs
+                           transition-colors hover:bg-ink-200/70"
+              >
+                {showRealtimeData ? "접기" : "펼치기"}
+              </button>
+            </Head>
 
-      {/* FR-26: 데이터 기록 시작/종료 제어 */}
-      <div className="text-center mb-3">
-        <div className="d-flex justify-content-center gap-2 flex-wrap">
-          <button
-            className="btn btn-success btn-lg px-4 py-2 fw-bold shadow-sm"
-            onClick={startRecording}
-            disabled={!canStartRecording}
-          >
-            녹화 시작
-          </button>
-          <button
-            className="btn btn-warning btn-lg px-4 py-2 fw-bold shadow-sm"
-            onClick={stopRecording}
-            disabled={!canStopRecording}
-          >
-            녹화 정지
-          </button>
-        </div>
-        {isRecordingActive && (
-          <p className="mt-2 mb-0 text-danger fw-semibold">
-            {/* 6.5절: Session ID 는 10진 문자열. 63-bit 값이라 숫자로 다루면
-                브라우저에서 정밀도가 손상된다. */}
-            ● {recordingState.state} (Session ID: {recordingState.active_session_id || "-"})
-          </p>
-        )}
-        {!isMimicActive && (
-          <p className="mt-2 mb-0 small text-muted">
-            녹화는 모방(MIMIC) 모드에서 웹이 제어권을 보유한 동안에만 가능합니다.
-          </p>
-        )}
-      </div>
+            <AnimatePresence initial={false}>
+              {showRealtimeData && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: [0.2, 0, 0.1, 1] }}
+                  className="overflow-hidden"
+                >
+                  <Body className="flex flex-col gap-4">
+                    {!axisValues ? (
+                      <p className="text-xs text-ink-500">
+                        ROS2 브릿지로부터 아직 데이터를 받지 못했습니다.
+                      </p>
+                    ) : (
+                      <div className="flex flex-col gap-4">
+                        {AXIS_GROUPS.map((group) => (
+                          <div key={group.name} className="flex flex-col gap-1.5">
+                            <span className="text-xs font-medium text-ink-400">
+                              {group.name}
+                            </span>
+                            {group.keys.map((key) => {
+                              const v = axisValues?.[key];
+                              const known = typeof v === "number" && Number.isFinite(v);
+                              return (
+                                <div key={key}
+                                     className="grid grid-cols-[5.5rem_1fr_2.75rem]
+                                                items-center gap-3">
+                                  <span className="font-mono text-[11px] text-ink-500"
+                                        title={axisLabel[key]}>
+                                    {key}
+                                  </span>
+                                  <span className="h-1 overflow-hidden rounded-full
+                                                   bg-ink-200">
+                                    <motion.span
+                                      className="block h-full rounded-full bg-[var(--signal)]"
+                                      animate={{
+                                        width: known ? `${Math.min(100, v * 100)}%` : "0%",
+                                      }}
+                                      transition={BAR}
+                                    />
+                                  </span>
+                                  <span className={`text-right font-mono text-xs
+                                    ${known ? "" : "text-ink-300"}`}>
+                                    {formatAxis(v)}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
-      {/* FR-26: 녹화 종료 후 성공/실패 판정 - 판정 전까지 다음 녹화 시작 불가 */}
-      {needsResultJudgement && (
-        <div className="alert alert-info text-center mb-4" role="alert">
-          <p className="fw-semibold mb-2">
-            방금 종료한 세션(ID: {recordingState.last_session_id})의 모방 성공 여부를 판정해 주세요.
-          </p>
-          <div className="d-flex justify-content-center gap-2">
-            <button
-              className="btn btn-success"
-              onClick={() => submitRecordingResult(RECORDING_RESULT.SUCCESS)}
-            >
-              성공
-            </button>
-            <button
-              className="btn btn-danger"
-              onClick={() => submitRecordingResult(RECORDING_RESULT.FAILURE)}
-            >
-              실패
-            </button>
+                    <div className="h-px bg-ink-200" />
+                    {[
+                      ["confidence", commandConfidence !== null
+                        ? `${Math.round(commandConfidence * 100)}%` : "-"],
+                      ["source / sequence",
+                        `${handCommand?.source ?? "-"} / ${handCommand?.sequence ?? "-"}`],
+                      ["stamp", stampText],
+                    ].map(([k, val]) => (
+                      <div key={k} className="flex items-baseline justify-between gap-3">
+                        <span className="font-mono text-[10px] tracking-[0.14em]
+                                         text-ink-400">
+                          {k}
+                        </span>
+                        <span className="font-mono text-xs">{val}</span>
+                      </div>
+                    ))}
+                  </Body>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        </div>
-      )}
+        </Panel>
 
-      {/* 실시간 데이터 토글 섹션 (FR-21: 기본 화면에는 직관적 데이터만, 세부는 토글) */}
-      <div className="border-top pt-4">
-        <div className="form-check form-switch d-flex align-items-center justify-content-between p-3 bg-light rounded-3 mb-3">
-          <label className="form-check-label fw-bold fs-5 text-dark m-0" htmlFor="dataToggle">
-            실시간 로봇 손 데이터 출력 (7논리축)
-          </label>
-          <input
-            className="form-check-input ms-3"
-            type="checkbox"
-            id="dataToggle"
-            style={{ width: "2.5em", height: "1.25em" }}
-            checked={showRealtimeData}
-            onChange={(e) => setShowRealtimeData(e.target.checked)}
-          />
-        </div>
+        {/* FR-26: 기록 UI */}
+        <Panel>
+          <div aria-label="기록">
+            <Head title="기록">
+              <Tag tone={isRecordingActive ? "live" : "idle"}>
+                {recordingStateKnown ? recordingState.state : "수신 대기"}
+              </Tag>
+            </Head>
 
-        {/* FR-20: "손 검출 여부와 hand-loss·재개 필요 상태를 표시"
-            FR-27: "손 미검출과 유효 재검출 300ms를 표시"
-            latch 는 서버(`normalize.py`)가 landmark 스트림에서 파생한다. */}
-        {handLossLatched && (
-          <div className="alert alert-warning py-2 mb-3" role="alert">
-            <p className="fw-semibold mb-1">
-              손 인식이 끊겨 명령 발행이 중단되었습니다 (hand-loss).
-            </p>
-            <p className="small mb-2">
-              손을 다시 인식해도 제어는 자동으로 재개되지 않습니다.
-              정지(STOP) 후 모방 모드와 제어권을 다시 획득해야 합니다.
-            </p>
-            <div className="d-flex align-items-center gap-2">
-              <div className="progress flex-grow-1" style={{ height: "0.5rem" }}>
-                <div
-                  className="progress-bar bg-warning"
-                  role="progressbar"
-                  style={{
-                    width: `${reacquireStableMs > 0
-                      ? Math.round((reacquireElapsedMs / reacquireStableMs) * 100)
-                      : 0}%`,
-                  }}
-                  aria-valuenow={reacquireElapsedMs}
-                  aria-valuemin={0}
-                  aria-valuemax={reacquireStableMs}
-                />
+            <Body className="flex flex-col gap-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-xs text-ink-400">
+                  Session ID
+                </span>
+                <span className="truncate font-mono text-xs">
+                  {recordingState.active_session_id || recordingState.last_session_id || "-"}
+                </span>
               </div>
-              <span className="small text-muted text-nowrap">
-                유효 재검출 {reacquireElapsedMs} / {reacquireStableMs}ms
-              </span>
-            </div>
-          </div>
-        )}
 
-        {showRealtimeData && !axisValues && (
-          <p className="text-center text-muted small mb-2">
-            ROS2 브릿지로부터 아직 데이터를 받지 못했습니다.
-          </p>
-        )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  disabled={!canStartRecording}
+                  className="flex-1 rounded-full bg-ink-900 px-3 py-2 text-[13px] font-semibold
+                             text-white transition-opacity hover:opacity-90 disabled:opacity-25"
+                >
+                  기록 시작
+                </button>
+                <button
+                  type="button"
+                  onClick={stopRecording}
+                  disabled={!canStopRecording}
+                  className="flex-1 rounded-full bg-ink-100 px-3 py-2 text-[13px]
+                             font-medium transition-colors hover:bg-ink-200/70
+                             disabled:opacity-30"
+                >
+                  기록 종료
+                </button>
+              </div>
 
-        {showRealtimeData && (
-          <div className="table-responsive bg-white border rounded-3 p-2 shadow-sm">
-            <table className="table table-sm table-borderless align-middle text-center m-0">
-              <thead className="table-light">
-                <tr className="small text-uppercase fw-bold text-muted border-bottom">
-                  <th>Timestamp</th>
-                  {HAND_AXES.map((axis) => (
-                    <th key={axis.key}>{axis.label}</th>
-                  ))}
-                  {/* FR-21: "7논리축 목표와 confidence를 숫자 또는 게이지로 표시한다." */}
-                  <th>Conf.</th>
-                  <th>Camera</th>
-                  <th>Hand</th>
-                </tr>
-              </thead>
-              <tbody className="font-monospace fs-6">
-                <tr>
-                  <td className="text-muted small">{stampText}</td>
-                  {HAND_AXES.map((axis) => (
-                    <td className="fw-bold" key={axis.key}>
-                      {formatAxis(axisValues?.[axis.key])}
-                    </td>
-                  ))}
-                  <td className={commandConfidence !== null
-                    && commandConfidence < TIMING.HAND_CONFIDENCE_MIN
-                    ? "text-warning fw-bold" : "fw-bold"}>
-                    {commandConfidence !== null
-                      ? `${Math.round(commandConfidence * 100)}%` : "-"}
-                  </td>
-                  <td>
-                    <span
-                      className={`badge ${
-                        isCameraConnected ? "bg-primary-subtle text-primary" : "bg-danger-subtle text-danger"
-                      }`}
-                    >
-                      {isCameraConnected ? "True" : "False"}
-                    </span>
-                  </td>
-                  <td>
-                    <span
-                      className={`badge ${
-                        handDetected ? "bg-info-subtle text-info" : "bg-secondary-subtle text-secondary"
-                      }`}
-                    >
-                      {handDetected ? "True" : "False"}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-            <p className="small text-muted mt-2 mb-0">
-              명령 발행 상태(source): {handCommand?.source ?? "-"} / sequence: {handCommand?.sequence ?? "-"}
-            </p>
+              {!isMimicActive && (
+                <p className="text-xs leading-relaxed text-ink-500">
+                  기록은 모방 모드에서 웹이 제어권을 보유한 동안에만 가능합니다.
+                </p>
+              )}
+              {isMimicActive && !recordingStateKnown && (
+                <p className="text-xs leading-relaxed text-st-fault">
+                  기록 상태(<code>RecordingState</code>)를 받지 못해 Session ID 를
+                  확인할 수 없습니다.
+                </p>
+              )}
+
+              <AnimatePresence initial={false}>
+                {needsResultJudgement && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.22 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mb-3 h-px bg-ink-200" />
+                    <p className="text-[13px]">
+                      판정 대기 중입니다. 방금 기록한 세션의 모방이 성공했습니까?
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => submitRecordingResult(RECORDING_RESULT.SUCCESS)}
+                        className="flex-1 rounded-full bg-st-ready px-3 py-2 text-[13px]
+                                   font-semibold text-white hover:opacity-90"
+                      >
+                        성공
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => submitRecordingResult(RECORDING_RESULT.FAILURE)}
+                        className="flex-1 rounded-full bg-ink-200 px-3 py-2
+                                   text-[13px] font-medium hover:bg-ink-200/70"
+                      >
+                        실패
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </Body>
           </div>
-        )}
+        </Panel>
       </div>
     </div>
   );

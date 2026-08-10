@@ -1,3 +1,18 @@
+estop_gpio_node:
+  ros__parameters:
+    # Tested Raspberry Pi wiring: isolated NO auxiliary contact to GND.
+    # Released/open is HIGH; pressed/closed is LOW. The separate main NC
+    # contact removes motor drive power independently of this GPIO process.
+    gpio_chip: "gpiochip4"
+    gpio_line: 17
+    active_low: true
+    poll_interval_ms: 5
+    debounce_ms: 50
+    heartbeat_period_ms: 100
+    # Validated startup range: 1..500 ms; slower recovery is rejected.
+    reopen_interval_ms: 500
+    safety_timeout_ms: 300
+
 command_manager:
   ros__parameters:
     owner_lease_timeout_ms: 3000
@@ -5,24 +20,113 @@ command_manager:
     lease_check_period_ms: 100
     state_publish_period_ms: 1000
 
+manual_executor:
+  ros__parameters:
+    # At most 50 ms preserves the V7.0 requirement of fresh commands at >=20 Hz.
+    publish_period_ms: 50
+    control_state_timeout_ms: 1500
+    safety_state_timeout_ms: 300
+
+    # Normalized HandCommand order:
+    # thumb_flex, thumb_opp, thumb_abd, index, middle, ring, little.
+    # Tune these software presets after physical endpoint calibration; hardware
+    # limits and Command Guard remain the final safety boundary.
+    gestures.open.axes: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    gestures.open.duration_ms: 1000
+    # A normal fist uses the validated grasp thumb pose.
+    gestures.fist.axes: [1.0, 0.6, 0.2, 1.0, 1.0, 1.0, 1.0]
+    gestures.fist.duration_ms: 1000
+    gestures.pinch.axes: [1.0, 0.6, 0.2, 1.0, 0.0, 0.0, 0.0]
+    gestures.pinch.duration_ms: 3000
+    gestures.cylindrical_grasp.axes: [0.8, 0.6, 0.2, 0.85, 0.85, 0.85, 0.85]
+    gestures.cylindrical_grasp.duration_ms: 3000
+
+    # Sequence-only presets. ExecuteGesture still accepts only the four
+    # canonical gestures plus home|paper|rock aliases.
+    # Countdown uses the folded thumb pose.
+    gestures.count_4.axes: [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    gestures.count_3.axes: [1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    gestures.scissors.axes: [1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0]
+    gestures.count_1.axes: [1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0]
+
+    sequences.countdown.steps: [open, count_4, count_3, scissors, count_1, fist, open]
+    sequences.countdown.step_durations_ms: [3000, 3000, 3000, 3000, 3000, 3000, 3000]
+    sequences.scissors_rock_paper.steps: [fist, open, scissors]
+    sequences.scissors_rock_paper.step_durations_ms: [3000, 3000, 3000]
+
 command_guard:
   ros__parameters:
     command_timeout_ms: 300
-    min_command_timeout_ms: 200
-    max_command_timeout_ms: 500
-    max_axis_delta_per_second: 1.5
-    default_speed_limit: 0.25
+    command_hold_ms: 5000
+    command_future_tolerance_ms: 100
+    safety_state_timeout_ms: 1500
+    control_state_timeout_ms: 1500
+    diagnostic_period_ms: 1000
+    axis_limits:
+      thumb_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.0
+      thumb_opp:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.0
+      thumb_abd:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.0
+      index_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
+      middle_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
+      ring_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
+      little_flex:
+        min: 0.0
+        max: 1.0
+        max_delta_per_second: 1.5
+    # Vision keeps each landmark-frame change within 0.08 at up to 30 Hz.
+    # At MIMIC speed_limit 0.25 this requires 9.6/s; 10.0/s includes rounding.
+    # This profile applies only to SOURCE_MIMIC. Other sources use axis_limits.
+    mimic_axis_limits:
+      thumb_flex:
+        max_delta_per_second: 10.0
+      thumb_opp:
+        max_delta_per_second: 10.0
+      thumb_abd:
+        max_delta_per_second: 10.0
+      index_flex:
+        max_delta_per_second: 10.0
+      middle_flex:
+        max_delta_per_second: 10.0
+      ring_flex:
+        max_delta_per_second: 10.0
+      little_flex:
+        max_delta_per_second: 10.0
 
 safety_manager:
   ros__parameters:
-    hold_duration_ms: 500
-    stop_settle_ms: 500
-    require_manual_resume: true
-    safe_pose:
-      thumb_flex: 0.0
-      thumb_opp: 0.0
-      thumb_abd: 0.0
-      index_flex: 0.0
-      middle_flex: 0.0
-      ring_flex: 0.0
-      little_flex: 0.0
+    command_hold_ms: 5000
+    command_safe_ms: 10000
+    safe_action_timeout_ms: 3000
+    recovery_stable_ms: 300
+    recovery_max_gap_ms: 100
+    reset_min_ms: 500
+    reset_timeout_ms: 3000
+    estop_release_ms: 500
+    fault_clear_stable_ms: 1000
+    hardware_status_timeout_ms: 300
+    estop_input_timeout_ms: 300
+    tick_period_ms: 20
+    state_publish_period_ms: 100
+    # ROBOTIS XL330-M288-T e-Manual: recommended 5.0 V stall current is 1.47 A.
+    # V7 still requires project-specific physical load validation of this trip.
+    trip_limits_validated: true
+    max_current_ampere: 1.47
+    max_temperature_celsius: 70.0

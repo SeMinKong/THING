@@ -8,6 +8,7 @@ float64 velocity_rad_s
 float64 current_ampere
 float64 voltage_volt
 float32 temperature_celsius
+bool torque_enabled
 uint32 hardware_error
 int32 communication_result
 bool communication_ok

@@ -5,7 +5,7 @@
 //   exact Session ID 검색은 Must, result 필터는 Should.
 //   기본 20건이며 next_cursor 로 다음 페이지를 받는다.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'motion/react';
 import {
@@ -30,6 +30,11 @@ import { formatBytes, formatCount, formatDuration, formatUtc } from '../utils/fo
 const LOADING = 'loading';
 const ERROR = 'error';
 const READY = 'ready';
+
+// 새 데이터 자동 감지 폴링 주기. 서버 푸시 대신 기존 공개 GET 을 5초마다 가볍게
+// (limit=1) 다시 불러 최상단 session_id 만 비교한다. 공개 GET 한도(IP당 120/min)
+// 안에 넉넉히 들어온다(12/min).
+const POLL_MS = 2000;
 
 /** 판정 칩. 색만으로 구분하지 않고 아이콘과 글자를 함께 둔다(색각 이상 대응) */
 function ResultChip({ result }) {
@@ -68,6 +73,12 @@ export default function SessionListView() {
   const [searchInput, setSearchInput] = useState('');
   const [applied, setApplied] = useState({ sessionId: '', result: '' });
 
+  // 폴링으로 새 세션을 감지하면 표를 갑자기 갈아끼우지 않고 배너만 띄운다.
+const [hasNew, setHasNew] = useState(false);
+// interval 을 매 렌더마다 다시 만들지 않도록 비교 기준·백오프를 ref 로 들고 있는다.
+const topIdRef = useRef(null);          // 현재 화면의 최신 session_id
+const backoffUntilRef = useRef(0);      // 429 응답 시 이 시각까지 폴링 정지
+
   const load = useCallback(async () => {
     setPhase(LOADING);
     try {
@@ -78,6 +89,11 @@ export default function SessionListView() {
       });
       setItems(body.items || []);
       setNextCursor(body.next_cursor || null);
+      // 필터·페이지네이션이 없는 기본 목록을 새로 받은 경우에만 폴링 기준을 갱신한다.
+      if (!cursor && !applied.sessionId && !applied.result) {
+      topIdRef.current = body.items?.[0]?.session_id ?? null;
+      setHasNew(false);
+    }
       setPhase(READY);
     } catch (error) {
       setMessage(describeError(error));
@@ -89,6 +105,36 @@ export default function SessionListView() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // 5초 주기 자동 새로고침. 기본 화면(필터·페이지네이션 없음)에서 READY 일 때만,
+// 탭이 보일 때만 돈다. 표를 건드리지 않고 새 세션 도착 여부만 배너로 알린다.
+useEffect(() => {
+  if (phase !== READY || applied.sessionId || applied.result || cursor) {
+    return undefined;
+  }
+  const check = async () => {
+    if (document.hidden) return;                       // 탭 숨김 시 정지(쿼터 절약)
+    if (Date.now() < backoffUntilRef.current) return;  // 429 백오프 중
+    try {
+      const body = await fetchSessions({ limit: 1 });
+      const newestId = body.items?.[0]?.session_id ?? null;
+      if (newestId && newestId !== topIdRef.current) setHasNew(true);
+    } catch (error) {
+      if (error?.response?.status === 429) {
+        const retry = Number(error.response.headers?.['retry-after']) || 30;
+        backoffUntilRef.current = Date.now() + retry * 1000;
+      }
+      // 그 외 오류는 조용히 무시하고 다음 주기에 다시 시도한다.
+    }
+  };
+  const timer = setInterval(check, POLL_MS);
+  const onVisible = () => { if (!document.hidden) check(); };  // 탭 복귀 시 즉시 확인
+  document.addEventListener('visibilitychange', onVisible);
+  return () => {
+    clearInterval(timer);
+    document.removeEventListener('visibilitychange', onVisible);
+  };
+}, [phase, applied.sessionId, applied.result, cursor]);
 
   const submitSearch = (event) => {
     event.preventDefault();
@@ -182,6 +228,18 @@ export default function SessionListView() {
             </button>
           )}
         </div>
+
+{hasNew && phase === READY && !hasFilter && !cursor && (
+   <button
+     type="button"
+     onClick={load}
+     className="btn btn-quiet"
+     style={{ width: '100%', justifyContent: 'center', marginBottom: 12 }}
+   >
+     <RotateCw size={14} strokeWidth={2} aria-hidden="true" />
+     새 세션이 도착했습니다 — 새로고침
+   </button>
+ )}
 
         {phase === LOADING && <Skeleton rows={5} label="목록을 불러오고 있습니다…" />}
 
