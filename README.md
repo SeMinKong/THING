@@ -25,11 +25,11 @@ DYNAMIXEL 제어를 담당합니다. React 관제 웹과 EC2 데이터 포털을
 
 ### 최종 통합 시연
 
-카메라 손동작 인식부터 7축 텐던 로봇 손 구동까지 연결한 최종 시연입니다.
+사용자의 손동작 인식과 7축 텐던 로봇 손의 실시간 모방 제어를 보여주는 최종 시연입니다.
 
-https://github.com/user-attachments/assets/3583076f-5f6d-49d1-b914-9c6c6e543c1d
+https://github.com/user-attachments/assets/3f23d3e1-5532-4831-a1eb-fe4c024d04cb
 
-> [원본 최종 시연 영상 열기](media/videos/최종시연.mp4)
+> [원본 최종 시연 영상 열기](media/videos/모방시연.mp4)
 
 ### 동작 하이라이트
 
@@ -54,8 +54,8 @@ https://github.com/user-attachments/assets/3583076f-5f6d-49d1-b914-9c6c6e543c1d
 
 #### 통합·모방
 
-- [최종 통합 시연](media/videos/최종시연.mp4)
-- [실시간 손동작 모방](media/videos/모방시연.mp4)
+- [최종 손동작 모방 시연](media/videos/모방시연.mp4)
+- [7축 구동 시연](media/videos/최종시연.mp4)
 - [여러 손동작 모방](media/videos/모방여러동작.mp4)
 - [지연 개선 후 웨이브 모방](media/videos/모방웨이브지연개선.mp4)
 
