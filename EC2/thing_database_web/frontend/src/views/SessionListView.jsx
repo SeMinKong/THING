@@ -179,7 +179,7 @@ useEffect(() => {
           <p className="eyebrow">Sessions</p>
           <h2>세션 목록</h2>
           <p>
-            판정이 완료되어 공개된 세션입니다. 최신 순으로 정렬되며 모든 시각은 UTC입니다.
+            판정이 완료되어 공개된 세션입니다. 최신 순으로 정렬되며 모든 시각은 한국 시간(KST) 기준입니다.
           </p>
         </div>
         <button type="button" onClick={load} className="btn" disabled={phase === LOADING}>
@@ -288,7 +288,7 @@ useEffect(() => {
                   <tr>
                     <th>Session ID</th>
                     <th>로봇</th>
-                    <th>시작 (UTC)</th>
+                    <th>시작 (KST)</th>
                     <th>길이</th>
                     <th>판정</th>
                     <th className="num">HandCommand</th>

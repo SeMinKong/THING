@@ -89,7 +89,7 @@ export default function HomeView() {
           </div>
           <div className="hero-fact">
             <dt>시각 기준</dt>
-            <dd>UTC</dd>
+            <dd>KST</dd>
           </div>
         </motion.dl>
 
