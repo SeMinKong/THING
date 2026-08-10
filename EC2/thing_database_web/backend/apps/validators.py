@@ -18,6 +18,7 @@ CSV:
 외부 의존성(jsonschema 등)을 추가하지 않고 손으로 검증한다. 서버에 pip 설치를
 늘리지 않으려는 의도이며, 스키마가 고정 1버전이라 손검증으로 충분하다.
 """
+from . import landmark_contract, limits
 import csv
 import io
 import json
@@ -33,20 +34,17 @@ MiB = 1024 * 1024
 KiB = 1024
 
 #: part별 크기 상한 (명세서 6.5절 multipart 업로드)
-PART_MAX_BYTES = {
-    "metadata": 256 * KiB,
-    "hand_command": 20 * MiB,
-    "motor_status": 60 * MiB,
-}
+#: apps/limits.py 가 단일 출처다. 여기서 다시 적지 않는다.
+PART_MAX_BYTES = limits.PART_MAX_BYTES
 
-#: 세 part 합계 상한 = 80.25MiB
-TOTAL_MAX_BYTES = 256 * KiB + 20 * MiB + 60 * MiB
+TOTAL_MAX_BYTES = limits.TOTAL_MAX_BYTES
 
 #: part별 허용 content type
 PART_CONTENT_TYPES = {
     "metadata": ("application/json",),
     "hand_command": ("text/csv",),
     "motor_status": ("text/csv",),
+    landmark_contract.KIND: landmark_contract.CONTENT_TYPES,
 }
 
 #: HandCommand CSV header (명세서 6.5절 CSV 규칙)
@@ -61,7 +59,7 @@ MOTOR_STATUS_HEADER = [
     "session_id", "stamp_sec", "stamp_nanosec", "elapsed_ms", "frame_id", "motor_id",
     "actuator_name", "goal_position_raw", "present_position_raw", "goal_position_rad",
     "present_position_rad", "velocity_rad_s", "current_ampere", "voltage_volt",
-    "temperature_celsius", "hardware_error", "communication_result",
+    "temperature_celsius", "torque_enabled", "hardware_error", "communication_result",
     "communication_ok", "bus_communication_ok", "failed_read_count",
 ]
 
@@ -168,7 +166,11 @@ def validate_metadata(meta):
     # ── 시각 ──
     started_at = parse_rfc3339_utc(meta.get("started_at"), "started_at")
     ended_at = parse_rfc3339_utc(meta.get("ended_at"), "ended_at")
-    parse_rfc3339_utc(meta.get("exported_at"), "exported_at")
+    # exported_at 은 선택이다. 로봇 exporter(thing_logger/export_schema.METADATA_FIELDS)는
+    # 이 필드를 내보내지 않는다. content_digest 계산에서도 제외되므로(digest.py) 없어도
+    # 안전하고, 있으면 형식만 검사한다.
+    if meta.get("exported_at") is not None:
+        parse_rfc3339_utc(meta.get("exported_at"), "exported_at")
     if ended_at <= started_at:
         raise ValidationFailed(details=["ended_at: started_at 보다 커야 한다"])
 
@@ -176,20 +178,41 @@ def validate_metadata(meta):
     files = meta.get("files")
     if not isinstance(files, dict):
         raise ValidationFailed(details=["files: 객체여야 한다"])
-    if set(files.keys()) != {"hand_command", "motor_status"}:
+    # FR-49 는 네 파일을 요구하지만 landmark 형식이 미정이고 7.6절·NFR-27 은
+    # 여전히 세 개라고 적혀 있다. 그래서 두 CSV 는 필수, landmark 는
+    # landmark_contract.REQUIRED 로 정한다. 그 밖의 키는 거부한다 —
+    # 알 수 없는 항목이 digest 계산에 섞이면 멱등성이 흔들린다.
+    LM = landmark_contract.KIND
+    required_keys = {"hand_command", "motor_status"}
+    if landmark_contract.REQUIRED:
+        required_keys.add(LM)
+    allowed_keys = {"hand_command", "motor_status", LM}
+
+    present = set(files.keys())
+    missing = required_keys - present
+    unknown = present - allowed_keys
+    if missing:
         raise ValidationFailed(
-            details=["files: hand_command 와 motor_status 두 항목만 있어야 한다"]
+            details=[f"files: 필수 항목 누락 {', '.join(sorted(missing))}"]
+        )
+    if unknown:
+        raise ValidationFailed(
+            details=[f"files: 알 수 없는 항목 {', '.join(sorted(unknown))}"]
         )
 
-    for kind in ("hand_command", "motor_status"):
+    for kind in sorted(present):
         entry = files[kind]
         if not isinstance(entry, dict):
             errors.append(f"files.{kind}: 객체여야 한다")
             continue
-        expected_name = f"session_{meta['session_id']}_{kind}.csv"
+        ext = landmark_contract.EXTENSION if kind == LM else "csv"
+        expected_name = f"session_{meta['session_id']}_{kind}.{ext}"
         if entry.get("filename") != expected_name:
             errors.append(f"files.{kind}.filename: canonical 이름이어야 한다")
-        for numeric in ("size_bytes", "row_count"):
+        # landmark 의 개수 필드 이름이 6.5절에 json_data 로 적혀 있으나 의미가
+        # 불명이라(docs/pending-decisions.md P-4) 개수는 요구하지 않는다.
+        numerics = ("size_bytes",) if kind == LM else ("size_bytes", "row_count")
+        for numeric in numerics:
             value = entry.get(numeric)
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 errors.append(f"files.{kind}.{numeric}: 0 이상 정수여야 한다")

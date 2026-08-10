@@ -9,6 +9,14 @@
 
   <exec_depend>rclpy</exec_depend>
   <exec_depend>thing_interfaces</exec_depend>
+  <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <!-- 9.1은 Python 3.10에서 제거된 loop 인자를 asyncio에 넘겨 접속 즉시 끊긴다.
+       Ubuntu 22.04 apt 기본값이 10.1이므로 Jetson에서는 충족된다. -->
+  <exec_depend version_gte="10.0">python3-websockets</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

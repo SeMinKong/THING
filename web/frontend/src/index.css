@@ -1,111 +1,102 @@
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+/* ============================================================================
+   thing 관제 콘솔 — Tailwind v4 테마
+   ----------------------------------------------------------------------------
+   ── 앞 판들과 무엇을 바꿨나 ────────────────────────────────────────────────
+   지금까지 두 판은 "회색 바탕 + 흰 카드 + 1px 테두리 + 10px 대문자 모노 라벨"
+   이라는 같은 조합 위에 있었다. 그래서 색만 다르고 인상이 같았다. 전부 버린다.
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+     바탕      회색 → 흰색. 구획은 테두리가 아니라 옅은 면으로 나눈다.
+     테두리    거의 쓰지 않는다. 상자가 많으면 테두리가 정보보다 먼저 보인다.
+     라벨      10px 대문자 모노 → 13px 문장형. 읽으라고 있는 글자다.
+     머리      흰 바탕에 작은 색 표시 → 머리 영역 전체가 안전 상태 색이 된다.
+     모서리    6px → 14px. 계측 장비보다 실험 기구 쪽 인상.
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+   머리를 통째로 물들이는 것이 이번 판의 승부수다. 운용자는 영상을 보고 있지
+   상태 글자를 읽고 있지 않다. ESTOP 이면 화면 위쪽이 통째로 진홍이 된다.
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
+   한국어가 화면의 대부분이라 Pretendard 를 쓴다. 라틴 전용 서체를 쓰면
+   한글이 시스템 폰트로 떨어져 굵기와 자폭이 어긋난다.
+   ========================================================================= */
+
+@import "pretendard/dist/web/variable/pretendardvariable.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "tailwindcss";
+
+@theme {
+  /* 바탕은 흰색. 구획은 면으로만 나눈다 */
+  --color-ink-0:   #ffffff;
+  --color-ink-50:  #f4f6f8;
+  --color-ink-100: #e9edf1;
+  --color-ink-200: #d6dce3;
+  --color-ink-400: #8b96a3;
+  --color-ink-600: #4d5a67;
+  --color-ink-900: #0f1519;
+
+  --color-action-50:  #e9eefb;   /* 버튼 기본 표면 — ink-50 보다 확실히 파랑, 그래도 아주 밝음 */
+--color-action-100: #dbe3f8;   /* hover 표면 */
+--color-action-200: #c3cef0;   /* 테두리 */
+--color-action-700: #3d4a86;   /* 라벨·hover 테두리 강조 — 채도를 낮춰 st-run(#1550b4)과 구분 */
+
+  /* 안전 상태 8색. 머리 영역을 통째로 채우므로 흰 글자가 편히 읽히는 깊이로 */
+  --color-st-init:  #4a5560;
+  --color-st-ready: #0a6f66;
+  --color-st-run:   #1550b4;
+  --color-st-hold:  #8f4a04;
+  --color-st-reset: #52309f;
+  --color-st-safe:  #99340a;
+  --color-st-fault: #9d1c17;
+  --color-st-estop: #86072a;
+
+  --font-sans: "Pretendard Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+
+  --radius-card: 0.875rem;
+}
+
+/* 현재 안전 상태 색. 머리 영역과 강조 요소가 참조한다 */
+[data-safety="INIT"]  { --signal: var(--color-st-init); }
+[data-safety="READY"] { --signal: var(--color-st-ready); }
+[data-safety="RUN"]   { --signal: var(--color-st-run); }
+[data-safety="HOLD"]  { --signal: var(--color-st-hold); }
+[data-safety="RESET"] { --signal: var(--color-st-reset); }
+[data-safety="SAFE"]  { --signal: var(--color-st-safe); }
+[data-safety="FAULT"] { --signal: var(--color-st-fault); }
+[data-safety="ESTOP"] { --signal: var(--color-st-estop); }
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--color-ink-0);
+    color: var(--color-ink-900);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    /* 계측값은 예외 없이 등폭 자릿수. 흔들리면 값 변화를 눈으로 못 쫓는다 */
+    font-variant-numeric: tabular-nums;
   }
+
+  code, kbd, samp { font-family: var(--font-mono); }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+
+  :focus-visible { outline: 2px solid var(--signal, currentColor); outline-offset: 2px; }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+/* Motion 이 상태 주도 움직임을 전부 맡는다.
+   CSS 는 제어권 박동 하나만 — FR-34 의 1000ms 갱신 주기라 React 와 무관하게 돈다 */
+@layer utilities {
+  @keyframes lease-beat {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    55%      { opacity: 0.2; transform: scale(2.1); }
   }
+  .animate-lease { animation: lease-beat var(--lease-period, 1000ms) ease-out infinite; }
+}
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
   }
-}
-
-body {
-  margin: 0;
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-p {
-  margin: 0;
-}
-
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
 }

@@ -1,0 +1,25 @@
+/**:
+  ros__parameters:
+    # Bus
+    device_name: "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
+    baud_rate: 1000000
+    protocol_version: 2.0
+
+    # Axis
+    motor_id: 3
+    home_position: 750
+    closed_position: 3050
+
+    # Controller
+    position_p_gain: 500
+    position_i_gain: 30
+    position_d_gain: 600
+    goal_current: 500
+    profile_acceleration: 50
+    profile_velocity: 200
+
+    # Completion and safety
+    position_tolerance: 30
+    settled_velocity_raw: 1
+    required_settled_samples: 3
+    motion_timeout_seconds: 6

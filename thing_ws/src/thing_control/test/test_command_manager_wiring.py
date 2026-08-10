@@ -59,7 +59,9 @@ def test_control_yaml_uses_v6_3_owner_lease_defaults():
     }
 
     safety_parameters = config['safety_manager']['ros__parameters']
-    assert safety_parameters['stop_settle_ms'] == 500
+    assert safety_parameters['safe_action_timeout_ms'] == 3000
+    assert safety_parameters['reset_min_ms'] == 500
+    assert safety_parameters['reset_timeout_ms'] == 3000
 
 
 def test_interfaces_document_control_arbitration_contract():

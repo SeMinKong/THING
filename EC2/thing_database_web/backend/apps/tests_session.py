@@ -17,7 +17,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 
-from apps import storage
+from apps import landmark_contract, storage
 from apps.digest import (
     TEST_VECTOR,
     canonical_json,
@@ -47,7 +47,7 @@ def make_session(**overrides):
         uploaded_at=_dt("2026-07-29T00:01:06.000Z"),
         result=Session.Result.SUCCESS,
         duration_ms=0,
-        interface_commit="70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec",
+        interface_commit="626c59e09f108e6e5eb6d2313efe28bf0e51ed03",
         time_sync=True,
         content_digest=compute_content_digest(TEST_VECTOR),
         status=Session.Status.READY,
@@ -63,7 +63,7 @@ class ContentDigestTests(TestCase):
     """[NFR-26] content_digest 계산 규칙. 로봇 exporter와 일치해야 한다."""
 
     #: 로봇 측 구현이 이 값을 재현해야 한다. 규칙 변경 시 양측 동시 갱신 필요.
-    EXPECTED = "sha256:9609870430c57c2c994797359fe63f1060907fc5834379d0a0f27a765d5f6671"
+    EXPECTED = "sha256:90f382c974222a860d54985629a9a135c3e360bbb343a5b07ff2316fc4bfd8f2"
 
     def test_test_vector_digest_is_stable(self):
         """교차 검증용 고정 벡터. 이 값이 바뀌면 로봇 측과 계약이 깨진다."""
@@ -183,6 +183,7 @@ class AtomicCommitTests(TestCase):
             "metadata": b'{"schema_version":1}',
             "hand_command": b"session_id,stamp_sec\n1,2\n",
             "motor_status": b"session_id,motor_id\n1,11\n",
+            landmark_contract.KIND: b'{"frames":[]}',
         }
         for kind, body in payloads.items():
             upload = SimpleUploadedFile("client-name-ignored.bin", body)
@@ -196,15 +197,25 @@ class AtomicCommitTests(TestCase):
         self.assertEqual(target.name, f"session_{SID}_metadata.json")
         self.assertEqual(written, 1)
 
-    def test_commit_moves_exactly_three_files(self):
+    def test_commit_moves_every_staged_file(self):
         payloads = self._stage_all()
         moved = storage.commit_staging(ROBOT, SID)
         self.assertEqual(sorted(moved), sorted(storage.FILE_KINDS))
 
         final = storage.final_dir(ROBOT, SID)
-        self.assertEqual(len(list(final.iterdir())), 3)
+        self.assertEqual(len(list(final.iterdir())), len(storage.FILE_KINDS))
         for kind, body in payloads.items():
             self.assertEqual(storage.final_path(ROBOT, SID, kind).read_bytes(), body)
+
+    def test_commit_skips_absent_optional_landmark(self):
+        """landmark 는 형식 미정이라 선택 part 다. 없어도 commit 이 성공해야 한다."""
+        for kind in ("metadata", "hand_command", "motor_status"):
+            storage.stream_to_staging(
+                SimpleUploadedFile("x.bin", b"x"), ROBOT, SID, kind
+            )
+        moved = storage.commit_staging(ROBOT, SID)
+        self.assertNotIn(landmark_contract.KIND, moved)
+        self.assertEqual(len(moved), 3)
 
     def test_staging_removed_after_commit(self):
         self._stage_all()

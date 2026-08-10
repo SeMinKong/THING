@@ -23,14 +23,18 @@ TEMP_DATA = tempfile.mkdtemp(prefix="test-common-")
 
 
 class UploadLimitTests(TestCase):
-    """[FR-51] 업로드 크기 상한이 명세서 6.5절 값으로 고정되어 있는지 검증.
+    """[FR-51] 업로드 크기 상한 체계의 Django 쪽.
 
-    Nginx 90M / Django 85MiB 로 이루어진 상한 체계의 Django 쪽이다.
-    Nginx 쪽은 deploy/nginx_thing_database_web.conf 에 있다.
+    Nginx 쪽은 deploy/nginx_thing_database_web.conf 에 있고 두 값은 함께 움직여야
+    한다. 6.5절의 고정 숫자(85MiB)는 landmark 를 뺀 시절의 값이라 숫자를 직접
+    비교하지 않고 part 상한 합계를 담을 수 있는지만 본다.
+    docs/pending-decisions.md P-2 참조.
     """
 
-    def test_django_request_limit_is_85_mib(self):
-        self.assertEqual(settings.DATA_UPLOAD_MAX_MEMORY_SIZE, 85 * MiB)
+    def test_django_request_limit_holds_every_part(self):
+        from apps.validators import TOTAL_MAX_BYTES
+
+        self.assertGreaterEqual(settings.DATA_UPLOAD_MAX_MEMORY_SIZE, TOTAL_MAX_BYTES)
 
     def test_large_body_spools_to_disk(self):
         """FILE_UPLOAD_MAX_MEMORY_SIZE 를 넘는 파일은 메모리에 다 올리지 않는다."""
@@ -39,8 +43,42 @@ class UploadLimitTests(TestCase):
             settings.DATA_UPLOAD_MAX_MEMORY_SIZE,
         )
 
+    def test_nginx_conf_matches_part_limits(self):
+        """Nginx client_max_body_size 가 part 상한 합계를 담아야 한다.
+
+        Nginx 는 설정 파일이라 import 할 수 없다. 그래서 apps/limits.py 를 고치면
+        이 시험이 실패하면서 conf 에 넣을 값을 알려 준다. 이 고리를 닫아 두지
+        않으면 큰 업로드가 Django 에 닿기 전에 Nginx 에서 413 으로 끊기고,
+        원인을 찾기 어렵다.
+        """
+        from pathlib import Path
+        import re
+
+        from apps import limits
+
+        conf = (
+            Path(__file__).resolve().parents[2]
+            / "deploy" / "nginx_thing_database_web.conf"
+        )
+        text = conf.read_text(encoding="utf-8")
+        found = re.search(r"client_max_body_size\s+(\d+)M\s*;", text)
+        self.assertIsNotNone(found, "client_max_body_size 지시자를 찾지 못했다")
+
+        declared_bytes = int(found.group(1)) * limits.MiB
+        self.assertGreaterEqual(
+            declared_bytes,
+            limits.REQUEST_MAX_BYTES,
+            f"nginx conf 의 client_max_body_size 를 "
+            f"{limits.nginx_client_max_body_size()} 이상으로 고치세요",
+        )
+
     def test_part_limits_sum_matches_spec(self):
-        """part 상한 합계가 80.25MiB 이고 Django 상한 이하여야 한다."""
+        """part 상한 합계가 Django 요청 상한 안에 들어가야 한다.
+
+        이 관계가 깨지면 큰 업로드가 Django 에 닿기 전에 거부된다.
+        V7.1 §6.5 의 "합계 200.25MiB"(landmark 포함)는 값이 바뀔 수 있으므로 숫자를
+        직접 비교하지 않고 관계만 검사한다.
+        """
         from apps.validators import PART_MAX_BYTES, TOTAL_MAX_BYTES
 
         self.assertEqual(sum(PART_MAX_BYTES.values()), TOTAL_MAX_BYTES)

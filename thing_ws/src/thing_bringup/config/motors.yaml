@@ -1,113 +1,126 @@
-thing_hardware:
+motor_driver_node:
   ros__parameters:
-    # Physical values measured on the assembled Raspberry Pi hand.
-    # Any remaining null value must fail INIT until it is calibrated.
-    model: XL330-M288-T
-    read_rate_hz: 20.0
-    write_rate_hz: 50.0
+    # Integrated seven-axis hand control with tendon-aware thumb motion.
+    integration_test_mode: false
+
+    # Common DYNAMIXEL configuration
+    model: "XL330-M288-T"
+    baud_rate: 1000000
     protocol_version: 2.0
-    baud_rate: 57600
     operating_mode: 5
     encoder_resolution_raw: 4096
 
-    profile_velocity_raw: 300
-    profile_acceleration_raw: 1500
-    current_limit_ma: 1470
-    move_goal_current_ma: 1470
-    hold_goal_current_ma: null
-    goal_pwm_raw: 885
+    # ROS control and monitoring periods
+    read_rate_hz: 20.0
+    write_rate_hz: 50.0
+    safe_velocity_limit: 0.5
+    # Finish before Safety Manager's fixed 3000 ms SAFE action deadline.
+    safe_motion_timeout_seconds: 2.5
+    diagnostic_rate_hz: 1.0
+    hardware_command_watchdog_ms: 500
 
-    # These protection values are intentionally unset. Do not treat the
-    # discussed 45/50 C policy as active until monitoring and load tests pass.
-    temperature_warning_c: null
-    temperature_trip_c: null
-    fault_current_ma: null
-    fault_current_hold_ms: null
-    bus_watchdog_ms: null
+    # Physical buses
+    bus_names: ["BUS_A", "BUS_B", "BUS_C"]
+    bus_devices:
+      - "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0"
+      - "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0"
+      - "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0"
+
+    # Axis parameters are parallel arrays sorted by motor ID.
+    # bus_indices refers to the zero-based index of bus_names/bus_devices.
+    motor_ids: [1, 2, 3, 4, 5, 6, 7]
+    controlled_motor_ids: [1, 2, 3, 4, 5, 6, 7]
+    actuator_names:
+      - "ring_flex"
+      - "thumb_flex"
+      - "middle_flex"
+      - "index_flex"
+      - "thumb_abduction"
+      - "thumb_opposition"
+      - "little_flex"
+    bus_indices: [0, 0, 0, 1, 1, 1, 2]
+
+    # Thumb entries are safe/validation endpoints. Runtime thumb targets come
+    # from the functional-pose map below rather than this linear endpoint map.
+    home_positions_raw: [110, 3700, 750, 1740, 400, 1650, 700]
+    closed_positions_raw: [2700, 4900, 3050, 4300, 3000, 2500, 3800]
+    safe_positions_raw: [110, 3700, 750, 1740, 400, 1650, 700]
+    position_tolerances_raw: [30, 50, 30, 30, 50, 50, 30]
+
+    # Validated per-axis controller settings
+    position_p_gains: [1200, 800, 1000, 1000, 800, 800, 1200]
+    position_i_gains: [20, 10, 30, 40, 10, 10, 20]
+    position_d_gains: [600, 600, 600, 600, 600, 600, 600]
+    goal_currents_ma: [500, 500, 500, 500, 500, 500, 500]
+    profile_accelerations_raw: [50, 75, 50, 50, 75, 75, 50]
+    profile_velocities_raw: [200, 300, 200, 200, 300, 300, 200]
+
+    # Functional thumb poses. Parallel arrays use the order below; reversal
+    # matrices are row-major source-to-target tables in the same order.
+    thumb_functional_pose_names: ["neutral", "open", "grasp", "folded"]
+    thumb_functional_opposition: [0.2, 0.0, 0.6, 1.0]
+    thumb_functional_abduction: [0.0, 1.0, 0.2, 1.0]
+    thumb_opposition_positions_raw: [1650, -250, 100, 2500]
+    thumb_opposition_approach_directions: [1, -1, -1, 1]
+    thumb_opposition_approach_start_positions_raw: [300, -250, 1000, 2000]
+    thumb_abduction_positions_raw: [400, 0, 2450, 3000]
+    thumb_abduction_approach_directions: [-1, -1, 1, 1]
+    thumb_abduction_approach_start_positions_raw: [700, 500, 2000, 2500]
+    thumb_flex_home_positions_raw: [3700, 3300, 3900, 4300]
+    thumb_flex_closed_positions_raw: [4900, 4900, 4800, 5200]
+    thumb_opposition_reversal_positions_raw:
+      [
+        1650,
+        700,
+        875,
+        2075,
+        700,
+        -250,
+        -75,
+        1125,
+        875,
+        -75,
+        100,
+        1300,
+        2075,
+        1125,
+        1300,
+        2500,
+      ]
+    thumb_abduction_reversal_positions_raw:
+      [
+        400,
+        200,
+        1425,
+        1700,
+        200,
+        0,
+        1225,
+        1500,
+        1425,
+        1225,
+        2450,
+        2725,
+        1700,
+        1500,
+        2725,
+        3000,
+      ]
+    thumb_flex_clearance_position_raw: 3200
+    thumb_position_tolerance_raw: 50
+    thumb_approach_tolerance_raw: 75
+    thumb_motion_timeout_seconds: 6.0
+
+    # Pose selection is debounced for streamed mimic input. The thumb and the
+    # four finger flexion axes move independently.
+    thumb_pose_switch_margin: 0.1
+    thumb_pose_stable_samples: 3
+
+    # Hardware limits and communication fault thresholds
+    current_limit_ma: 1470
     max_consecutive_read_failures: 3
     bus_failure_timeout_ms: 300
 
-    buses:
-      bus_a:
-        device: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
-        ids: [1, 2, 3]
-      bus_b:
-        device: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0
-        ids: [4, 5, 6]
-      bus_c:
-        device: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0
-        ids: [7]
-
-    motors:
-      # ID 2 is confirmed as the thumb grasp motor. Confirm whether this is
-      # the final thumb_flex logical axis before full seven-axis integration.
-      thumb_flex:
-        id: 2
-        bus: bus_a
-        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
-        direction: 1
-        min_position_raw: 3877
-        max_position_raw: 5117
-        open_position_raw: 3877
-        grasp_position_raw: 5117
-        safe_position_raw: 3877
-      thumb_opp:
-        id: null
-        bus: null
-        port: null
-        direction: 1
-        min_position_raw: null
-        max_position_raw: null
-        open_position_raw: null
-        grasp_position_raw: null
-        safe_position_raw: null
-      thumb_abd:
-        id: null
-        bus: null
-        port: null
-        direction: 1
-        min_position_raw: null
-        max_position_raw: null
-        open_position_raw: null
-        grasp_position_raw: null
-        safe_position_raw: null
-      index_flex:
-        id: 4
-        bus: bus_b
-        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHT0L-if00-port0
-        direction: 1
-        min_position_raw: 1820
-        max_position_raw: 4368
-        open_position_raw: 1820
-        grasp_position_raw: 4368
-        safe_position_raw: 1820
-      middle_flex:
-        id: 3
-        bus: bus_a
-        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
-        direction: 1
-        min_position_raw: 558
-        max_position_raw: 3228
-        open_position_raw: 558
-        grasp_position_raw: 3228
-        safe_position_raw: 558
-      ring_flex:
-        id: 1
-        bus: bus_a
-        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIN51S-if00-port0
-        direction: 1
-        min_position_raw: 117
-        max_position_raw: 2865
-        open_position_raw: 117
-        grasp_position_raw: 2865
-        safe_position_raw: 117
-      little_flex:
-        id: 7
-        bus: bus_c
-        port: /dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTBIHTHG-if00-port0
-        direction: 1
-        min_position_raw: 695
-        max_position_raw: 3525
-        open_position_raw: 695
-        grasp_position_raw: 3525
-        safe_position_raw: 695
+    # temperature_warning_c, temperature_trip_c, fault_current_ma,
+    # fault_current_hold_ms, and bus_watchdog_ms remain intentionally omitted
+    # until monitored load tests establish safe values.

@@ -1,11 +1,16 @@
-// FR-24: 로봇 및 시스템 상태 모니터링 - 화면 상단에 항상 고정 표시.
+// ============================================================================
+// 상단 바 우측 — 모드·기록·장치·연결
+// ----------------------------------------------------------------------------
+// 안전 상태와 제어권은 판정 띠가 맡는다. 여기는 나머지다.
+// 정상일 때는 조용히 있고 이상이 있을 때만 늘어난다. 항상 다 보여 주면 정작
+// 이상이 생겼을 때 눈에 안 띈다.
+//
+// 알약이 생기고 사라지는 것도 정보다. 갑자기 나타나면 놓치므로 스치듯 들어온다.
+// ============================================================================
+import { motion, AnimatePresence } from "motion/react";
 import { useHandSocket } from "../context/HandSocketContext";
 import {
-  CONNECTION_STATE,
-  CONTROL_MODE,
-  CONTROL_OWNER,
-  isDeviceDown,
-  RECORDING_BUSY_STATES,
+  CONNECTION_STATE, CONTROL_MODE, RECORDING_BUSY_STATES, isDeviceDown,
 } from "../config/messageProtocol";
 
 const MODE_LABEL = {
@@ -15,150 +20,87 @@ const MODE_LABEL = {
   [CONTROL_MODE.TELEOP]: "로컬 teleop 모드",
 };
 
-const OWNER_LABEL = {
-  [CONTROL_OWNER.NONE]: "제어권 없음",
-  [CONTROL_OWNER.WEB]: "웹",
-  [CONTROL_OWNER.LOCAL]: "로컬 프로그램",
+const LINK_LABEL = {
+  open: "연결됨", connecting: "연결 중", reconnecting: "재연결 중", closed: "연결 끊김",
 };
 
-// 안전 상태별 배지 색상 - 정상/대기/경고/오류 구분 (FR-24 인수조건)
-const SAFETY_BADGE = {
-  INIT: "bg-secondary",
-  READY: "bg-primary",
-  RUN: "bg-success",
-  HOLD: "bg-warning text-dark",
-  SAFE: "bg-warning text-dark",
-  FAULT: "bg-danger",
-  ESTOP: "bg-danger",
+const DEVICE_LABEL = {
+  jetson: "Jetson", rpi: "Raspberry Pi", ros2: "ROS 2", camera: "카메라", motor: "모터",
 };
 
-const CONNECTION_BADGE = {
-  open: { className: "bg-success", label: "연결됨" },
-  connecting: { className: "bg-secondary", label: "연결 중" },
-  reconnecting: { className: "bg-warning text-dark", label: "재연결 중" },
-  closed: { className: "bg-danger", label: "연결 끊김" },
-};
-
-const SUBSYSTEM_LABEL = {
-  jetson: "Jetson",
-  rpi: "Raspberry Pi",
-  ros2: "ROS 2",
-  camera: "카메라",
-  motor: "모터",
-};
+function Pill({ children }) {
+  return (
+    <motion.span
+      layout
+      initial={{ opacity: 0, scale: 0.9 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.9 }}
+      transition={{ type: "spring", stiffness: 500, damping: 34 }}
+      className="rounded-full bg-white/20 px-2.5 py-0.5 font-mono text-[11px]"
+    >
+      {children}
+    </motion.span>
+  );
+}
 
 export default function StatusBar() {
   const {
-    connectionState,
-    controlState,
-    safetyState,
-    safetyStateKnown,
-    recordingState,
-    connectionStatus,
-    lastError,
-    needsResumeConfirmation,
-    resumeControl,
+    connectionState, controlState, recordingState, connectionStatus,
+    needsResumeConfirmation, resumeControl,
   } = useHandSocket();
 
-  const conn = CONNECTION_BADGE[connectionState] ?? CONNECTION_BADGE.closed;
-  // 관측된 단절만 표시한다. "아직 모름" 을 끊김으로 단정하지 않는다 (FR-24).
-  const downSubsystems = Object.entries(connectionStatus).filter(
-    ([, state]) => isDeviceDown(state),
-  );
-  const unknownSubsystems = Object.entries(connectionStatus).filter(
-    ([, state]) => state === CONNECTION_STATE.UNKNOWN,
-  );
+  const live = connectionState === "open";
+  const down = Object.entries(connectionStatus).filter(([, s]) => isDeviceDown(s));
+  const unknown = Object.entries(connectionStatus)
+    .filter(([, s]) => s === CONNECTION_STATE.UNKNOWN);
+  const busy = RECORDING_BUSY_STATES.includes(recordingState.state);
 
   return (
-    <div className="border-bottom bg-white sticky-top">
-      <div className="container-fluid py-2 px-4 d-flex flex-wrap align-items-center gap-3 small">
-        <span className="fw-bold">
-          현재 모드: {MODE_LABEL[controlState.active_mode] ?? controlState.active_mode}
-        </span>
+    <div className="ml-auto flex flex-wrap items-center gap-2 text-white">
+      <span className="font-mono text-lg opacity-80">
+        현재 모드: {MODE_LABEL[controlState.active_mode] ?? controlState.active_mode}
+      </span>
 
-        <span className="text-muted">제어권: {OWNER_LABEL[controlState.active_owner] ?? controlState.active_owner}</span>
-
-        <span className={`badge ${conn.className}`}>{conn.label}</span>
-
-        {/* 6.4절 {} 규칙: 아직 SafetyState 를 받지 못한 상태와 INIT 을 구분한다. */}
-        <span className={`badge ${
-          safetyStateKnown ? (SAFETY_BADGE[safetyState.state] ?? "bg-secondary") : "bg-secondary"
-        }`}>
-          안전 상태: {safetyStateKnown ? safetyState.state : "수신 대기"}
-        </span>
-
-        {/* FR-13/FR-27: 비상정지 작동 시 명확하게 안내 */}
-        {/* FR-24: "SafetyState와 RecordingState를 구분해 표시해야 한다."
-            기록 UI 는 모방 화면에만 있지만 상태 자체는 어느 화면에서든 보여야 한다. */}
+      <AnimatePresence mode="popLayout">
         {recordingState.state !== "IDLE" && (
-          <span className={`badge ${
-            RECORDING_BUSY_STATES.includes(recordingState.state)
-              ? "bg-danger" : "bg-info-subtle text-info border"}`}>
+          <Pill key="rec">
+            {busy && <span className="mr-1.5 inline-block size-1.5 rounded-full bg-white" />}
             기록: {recordingState.state}
-            {recordingState.active_session_id
-              && ` (${recordingState.active_session_id})`}
-          </span>
+          </Pill>
         )}
-        {recordingState.result_pending && (
-          <span className="badge bg-warning text-dark">판정 대기</span>
+        {/* FR-26: 판정 대기는 다음 기록을 막는 상태라 모방 화면 밖에서도 보여야 한다 */}
+        {recordingState.result_pending && <Pill key="pend">판정 대기</Pill>}
+        {down.length > 0 && (
+          <Pill key="down">단절: {down.map(([k]) => DEVICE_LABEL[k] ?? k).join(", ")}</Pill>
         )}
-
-        {safetyStateKnown && safetyState.estop_active && (
-          <span className="badge bg-danger">비상정지(E-STOP) 작동 중</span>
+        {down.length === 0 && unknown.length > 0 && (
+          <Pill key="unk">
+            상태 미확인: {unknown.map(([k]) => DEVICE_LABEL[k] ?? k).join(", ")}
+          </Pill>
         )}
-
-        {controlState.sequence_running && (
-          <span className="badge bg-info-subtle text-info">시퀀스 실행 중</span>
-        )}
-
-        {/* command_manager/command_guard가 보낸 권위 있는 상태 전이·거부 사유.
-            ControlState.msg.last_transition_reason에 대응 (이전에는 값만 저장되고
-            화면에 표시되지 않던 필드). */}
-        {controlState.last_transition_reason && (
-          <span
-            className="badge bg-secondary-subtle text-dark border"
-            title="command_manager / command_guard가 보고한 마지막 상태 전이 사유"
-          >
-            제어 상태 사유: {controlState.last_transition_reason}
-          </span>
-        )}
-
-        {connectionState === "open" && downSubsystems.length > 0 && (
-          <span
-            className="badge bg-warning text-dark"
-            title={downSubsystems.map(([k]) => SUBSYSTEM_LABEL[k] ?? k).join(", ")}
-          >
-            연결 끊김: {downSubsystems.map(([k]) => SUBSYSTEM_LABEL[k] ?? k).join(", ")}
-          </span>
-        )}
-
-        {/* FR-24: "아직 모름" 을 끊김으로 단정하지 않고 별도로 알린다.
-            브릿지의 /thing/diagnostics 파생이 없으면 계속 미확인으로 남는다. */}
-        {connectionState === "open" && unknownSubsystems.length > 0 && (
-          <span
-            className="badge bg-secondary"
-            title={unknownSubsystems.map(([k]) => SUBSYSTEM_LABEL[k] ?? k).join(", ")}
-          >
-            상태 미확인: {unknownSubsystems.map(([k]) => SUBSYSTEM_LABEL[k] ?? k).join(", ")}
-          </span>
-        )}
-
-        {lastError && (
-          <span className="badge bg-danger" title={lastError.message}>
-            오류: {lastError.code}
-          </span>
-        )}
-
         {needsResumeConfirmation && (
-          <button
+          <motion.button
+            key="resume"
             type="button"
-            className="btn btn-sm btn-warning fw-bold ms-auto"
+            layout
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            whileTap={{ scale: 0.96 }}
             onClick={resumeControl}
+            className="rounded-full bg-white px-3 py-1 text-xs font-semibold
+                       text-[var(--signal)]"
           >
             제어 재개
-          </button>
+          </motion.button>
         )}
-      </div>
+      </AnimatePresence>
+
+      <span className="flex items-center gap-1.5 font-mono text-lg opacity-80">
+        <span className={`size-1.5 rounded-full ${live ? "bg-white" : "bg-white/40"}`}
+              aria-hidden="true" />
+        {LINK_LABEL[connectionState] ?? "연결 끊김"}
+      </span>
     </div>
   );
 }

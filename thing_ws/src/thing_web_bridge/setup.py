@@ -9,7 +9,7 @@ setup(
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name, ['package.xml', 'README.md']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -24,6 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'mjpeg_streamer = thing_web_bridge.mjpeg_streamer:main',
+            'web_bridge_node = thing_web_bridge.web_bridge_node:main',
         ],
     },
 )

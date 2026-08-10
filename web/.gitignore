@@ -12,7 +12,7 @@
 !.env.example
 # frontend/.env 는 로컬 개발 기본값만 담고 있어 예외로 유지한다.
 # 장비별 실제 주소는 frontend/.env.local 에 두고 커밋하지 않는다.
-!web/frontend/.env
+!frontend/.env
 
 # ── Python ─────────────────────────────────────────────────────────
 __pycache__/

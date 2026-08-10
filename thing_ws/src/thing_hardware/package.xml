@@ -7,17 +7,25 @@
   <maintainer email="dndwlqor@naver.com">C103 Team</maintainer>
   <license>Apache-2.0</license>
 
-  <exec_depend>diagnostic_msgs</exec_depend>
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>thing_interfaces</exec_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
-  <test_depend>ament_copyright</test_depend>
-  <test_depend>ament_flake8</test_depend>
-  <test_depend>ament_pep257</test_depend>
-  <test_depend>python3-pytest</test_depend>
+  <depend>rclcpp</depend>
+  <depend>dynamixel_sdk</depend>
+  <depend>thing_interfaces</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>sensor_msgs</depend>
+
+  <exec_depend>python3-libgpiod</exec_depend>
+  <exec_depend>rcl_interfaces</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
 
   <export>
-    <build_type>ament_python</build_type>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

@@ -5,6 +5,7 @@ uint8 HOLD=3
 uint8 SAFE=4
 uint8 FAULT=5
 uint8 ESTOP=6
+uint8 RESET=7
 
 builtin_interfaces/Time stamp
 uint8 state

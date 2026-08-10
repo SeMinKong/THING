@@ -25,6 +25,8 @@ import hashlib
 import json
 
 #: content_digest 계산에서 제외하는 최상위 키
+from . import landmark_contract
+
 EXCLUDED_KEYS = ("exported_at", "content_digest")
 
 #: digest 문자열 접두사
@@ -38,6 +40,16 @@ def canonical_json(metadata):
     입력 dict는 변경하지 않는다.
     """
     payload = {k: v for k, v in metadata.items() if k not in EXCLUDED_KEYS}
+
+    # 로봇 exporter 는 landmark 를 포함한 files 전체로 digest 를 계산한다. 서버도
+    # 맞춰 포함한다(landmark_contract.INCLUDE_IN_DIGEST=True). 로봇은 항상 네 파일을
+    # 보내 landmark 유무로 흔들리지 않아 멱등성(NFR-26)도 안전하다. 플래그가 False 인
+    # 경우에만 아래에서 landmark 를 뺀다. docs/pending-decisions.md P-2 참조.
+    # (V7.1 §6.5 본문은 아직 "두 CSV" 만 열거 — 스펙 문구 정정 대상.)
+    if not landmark_contract.INCLUDE_IN_DIGEST and isinstance(payload.get("files"), dict):
+        payload["files"] = {
+            k: v for k, v in payload["files"].items() if k != landmark_contract.KIND
+        }
     return json.dumps(
         payload,
         sort_keys=True,
@@ -91,7 +103,7 @@ TEST_VECTOR = {
     "ended_at": "2026-07-29T00:01:00.000Z",
     "exported_at": "2026-07-29T00:01:05.000Z",   # 제외 대상
     "result": "SUCCESS",
-    "interface_commit": "70dfdab8d555dfbfdd471c5acca4f30a8a8fc3ec",
+    "interface_commit": "626c59e09f108e6e5eb6d2313efe28bf0e51ed03",
     "time_sync": True,
     "content_digest": "sha256:" + "0" * 64,       # 제외 대상
     "files": {
@@ -106,6 +118,13 @@ TEST_VECTOR = {
             "size_bytes": 5678,
             "row_count": 4200,
             "sha256": "b" * 64,
+        },
+        # landmark 도 digest 에 포함된다 (INCLUDE_IN_DIGEST=True, 로봇 exporter 와 일치).
+        "landmark": {
+            "filename": "session_123456789012345678_landmark.json",
+            "size_bytes": 9012,
+            "row_count": 600,
+            "sha256": "c" * 64,
         },
     },
 }

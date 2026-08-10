@@ -4,8 +4,8 @@
 
 | 장치 | 책임 |
 | --- | --- |
-| Jetson Orin Nano | RGB 카메라, MediaPipe, 7논리축 목표, overlay/MJPEG, Web Bridge |
-| Raspberry Pi 5 | 제어권 중재, 명령 검증, 안전, DYNAMIXEL, Logger·exporter·uploader |
+| Jetson Orin Nano | RGB 카메라, MediaPipe, 7논리축 목표, overlay/MJPEG, Web Bridge, Logger·exporter·uploader |
+| Raspberry Pi 5 | 제어권 중재, 명령 검증, 안전, DYNAMIXEL |
 | Laptop | 내부망 관제·제어 웹, TELEOP와 개발 |
 | AWS EC2 | 공개 데이터 포털, SQLite와 세 파일 영속 저장 |
 
@@ -46,7 +46,7 @@ MIMIC recording request
   → 사용자 SUCCESS/FAILURE 판정
   → Logger 측 exporter
   → metadata JSON + HandCommand CSV + MotorStatus CSV
-  → 격리 thing-data-uploader
+  → 격리 uploader 데몬(thing_logger.uploader, 별도 프로세스)
   → Bearer Token HTTPS
   → EC2 Django STAGING 검증
   → EC2 SQLite READY + EC2_DATA_DIR
@@ -83,4 +83,4 @@ READY까지만 전환합니다. 이전 mode·owner·명령·queue·녹화는 자
 - 네트워크가 복구돼도 명시적인 재개 입력 전에는 자동으로 움직이지 않습니다.
 - EC2에는 ROS 2 DDS와 로봇 제어 API를 노출하지 않습니다.
 - EC2 포털은 HTTPS 공개 GET으로 READY 데이터만 조회하고, 업로드는 장치별
-  Bearer Token을 사용하는 Raspberry Pi uploader만 수행합니다.
+  Bearer Token을 사용하는 Jetson uploader만 수행합니다.
