@@ -49,9 +49,9 @@ describe('정상 렌더링', () => {
     expect(table.getByText('SUCCESS')).toBeInTheDocument();
     expect(table.getByText('FAILURE')).toBeInTheDocument();
 
-    // UTC 표기가 API 값과 일치하고 시간대 변환이 없어야 한다
-    expect(table.getByText('2026-07-29 00:00:00 UTC')).toBeInTheDocument();
-    expect(screen.getByText(/시작 \(UTC\)/)).toBeInTheDocument();
+    // KST 로 변환된 시각이 표시되어야 한다
+    expect(table.getByText('2026-07-29 09:00:00 KST')).toBeInTheDocument();
+    expect(screen.getByText(/시작 \(KST\)/)).toBeInTheDocument();
   });
 
   it('행 수와 파일 크기 합계를 보여준다', async () => {
