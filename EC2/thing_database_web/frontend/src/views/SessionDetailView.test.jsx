@@ -105,8 +105,8 @@ describe('메타와 파일', () => {
     renderDetail();
 
     await screen.findByText('THING-001');
-    expect(screen.getByText('2026-07-29 00:00:00 UTC')).toBeInTheDocument();
-    expect(screen.getByText('2026-07-29 00:01:00 UTC')).toBeInTheDocument();
+    expect(screen.getByText('2026-07-29 09:00:00 KST')).toBeInTheDocument();
+    expect(screen.getByText('2026-07-29 09:01:00 KST')).toBeInTheDocument();
     expect(screen.getByText('1분 0초')).toBeInTheDocument();
     expect(screen.getByText(detailResponse.interface_commit)).toBeInTheDocument();
     expect(screen.getByText(detailResponse.content_digest)).toBeInTheDocument();

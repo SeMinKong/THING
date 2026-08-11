@@ -179,7 +179,8 @@ colcon test-result --verbose
 
 - [시스템 아키텍처](docs/architecture.md)
 - [ROS 2·Web·EC2 인터페이스](docs/interfaces.md)
-- [요구사항 명세서 V7](docs/requirements/요구사항%20명세서%20V7.md)
+- [요구사항 명세서 V7.1](docs/requirements/요구사항%20명세서%20V7.1.md)
+- [포팅 매뉴얼](exec/포팅_매뉴얼.md)
 - [Safety Manager](docs/safety_manager.md)
 - [Ubuntu 개발 환경](docs/setup/ubuntu.md)
 - [DYNAMIXEL 설정](docs/setup/dynamixel.md)

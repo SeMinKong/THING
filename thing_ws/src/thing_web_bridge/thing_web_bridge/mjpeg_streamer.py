@@ -743,16 +743,6 @@ class MjpegStreamer(Node):
             or len(message.landmarks)
             != LANDMARK_COUNT
         ):
-            cv2.putText(
-                frame,
-                'HAND NOT DETECTED',
-                (20, 35),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.8,
-                (0, 0, 255),
-                2,
-                cv2.LINE_AA,
-            )
             return
 
         height, width = frame.shape[:2]

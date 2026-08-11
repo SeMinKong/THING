@@ -10,20 +10,19 @@ import {
 } from './format';
 
 describe('formatUtc', () => {
-  it('API 의 RFC 3339 값을 그대로 UTC 로 표기한다', () => {
-    expect(formatUtc('2026-07-29T00:01:00.000Z')).toBe('2026-07-29 00:01 UTC'.replace('00:01', '00:01:00'));
+  it('API 의 RFC 3339 값을 KST 로 표기한다', () => {
+    expect(formatUtc('2026-07-29T00:01:00.000Z')).toBe('2026-07-29 09:01:00 KST');
   });
 
-  it('브라우저 시간대로 변환하지 않는다', () => {
-    // KST(+09:00)로 변환되면 09:00 이 되어야 하는데 그러지 않아야 한다.
+  it('UTC 값을 한국 시간대로 변환한다', () => {
     const out = formatUtc('2026-07-29T00:00:00.000Z');
-    expect(out).toContain('00:00:00');
-    expect(out).not.toContain('09:00:00');
-    expect(out).toContain('UTC');
+    expect(out).toContain('09:00:00');
+    expect(out).not.toContain('00:00:00');
+    expect(out).toContain('KST');
   });
 
-  it('자정을 넘는 값도 날짜가 밀리지 않는다', () => {
-    expect(formatUtc('2026-07-29T23:30:00.000Z')).toBe('2026-07-29 23:30:00 UTC');
+  it('자정을 넘는 값도 한국 시간 기준으로 표시한다', () => {
+    expect(formatUtc('2026-07-29T23:30:00.000Z')).toBe('2026-07-30 08:30:00 KST');
   });
 
   it('null 은 결측 기호', () => {

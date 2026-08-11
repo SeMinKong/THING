@@ -48,8 +48,7 @@ const TONE = {
 /** 상태 표시. 테두리 없이 옅은 면으로 */
 export function Tag({ tone = "idle", children, ...rest }) {
   return (
-    <span className={`rounded-full px-2.5 py-0.5 font-mono text-[11px] font-medium
-                      ${TONE[tone]}`} {...rest}>
+    <span className={`whitespace-nowrap rounded-full px-2.5 py-0.5 font-mono text-[11px] font-medium                      ${TONE[tone]}`} {...rest}>
       {children}
     </span>
   );

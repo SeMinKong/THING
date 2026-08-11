@@ -8,3 +8,7 @@
 *.blend filter=lfs diff=lfs merge=lfs -text
 *.mp4 filter=lfs diff=lfs merge=lfs -text
 *.stl filter=lfs diff=lfs merge=lfs -text
+
+# Large final presentation artifacts
+output/15기_공통PJT_발표자료_C103.pptx filter=lfs diff=lfs merge=lfs -text
+output/THING_최종발표_최최최종.pptx filter=lfs diff=lfs merge=lfs -text
