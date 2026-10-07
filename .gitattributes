@@ -14,3 +14,4 @@ output/15기_공통PJT_발표자료_C103.pptx filter=lfs diff=lfs merge=lfs -tex
 output/THING_최종발표_최최최종.pptx filter=lfs diff=lfs merge=lfs -text
 output/THING_최종발표_최최최최종.pptx filter=lfs diff=lfs merge=lfs -text
 output/THING_최종발표_진짜최종.pptx filter=lfs diff=lfs merge=lfs -text
+output/15기[[:space:]]공통PJT_광주_C103_THING.pptx filter=lfs diff=lfs merge=lfs -text
